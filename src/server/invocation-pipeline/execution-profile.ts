@@ -100,10 +100,9 @@ export function resolveExecutionProfile(input: ResolveExecutionProfileInput): Ex
   }
 
   if (input.task) {
-    activate('task-status-receipt', 'task', true);
-    if (byName.has('task-status-receipt')) capabilities.add('task_receipt');
+    // A WorkContract receipt is the accepted AgentOutcome, not a direct Task mutation tool.
+    capabilities.add('task_receipt');
   }
-  if (stage === 'plan') activate('task-management', 'rule', true);
   if (stage === 'review') activate('code-review', 'rule');
 
   const requiresBrowser = input.deliveryPolicy?.requireWebE2E === true

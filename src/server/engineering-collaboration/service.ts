@@ -27,6 +27,7 @@ export type EngineeringCollaborationReasonCode =
   | 'task_conversation_mismatch'
   | 'task_actor_mismatch'
   | 'task_not_reviewable'
+  | 'task_revision_stale'
   | 'pull_request_not_open'
   | 'pull_request_changed'
   | 'pull_request_head_unchanged'
@@ -129,6 +130,8 @@ export class EngineeringCollaborationService {
     evidence: ImplementationEvidence;
     correlationId?: string;
     causationId?: string;
+    outcomeId?: string;
+    expectedTaskRevision?: number;
   }): Promise<{ receipt: PullRequestReceipt; card: EngineeringCollaborationCard; messageId: string }> {
     const task = assertTask(input.taskId);
     assertConversation(task, input.expectedConversationId);
@@ -166,6 +169,15 @@ export class EngineeringCollaborationService {
     const previousReviewEvidence = previousReviewPayload?.evidence as ReviewEvidence | undefined;
     const result = getDb().transaction(() => {
       let reviewableTask = taskRepo.getById(task.id)!;
+      if (
+        input.expectedTaskRevision !== undefined
+        && reviewableTask.revision !== input.expectedTaskRevision
+      ) {
+        throw new EngineeringCollaborationError(
+          'task_revision_stale',
+          `Task ${task.id} revision changed from ${input.expectedTaskRevision} to ${reviewableTask.revision}`,
+        );
+      }
       if (reviewableTask.status === 'in_review') {
         const supersededGate = qualityGateRepo.find({
           kind: 'code_review',
@@ -253,6 +265,7 @@ export class EngineeringCollaborationService {
           receipt,
           evidence: input.evidence,
           artifactRevision: String(reviewableTask.revision),
+          ...(input.outcomeId ? { outcomeId: input.outcomeId } : {}),
         },
       });
       taskGraphRepo.addArtifact({

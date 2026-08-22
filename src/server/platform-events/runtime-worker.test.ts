@@ -122,6 +122,83 @@ describe('PlatformEventRuntimeWorker', () => {
     expect(registrations).toHaveLength(20);
   });
 
+  it('registers Phoenix projection only when the collector is explicitly configured', () => {
+    const previousEndpoint = process.env.PHOENIX_COLLECTOR_ENDPOINT;
+    const previousProject = process.env.ATH_PHOENIX_PROJECT_NAME;
+    const registrations: Array<{ id: string; pattern: string }> = [];
+    const dispatcher = {
+      register(registration: { id: string; pattern: string }) { registrations.push(registration); },
+      recover() { return { enqueued: 0, abandonedAttempts: 0 }; },
+      discover() { return 0; },
+      async drain() { return { succeeded: 0, failed: 0, deadLettered: 0 }; },
+    };
+    try {
+      delete process.env.PHOENIX_COLLECTOR_ENDPOINT;
+      new PlatformEventRuntimeWorker({ dispatcher });
+      expect(registrations.some((registration) => registration.id.startsWith('phoenix-trace-export:')))
+        .toBe(false);
+
+      registrations.length = 0;
+      process.env.PHOENIX_COLLECTOR_ENDPOINT = 'http://127.0.0.1:6006';
+      process.env.ATH_PHOENIX_PROJECT_NAME = 'agent-task-team';
+      new PlatformEventRuntimeWorker({
+        dispatcher,
+        phoenixDispatcher: dispatcher,
+        phoenix: { sink: { export: vi.fn(async () => undefined) } },
+      });
+      expect(registrations).toEqual(expect.arrayContaining([expect.objectContaining({
+        id: 'phoenix-trace-export:v2',
+        pattern: 'runtime.invocation.terminated',
+      })]));
+    } finally {
+      if (previousEndpoint === undefined) delete process.env.PHOENIX_COLLECTOR_ENDPOINT;
+      else process.env.PHOENIX_COLLECTOR_ENDPOINT = previousEndpoint;
+      if (previousProject === undefined) delete process.env.ATH_PHOENIX_PROJECT_NAME;
+      else process.env.ATH_PHOENIX_PROJECT_NAME = previousProject;
+    }
+  });
+
+  it('keeps the main process-manager loop live while Phoenix export is blocked', async () => {
+    vi.useFakeTimers();
+    const previousEndpoint = process.env.PHOENIX_COLLECTOR_ENDPOINT;
+    process.env.PHOENIX_COLLECTOR_ENDPOINT = 'http://127.0.0.1:1';
+    let releasePhoenix!: () => void;
+    const blockedPhoenix = new Promise<void>((resolve) => { releasePhoenix = resolve; });
+    const main = {
+      register: vi.fn(),
+      recover: vi.fn(() => ({ enqueued: 0, abandonedAttempts: 0 })),
+      discover: vi.fn(() => 0),
+      drain: vi.fn(async () => ({ succeeded: 0, failed: 0, deadLettered: 0 })),
+    };
+    const phoenix = {
+      register: vi.fn(),
+      recover: vi.fn(() => ({ enqueued: 0, abandonedAttempts: 0 })),
+      discover: vi.fn(() => 0),
+      drain: vi.fn(async () => {
+        await blockedPhoenix;
+        return { succeeded: 0, failed: 0, deadLettered: 0 };
+      }),
+    };
+    const worker = new PlatformEventRuntimeWorker({
+      intervalMs: 10,
+      dispatcher: main,
+      phoenixDispatcher: phoenix,
+      phoenix: { sink: { export: vi.fn(async () => undefined) } },
+    });
+    try {
+      worker.start();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(30);
+      expect(main.drain.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(phoenix.drain).toHaveBeenCalledTimes(1);
+    } finally {
+      worker.stop();
+      releasePhoenix();
+      if (previousEndpoint === undefined) delete process.env.PHOENIX_COLLECTOR_ENDPOINT;
+      else process.env.PHOENIX_COLLECTOR_ENDPOINT = previousEndpoint;
+    }
+  });
+
   it('wires Effect and terminal Control facts back into Delivery reconciliation', () => {
     const registrations: Array<{ id: string; pattern: string }> = [];
     const dispatcher = {

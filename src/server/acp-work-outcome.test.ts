@@ -45,14 +45,19 @@ describe('ACP WorkContract outcome channel', () => {
     const grant = registerAcpSkillMcpGrant({
       agentId: contract.agentId,
       conversationId: contract.projectId,
-      permittedTools: [],
+      permittedTools: [
+        'task_list',
+        'collaboration_record_pr',
+        'collaboration_record_review',
+        'collaboration_record_merge',
+      ],
       workContract: contract,
     }, 'http://127.0.0.1:3000')!;
     const stored = resolveAcpSkillMcpGrant(grant.mcpServer.headers[0].value)!;
 
-    expect(stored.permittedTools).toEqual([AGENT_SUBMIT_OUTCOME_TOOL]);
+    expect(stored.permittedTools).toEqual(['task_list', AGENT_SUBMIT_OUTCOME_TOOL]);
     expect(listAcpSkillToolDefinitions(stored.permittedTools).map((tool) => tool.name))
-      .toEqual([AGENT_SUBMIT_OUTCOME_TOOL]);
+      .toEqual(['task_list', AGENT_SUBMIT_OUTCOME_TOOL]);
     await expect(executeAcpSkillMcpTool(stored, AGENT_SUBMIT_OUTCOME_TOOL, {
       outcome_type: 'submit_task_result',
       payload: { summary: 'done' },
@@ -60,7 +65,11 @@ describe('ACP WorkContract outcome channel', () => {
       idempotency_key: 'acp-outcome-key',
     })).resolves.toMatchObject({
       success: true,
-      data: { status: 'accepted' },
+      data: { status: 'accepted', exitAccepted: true },
+    });
+    await expect(executeAcpSkillMcpTool(stored, 'task_list', {})).resolves.toEqual({
+      success: false,
+      error: 'work_exit_already_accepted',
     });
   });
 

@@ -406,9 +406,9 @@ describe('InvocationPlanner', () => {
       missingRequiredSkillNames: [],
     });
     expect(result.plan.contextReport.loadedSkills).toEqual(expect.arrayContaining([
-      'task-status-receipt',
       'browser-verification',
     ]));
+    expect(result.plan.contextReport.loadedSkills).not.toContain('task-status-receipt');
     expect(result.plan.contextReport.loadedSkills).not.toContain('git-collaboration');
     expect(result.plan.contextReport.skillDecisions).toEqual(expect.arrayContaining([
       expect.objectContaining({

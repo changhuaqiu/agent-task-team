@@ -26,6 +26,22 @@ const GATE_OUTCOMES: AgentOutcomeType[] = [
   'request_human_decision',
 ];
 
+const DOMAIN_MUTATION_TOOLS = new Set([
+  'task_create',
+  'task_update_status',
+  'task_assign',
+  'collaboration_record_pr',
+  'collaboration_record_review',
+  'collaboration_record_merge',
+]);
+
+export function workContractRuntimeToolNames(toolNames: string[]): string[] {
+  return [...new Set([
+    ...toolNames.filter((toolName) => !DOMAIN_MUTATION_TOOLS.has(toolName)),
+    'agent_submit_outcome',
+  ])].sort();
+}
+
 interface WorkContractPermissions {
   executionMode?: 'standard' | 'outcome_recovery';
   executionProfile?: ExecutionProfile;
@@ -217,10 +233,7 @@ export function issueDispatchWorkContract(input: {
         },
         tools: outcomeRecovery
           ? ['agent_submit_outcome']
-          : [...new Set([
-              ...input.runtime.toolNames,
-              'agent_submit_outcome',
-            ])].sort(),
+          : workContractRuntimeToolNames(input.runtime.toolNames),
         authorization: outcomeRecovery ? {} : deliveryContract?.authorization ?? {},
       },
       authoritativeRefs,

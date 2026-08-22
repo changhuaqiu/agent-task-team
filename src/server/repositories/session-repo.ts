@@ -31,7 +31,41 @@ export interface SessionExecutionProfile {
   accountId?: string;
 }
 
+export interface SessionContextBudget {
+  maxCumulativeInputTokens: number;
+  maxTerminatedInvocations: number;
+}
+
+function inputTokensFromUsage(raw: string | null): number {
+  if (!raw) return 0;
+  try {
+    const usage = JSON.parse(raw) as unknown;
+    const visit = (value: unknown): number => {
+      if (!value || typeof value !== 'object') return 0;
+      if (Array.isArray(value)) return value.reduce((total, item) => total + visit(item), 0);
+      return Object.entries(value as Record<string, unknown>).reduce((total, [key, item]) => (
+        total + (key === 'inputTokens' && typeof item === 'number' && Number.isFinite(item)
+          ? Math.max(0, item)
+          : visit(item))
+      ), 0);
+    };
+    return visit(usage);
+  } catch {
+    return 0;
+  }
+}
+
+function hasUnterminatedInvocation(id: string): boolean {
+  return Boolean(getDb().prepare(`
+    SELECT 1 FROM invocation WHERE session_id=? AND status<>'terminated' LIMIT 1
+  `).get(id));
+}
+
 export const sessionRepo = {
+  hasUnterminatedInvocation(id: string): boolean {
+    return hasUnterminatedInvocation(id);
+  },
+
   findActiveByConversation(agentId: string, conversationId: string, isolationKey = ''): AgentSessionRow | undefined {
     return getDb()
       .prepare(
@@ -114,6 +148,7 @@ export const sessionRepo = {
     return getDb().transaction(() => {
       const row = sessionRepo.getById(id);
       if (!row) throw new Error(`session_not_found: ${id}`);
+      if (row.status !== 'active') throw new Error(`session_generation_not_active: ${id}`);
       if (row.cli_session_id === runtimeSessionId) {
         return { status: 'unchanged', current: runtimeSessionId } as const;
       }
@@ -143,6 +178,7 @@ export const sessionRepo = {
     return getDb().transaction(() => {
       const row = sessionRepo.getById(id);
       if (!row) throw new Error(`session_not_found: ${id}`);
+      if (row.status !== 'active') throw new Error(`session_generation_not_active: ${id}`);
       const invocation = getDb()
         .prepare('SELECT session_id FROM invocation WHERE id = ?')
         .get(invocationId) as { session_id: string | null } | undefined;
@@ -198,6 +234,7 @@ export const sessionRepo = {
     return getDb().transaction(() => {
       const session = sessionRepo.getById(id);
       if (!session || session.status !== 'active' || !session.cli_session_id) return false;
+      if (hasUnterminatedInvocation(id)) return false;
 
       const latest = getDb()
         .prepare(
@@ -221,10 +258,36 @@ export const sessionRepo = {
     })();
   },
 
+  sealIfContextBudgetExceeded(id: string, budget: SessionContextBudget): boolean {
+    return getDb().transaction(() => {
+      const session = sessionRepo.getById(id);
+      if (!session || session.status !== 'active' || !session.cli_session_id) return false;
+      if (hasUnterminatedInvocation(id)) return false;
+
+      const rows = getDb().prepare(`
+        SELECT token_usage,usage
+        FROM invocation
+        WHERE session_id=? AND status='terminated'
+      `).all(id) as Array<{ token_usage: string | null; usage: string | null }>;
+      const cumulativeInputTokens = rows.reduce(
+        (total, row) => total + inputTokensFromUsage(row.token_usage ?? row.usage),
+        0,
+      );
+      if (
+        cumulativeInputTokens < budget.maxCumulativeInputTokens
+        && rows.length < budget.maxTerminatedInvocations
+      ) return false;
+
+      sessionRepo.seal(id, 'context_budget_exhausted');
+      return sessionRepo.getById(id)?.status === 'sealed';
+    })();
+  },
+
   sealIfExecutionProfileChanged(id: string, profile: SessionExecutionProfile): boolean {
     return getDb().transaction(() => {
       const session = sessionRepo.getById(id);
       if (!session || session.status !== 'active') return false;
+      if (hasUnterminatedInvocation(id)) return false;
 
       const latestSuccessful = getDb()
         .prepare(

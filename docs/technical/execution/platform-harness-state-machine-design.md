@@ -340,7 +340,12 @@ outcome: completed | failed | cancelled | timed_out
 旧的 `queued / succeeded / failed / canceled` 由 migration 55 归一化。Invocation 一旦进入
 `terminated`，不得复活或改写 outcome；重试必须创建新的 Invocation identity。Session owner
 只维护 runtime session binding，不再用“session 已确认”冒充“Invocation 已成功”。Daemon 在
-接收 Runtime 终止事实后，分别提交 Session binding 与 Invocation terminal outcome。
+接收 Runtime 终止事实后，分别提交 Session binding 与 Invocation terminal outcome。恢复已有
+CLI session 前还必须检查该 generation 已终结 Invocation 的累计输入 token 与次数；默认达到
+`120000` input tokens 或 `12` 次即以 `context_budget_exhausted` seal，并创建新 generation，
+避免 provider resume 的隐藏历史绕过 ContextSnapshot 预算。预算判断、generation 轮换与新 Invocation
+创建处于同一 SQLite immediate transaction；存在未终结 Invocation 时预算检查不能 seal 该 generation，
+实际 resume 前还要重新读取并确认其仍为 active。
 
 Invocation lifecycle 不向浏览器通用 mutation 暴露；Invocation Pipeline、daemon 与 Runtime
 Event owner 使用 `expectedFrom` 做 fencing，数据库 trigger 拒绝未知状态、非法迁移和缺失/越界 outcome。`Invocation.terminated` 只说明一次 Agent 激活
@@ -620,9 +625,16 @@ ACP 执行端得到的是每次 Invocation 独占的 `agent_submit_outcome` 平�
 `POST /api/agent-outcomes` 提交完整信封。
 
 Admission 只产生 `agent.outcome.accepted | agent.outcome.rejected` 协调事件，不直接修改 Task、
-Gate、A2A 或 Delivery。一个 Contract 可以提交多个 `continue_work` 进度，但只允许一个终结性
-Outcome；同一幂等键的不同内容属于冲突，而不是“重复成功”。后续领域变化仍必须由对应 owner
-接收 Command 并完成自己的版本与证据校验。
+Gate、A2A 或 Delivery。每个 Contract 只有一个 accepted 退出槽：`continue_work` 与终结性 Outcome
+互斥，首个 accepted 记录消费该槽；校验失败的 rejected 记录不消费。accepted `continue_work`
+只能由 ContinueGate 在新 fenced epoch 继续，不能在原 Contract 内再补 terminal Outcome。同一幂等键
+的不同内容属于冲突，而不是“重复成功”。后续领域变化仍必须由对应 owner 接收 Command 并完成自己的
+版本与证据校验。
+
+WorkContract 的 runtime permission 只能包含执行当前工作所需的本地能力与
+`agent_submit_outcome`，不得包含 Task/Task Graph 的创建、状态更新或改派工具。Task 是 Context 中的
+只读权威引用；`request_review`、`submit_task_result`、`propose_task_graph` 等 accepted Outcome 由对应
+Process Manager 交给 owner 落状态和 Gate，防止 Agent 先改 revision 再让自己的 Outcome 失效。
 
 这解决了两种极端：
 

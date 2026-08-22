@@ -4,6 +4,8 @@ import type { Server as IOServer } from 'socket.io';
 import type { McpServer } from '@agentclientprotocol/sdk';
 import { TASK_MANAGEMENT_SKILL } from '@/data/presetSkills/taskManagement';
 import { GIT_COLLABORATION_SKILL } from '@/data/presetSkills/gitCollaboration';
+import { BROWSER_VERIFICATION_SKILL } from '@/data/presetSkills/browserVerification';
+import { TASK_STATUS_RECEIPT_SKILL } from '@/data/presetSkills/taskStatusReceipt';
 import { executeSkillTool, resetRateLimit, type ToolResult } from './skill-tool-executor';
 import { isSkillTool } from './skill-tool-router';
 import type { AgentOutcomeType, WorkContract } from './work-contract/types';
@@ -14,6 +16,7 @@ import {
   type OutcomeAdmission,
 } from './work-contract/repository';
 import { generateSortableId } from './repositories/sortable-id';
+import { workContractRuntimeToolNames } from './work-contract/dispatch-contract';
 
 type SkillParameter = {
   name: string;
@@ -79,7 +82,12 @@ function jsonSchemaType(type: string): string {
 }
 
 const TOOL_DEFINITIONS = new Map<string, AcpSkillToolDefinition>(
-  [TASK_MANAGEMENT_SKILL, GIT_COLLABORATION_SKILL]
+  [
+    TASK_MANAGEMENT_SKILL,
+    TASK_STATUS_RECEIPT_SKILL,
+    GIT_COLLABORATION_SKILL,
+    BROWSER_VERIFICATION_SKILL,
+  ]
     .flatMap((skill) => parseTools(skill.config ?? '{}'))
     .filter((tool) => isSkillTool(tool.name))
     .map((tool) => {
@@ -136,8 +144,11 @@ export function registerAcpSkillMcpGrant(
   origin: string,
   ttlMs = DEFAULT_GRANT_TTL_MS,
 ): { mcpServer: McpServer; autoApproveToolNames: string[]; revoke: () => void } | undefined {
+  const requestedTools = scope.workContract
+    ? workContractRuntimeToolNames(scope.permittedTools)
+    : scope.permittedTools;
   const permittedTools = [...new Set([
-    ...scope.permittedTools.filter(isSkillTool),
+    ...requestedTools.filter(isSkillTool),
     ...(scope.workContract ? [AGENT_SUBMIT_OUTCOME_TOOL] : []),
   ])];
   if (permittedTools.length === 0) return undefined;
@@ -236,7 +247,17 @@ export async function executeAcpSkillMcpTool(
     }
     return admission.status === 'rejected'
       ? { success: false, error: admission.reasonCode, data: admission }
-      : { success: true, data: admission };
+      : {
+          success: true,
+          data: {
+            ...admission,
+            exitAccepted: true,
+            instruction: 'The WorkContract exit is accepted. End this turn now; do not call another tool.',
+          },
+        };
+  }
+  if (grant.workContract && workContractRepo.hasAcceptedOutcome(grant.workContract.contractId)) {
+    return { success: false, error: 'work_exit_already_accepted' };
   }
   return executeSkillTool({
     toolName,

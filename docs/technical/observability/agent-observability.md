@@ -24,7 +24,7 @@
 - Observation Projection 只读聚合 Task Graph、A2A、proof 和 spans。
 - Project UI 只通过查询 API 读取，不在前端推断执行成功或 Agent 关系。
 - Runtime Message Projection 可以为同一次 invocation 持久化多条文本或工具事实；Project UI 仅在展示层按相同 `invocationId` 聚合这些连续事实，并保留事件顺序。流式临时投影与持久事实短暂重叠时只展示临时投影，完成后切换为持久事实，禁止把两种表示同时渲染。特殊业务卡片仍保持独立消息边界。展示聚合不得改写、丢弃或合并底层 `chat_message` 事实。
-- 外部 OTLP/Phoenix/Jaeger/LangSmith 适配属于后续 exporter，不进入核心 loop。
+- 外部 OTLP/Phoenix 由独立于 Task/Gate 主 dispatcher 的 durable export worker 发送，不进入核心 loop，也不成为控制事实源。每个 dispatcher 只 claim/recover 自己注册的 durable handler；collector 未配置时不注册 handler，导出失败只在独立队列重试，不反向改写 Invocation/Task，也不占住业务事件 drain。
 
 ## 标准映射
 
@@ -53,6 +53,29 @@
 thinking 仅指 runtime 主动暴露的 reasoning summary，并按统一脱敏与容量上限采集；当前没有关闭开关，隐藏 chain-of-thought 永不采集。
 新增业务工作流必须先进入其权威事实表，再由 projection 读取；不得让 span 成为任务状态权威。
 当引入 OTLP exporter 时，本地 span id/trace id 与语义字段保持不变，exporter 只做映射和发送。
+
+## Phoenix 在线投影
+
+设置 `PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006` 后，Runtime Worker 在本地
+`runtime-observability-projection` 完成之后，将已终结 Invocation 的完整 span tree 映射为稳定 OTLP
+trace。`ATH_PHOENIX_PROJECT_NAME` 控制项目名；`PHOENIX_API_KEY` 只用于 collector 鉴权。
+
+默认 `ATH_PHOENIX_EXPORT_CONTENT` 未设置时只导出 metadata，不导出 prompt、消息或工具 I/O。
+显式设为 `preview` 时只导出已脱敏的 2,000 字符预览；设为 `redacted` 时才按 trace 级 64 KiB
+上限导出经过统一 secret sanitizer 的 payload，thinking 永不导出。
+
+Phoenix root span 同时记录两组语义：`ath.invocation.outcome` 表示 Runtime/transport 终态，
+`ath.business.exit_state`、`ath.outcome.type`、`ath.task.status` 与最新 Gate 属性表示业务收口。
+有 WorkContract 的 Invocation 若以 `completed` 终结却没有 accepted Outcome，导出 root span 强制标为
+error，reason=`work_contract_completed_without_accepted_outcome`；因此 Phoenix 的 OK 不再被误读为
+Task/Delivery 已完成。
+
+每个 termination event 在首次网络投递前，按 Event Log ingestion 游标从事件事实重建
+Task、Gate 与 Outcome 并写入 `phoenix_export_plan`；同毫秒但位于终结事件之后的事实不会越界，
+没有 Event Log fact 的孤立业务表行也不会进入外部判断。后续重试复用同一 plan 与确定性 trace/span id，
+不重新读取已经变化的当前表。plan 通常不可变，唯一允许的更新是内容策略从 redacted/preview 收紧到 none 时
+单调重建为更少内容。默认 `none` 模式只输出稳定错误码；自由文本错误、prompt、message、tool
+input/output 只有显式 content opt-in 后才会脱敏导出。
 
 ## Agent loop 完成语义
 

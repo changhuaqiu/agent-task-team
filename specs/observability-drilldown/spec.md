@@ -157,3 +157,19 @@ ACP 的 `stopReason=end_turn` 只说明协议 turn 已停止，不等价于“�
 3. recovery 仍无文本时，结果使用稳定原因码 `acp_empty_completion` 标记失败，并向事件流写入一条明确的系统降级文本，禁止“工具执行成功 + invocation succeeded + 用户无消息”的假成功。
 4. recovery 复用既有 idle timeout 与 hard max turn timeout，不重置为新的无限循环；同一 invocation 的总恢复次数固定为 1。replacement session 只允许用于尚未产生任何用户可见文本或工具副作用的全新会话，显式 resume 与工具 turn 禁止换 session。
 5. `agent.message` span 必须反映最终恢复文本或降级文本；root span 状态与 invocation 终态保持一致。
+
+## 15. Phoenix 在线投影（Issue #18）
+
+本地 `observation_span`、Invocation、Task、Outcome 和 Gate 继续是事实源。配置
+`PHOENIX_COLLECTOR_ENDPOINT` 后，独立 Phoenix dispatcher 在本地终态投影完成后注册 durable OTLP exporter，
+把同一 Invocation 的完整 span tree 发送到现有 Phoenix；未配置时完全不注册。网络等待不得占用
+Task/Gate/runtime 主事件 drain。
+
+导出 identity 由 Invocation 与本地 span identity 确定性派生；首次投递前按 terminal event 的 Event Log
+ingestion 游标重建 Task/Gate/Outcome 并固化 export plan，handler replay 不生成重复 trace，也不读取
+已经变化的当前表。同毫秒后继事件和没有 Event Log fact 的孤立 Outcome row 不进入快照。每个 dispatcher
+只 claim/recover 自己注册的 handler；plan 仅允许在内容策略收紧时单调
+重建为更少内容。
+默认只导出 metadata 且自由文本错误归一为稳定 reason；`preview` 与 `redacted` 内容模式必须显式开启，thinking 永不导出。root span
+同时携带 transport outcome 与 business exit/Task/Gate 属性；有 WorkContract 的 Invocation 若
+`completed` 却没有 accepted Outcome，外部 root span 必须为 error，不能显示为业务成功。

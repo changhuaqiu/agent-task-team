@@ -442,6 +442,7 @@ describe('session-repo', () => {
       id: 'inv-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
     });
     sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-confirmed', 'inv-1');
+    invocationRepo.transition('inv-1', { to: 'terminated', outcome: 'completed' });
     invocationRepo.create({
       id: 'inv-2', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
     });
@@ -476,6 +477,90 @@ describe('session-repo', () => {
 
     expect(sessionRepo.sealIfLatestInvocationLoadFailed('ses-1')).toBe(false);
     expect(sessionRepo.getById('ses-1')?.status).toBe('active');
+  });
+
+  it('seals a confirmed generation after cumulative input token exhaustion', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    invocationRepo.create({
+      id: 'inv-budget-1', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+    sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-confirmed', 'inv-budget-1');
+    invocationRepo.updateDispatchStatus('inv-budget-1', 'completed', {
+      tokenUsage: JSON.stringify({ default: { inputTokens: 70_000, outputTokens: 10 } }),
+    });
+    invocationRepo.transition('inv-budget-1', { to: 'terminated', outcome: 'completed' });
+    invocationRepo.create({
+      id: 'inv-budget-2', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+    invocationRepo.updateDispatchStatus('inv-budget-2', 'completed', {
+      tokenUsage: JSON.stringify({ default: { inputTokens: 55_000, outputTokens: 10 } }),
+    });
+    invocationRepo.transition('inv-budget-2', { to: 'terminated', outcome: 'completed' });
+
+    expect(sessionRepo.sealIfContextBudgetExceeded('ses-1', {
+      maxCumulativeInputTokens: 120_000,
+      maxTerminatedInvocations: 12,
+    })).toBe(true);
+    expect(sessionRepo.getById('ses-1')).toMatchObject({
+      status: 'sealed',
+      seal_reason: 'context_budget_exhausted',
+    });
+  });
+
+  it('seals a confirmed generation after its terminated invocation budget', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    for (let index = 1; index <= 2; index += 1) {
+      const invocationId = `inv-count-${index}`;
+      invocationRepo.create({
+        id: invocationId, conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+      });
+      if (index === 1) sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-confirmed', invocationId);
+      invocationRepo.transition(invocationId, { to: 'terminated', outcome: 'completed' });
+    }
+
+    expect(sessionRepo.sealIfContextBudgetExceeded('ses-1', {
+      maxCumulativeInputTokens: 120_000,
+      maxTerminatedInvocations: 2,
+    })).toBe(true);
+    expect(sessionRepo.getById('ses-1')?.seal_reason).toBe('context_budget_exhausted');
+  });
+
+  it('keeps a confirmed generation below both context budgets', () => {
+    sessionRepo.create({ id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1' });
+    invocationRepo.create({
+      id: 'inv-budget-safe', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+    sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-confirmed', 'inv-budget-safe');
+    invocationRepo.updateDispatchStatus('inv-budget-safe', 'completed', { tokenUsage: '{not-json' });
+    invocationRepo.transition('inv-budget-safe', { to: 'terminated', outcome: 'completed' });
+
+    expect(sessionRepo.sealIfContextBudgetExceeded('ses-1', {
+      maxCumulativeInputTokens: 120_000,
+      maxTerminatedInvocations: 12,
+    })).toBe(false);
+    expect(sessionRepo.getById('ses-1')?.status).toBe('active');
+  });
+
+  it('does not seal or resume through a generation with an unterminated invocation', () => {
+    sessionRepo.create({
+      id: 'ses-1', conversationId: 'conv-1', agentId: 'agent-a', taskId: 'task-1',
+    });
+    invocationRepo.create({
+      id: 'inv-active', conversation_id: 'conv-1', agent_id: 'agent-a', session_id: 'ses-1',
+    });
+    sessionRepo.confirmRuntimeSessionId('ses-1', 'runtime-active', 'inv-active');
+    expect(sessionRepo.hasUnterminatedInvocation('ses-1')).toBe(true);
+    expect(sessionRepo.sealIfContextBudgetExceeded('ses-1', {
+      maxCumulativeInputTokens: 0,
+      maxTerminatedInvocations: 0,
+    })).toBe(false);
+    expect(sessionRepo.getById('ses-1')?.status).toBe('active');
+
+    invocationRepo.transition('inv-active', { to: 'terminated', outcome: 'completed' });
+    expect(sessionRepo.hasUnterminatedInvocation('ses-1')).toBe(false);
+    sessionRepo.seal('ses-1', 'rotated');
+    expect(() => sessionRepo.bindRuntimeSessionId('ses-1', 'stale-runtime'))
+      .toThrow('session_generation_not_active');
   });
 
   it('backfills a compatible legacy generation from its latest successful invocation', () => {

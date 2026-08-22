@@ -34,6 +34,16 @@
 
 ## 验证与文档
 
+## Phoenix 在线投影
+
+- [x] collector 未配置时不注册 exporter，配置非法时只禁用 exporter。
+- [x] OTLP trace identity 可重放且 parent/child tree 稳定。
+- [x] 默认不导出 prompt、completion、tool I/O 或 thinking。
+- [x] 显式 redacted 模式经过 secret sanitizer 与 trace-wide 容量上限。
+- [x] Phoenix 可区分 Invocation transport completion 与 WorkContract business exit。
+- [x] 导出失败不修改 Invocation、Task、Outcome 或 Gate 事实。
+- [x] Phoenix 网络 I/O 使用独立 worker；retry 复用 event-time plan，recovery 只处理所属 handler，隐私收紧只移除内容，metadata-only 不导出自由文本错误。
+
 - [x] 仓储、payload API、采集、抽屉/DAG 组件测试通过。
 - [x] 现有 execution / A2A / task / observability 测试保持通过。
 - [x] 类型检查与生产构建通过。

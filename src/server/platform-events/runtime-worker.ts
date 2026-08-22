@@ -30,6 +30,10 @@ import {
   TaskGateLifecycleProcessManager,
 } from '../repositories/task-gate-lifecycle-process-manager';
 import { WorkLifecycleReconciler } from '../work-contract/work-lifecycle-reconciler';
+import {
+  createPhoenixHandlerRegistration,
+  type PhoenixProjectionOverrides,
+} from '../observability/phoenix-config';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -50,17 +54,22 @@ export interface PlatformEventRuntimeWorkerOptions {
   effectOutbox?: WorkerEffects;
   a2aOutcome?: A2AOutcomeProcessManagerOptions | false;
   a2aLifecycle?: A2ALifecycleProcessManagerOptions | false;
+  phoenix?: PhoenixProjectionOverrides | false;
+  phoenixDispatcher?: WorkerDispatcher;
 }
 
 export class PlatformEventRuntimeWorker {
   private readonly dispatcher: WorkerDispatcher;
   private readonly projection: RuntimeInvocationProjection;
   private readonly effects?: WorkerEffects;
+  private readonly phoenixDispatcher?: WorkerDispatcher;
   private readonly intervalMs: number;
   private timer?: ReturnType<typeof setTimeout>;
+  private phoenixTimer?: ReturnType<typeof setTimeout>;
   private stopped = true;
   private generation = 0;
   private recovered = false;
+  private phoenixRecovered = false;
 
   constructor(options: number | PlatformEventRuntimeWorkerOptions = 250) {
     const resolved = typeof options === 'number' ? { intervalMs: options } : options;
@@ -95,6 +104,13 @@ export class PlatformEventRuntimeWorker {
       reliability: 'durable',
       handle: observabilityProjection.handle,
     });
+    if (resolved.phoenix !== false) {
+      const phoenix = createPhoenixHandlerRegistration(process.env, resolved.phoenix);
+      if (phoenix) {
+        this.phoenixDispatcher = resolved.phoenixDispatcher ?? new PlatformEventDispatcher();
+        this.phoenixDispatcher.register(phoenix);
+      }
+    }
     const a2aProjectViewProjection = new A2AProjectViewProjection({
       onProjected: resolved.onA2AProjected,
     });
@@ -269,14 +285,18 @@ export class PlatformEventRuntimeWorker {
     this.stopped = false;
     this.generation += 1;
     this.recovered = false;
+    this.phoenixRecovered = false;
     this.schedule(0, this.generation);
+    this.schedulePhoenix(0, this.generation);
   }
 
   stop(): void {
     this.stopped = true;
     this.generation += 1;
     if (this.timer) clearTimeout(this.timer);
+    if (this.phoenixTimer) clearTimeout(this.phoenixTimer);
     this.timer = undefined;
+    this.phoenixTimer = undefined;
   }
 
   private schedule(delayMs: number, generation: number): void {
@@ -300,6 +320,29 @@ export class PlatformEventRuntimeWorker {
       await this.effects?.drain();
     } catch (error) {
       console.error('[platform-event] dispatcher tick failed:', error);
+    }
+  }
+
+  private schedulePhoenix(delayMs: number, generation: number): void {
+    if (!this.phoenixDispatcher || this.stopped || generation !== this.generation) return;
+    this.phoenixTimer = setTimeout(() => {
+      this.phoenixTimer = undefined;
+      void this.phoenixTick().finally(() => this.schedulePhoenix(this.intervalMs, generation));
+    }, delayMs);
+    this.phoenixTimer.unref?.();
+  }
+
+  private async phoenixTick(): Promise<void> {
+    if (!this.phoenixDispatcher) return;
+    try {
+      if (!this.phoenixRecovered) {
+        this.phoenixDispatcher.recover();
+        this.phoenixRecovered = true;
+      }
+      this.phoenixDispatcher.discover();
+      await this.phoenixDispatcher.drain();
+    } catch (error) {
+      console.error('[phoenix] export worker tick failed:', error);
     }
   }
 }

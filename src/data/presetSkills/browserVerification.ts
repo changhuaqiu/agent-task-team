@@ -18,5 +18,17 @@ Use this Skill only when the current WorkContract requires browser or Web UI evi
 7. Submit the required structured receipt exactly once. If a browser tool is genuinely absent, report capability_missing with the failed tool evidence; do not start unrelated servers or repeatedly retry equivalent commands.
 
 Keep browser work local to the current project and loopback URLs. Do not navigate to external sites unless the WorkContract explicitly requires it.`,
+  config: JSON.stringify({
+    tools: [
+      {
+        name: 'verification_serve_artifact',
+        description: 'Serve one current-project artifact through a one-use, short-lived 127.0.0.1 URL for real browser verification',
+        parameters: [
+          { name: 'artifact_path', type: 'string', required: true, description: 'Project-relative path of the artifact to serve' },
+        ],
+        handler: 'api://verification/serve-artifact',
+      },
+    ],
+  }),
   isPreset: true,
 };

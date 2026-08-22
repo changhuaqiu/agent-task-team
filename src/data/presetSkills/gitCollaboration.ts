@@ -44,10 +44,10 @@ Use this skill when work touches Git-hosted collaboration: issues, GitHub pull r
 When the system prompt indicates you are in a Git Worktree branch (look for "[系统] 当前在 Git Worktree 分支 worktree/..." in your context):
 
 1. **You are on an isolated branch** — all changes stay local to this worktree until you push.
-2. **Commit frequently** — small atomic commits on the \`worktree/{slug}\` branch.
-3. **Before finishing**: push the branch and create a PR/MR back to \`main\`:
+2. **Preserve work locally** — do not commit or push until the user or task explicitly authorizes that Git action.
+3. **When commit and push are explicitly authorized**: stage only the verified task paths, make an atomic commit, push the branch, and create a PR/MR back to \`main\`:
    \`\`\`bash
-   git add -A
+   git add <verified-task-paths>
    git commit -m "descriptive message"
    git push -u origin worktree/{slug}
    gh pr create --base main --head worktree/{slug} --title "Title" --body "Description"
@@ -77,10 +77,10 @@ Rules:
 
 ## Provider-verified task receipts
 
-- For a Git-backed task, Luigi must call \`collaboration_record_pr\` after commit, push and PR creation. A pasted URL or prose claim cannot move the task to review.
-- Peach must review the exact head SHA from the delivery card, leave a real provider review/comment, then call \`collaboration_record_review\` with that canonical URL, test evidence, and an explicit qualityDecision. Provider state and Agent quality decision are separate because shared provider accounts cannot approve their own PR.
+- For legacy/manual flows without a Platform Work Contract, Luigi records a verified PR with \`collaboration_record_pr\`. Under a Work Contract these domain-writing receipt tools are intentionally unavailable: inspect the provider read-only, then submit exactly one \`agent_submit_outcome\` request_review/submit_task_result exit whose payload contains \`summary\`, \`pullRequestUrl\`, and \`implementationEvidence\` (\`installResult\`, \`buildResult\`, \`testResult\`, \`impactEvidence\`, optional \`riskSummary\`). Include the canonical PR URL in \`evidenceRefs\` as well. The owner Process Manager verifies the live provider receipt before it changes Task state; a prose-only, closed, failing, or stale PR claim cannot move the task to review.
+- For legacy/manual flows without a Platform Work Contract, Peach records provider review with \`collaboration_record_review\`. Under a Work Contract, review the exact head SHA, leave a real provider review/comment, then carry its canonical URL, test evidence, blocker count, and decision in exactly one record_gate_decision Outcome. The Process Manager owns the Gate write.
 - A new commit invalidates the previous review. Luigi records the same PR again; Peach must review the new SHA.
-- Mario calls \`collaboration_record_merge\` only after an authorized merge and main-branch install/build/test/impact verification. This verified receipt is the only Git-backed closure path.
+- In legacy/manual flows Mario calls \`collaboration_record_merge\` only after an authorized merge and main-branch verification. Under a Work Contract, carry the canonical merge SHA/URL and main-branch install/build/test/impact evidence in the single structured Outcome; never write Task, Task Graph, or Gate state from a receipt tool.
 - Do not call \`task_update_status\` to imitate these transitions; the receipt tools atomically update Task Graph, proof log and chat cards.
 
 ## Issue Workflow

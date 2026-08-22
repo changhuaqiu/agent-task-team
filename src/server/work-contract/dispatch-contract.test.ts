@@ -7,6 +7,7 @@ import {
   issueDispatchWorkContract,
   renderWorkContractInstruction,
   StaleA2APossessionError,
+  workContractRuntimeToolNames,
   workContractToolNames,
 } from './dispatch-contract';
 import type { ExecutionProfile } from '../invocation-pipeline/execution-profile';
@@ -38,6 +39,25 @@ describe('issueDispatchWorkContract', () => {
   afterEach(() => {
     resetDb();
     db.close();
+  });
+
+  it('removes every domain mutation tool while preserving read, verification, and outcome tools', () => {
+    expect(workContractRuntimeToolNames([
+      'task_list',
+      'task_create',
+      'task_update_status',
+      'task_assign',
+      'collaboration_record_pr',
+      'collaboration_record_review',
+      'collaboration_record_merge',
+      'verification_serve_artifact',
+      'shell',
+    ])).toEqual([
+      'agent_submit_outcome',
+      'shell',
+      'task_list',
+      'verification_serve_artifact',
+    ]);
   });
 
   it.each(['review_gate', 'test_gate'] as const)(

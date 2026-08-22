@@ -72,6 +72,8 @@
 - [x] Keep internal invocation/protocol exhaustion inside automatic recovery and failure handling; reserve `waiting_human` for explicit Agent blockers, authorization, configuration, or external business decisions, and render those boundaries in user language.
 - [x] Replace full task retry after `invocation_completed_without_outcome` with one outcome-only recovery WorkContract that grants no implementation tools and terminates deterministically if recovery does not submit an accepted Outcome.
 - [x] Add a durable Work Lifecycle Reconciler for terminal Task/Delivery ownership cleanup and historical orphan repair.
+- [x] Enforce one accepted exit per WorkContract and remove direct Task mutation tools from WorkContract execution.
+- [x] Rotate confirmed ACP session generations on cumulative context/Invocation budget exhaustion.
 - [x] Replace blind `task.blocked` redispatch with a server-owned Blocked Recovery probe and idempotent Task resume.
 - [ ] Add diagnostics view for proof timeline and runtime health.
 

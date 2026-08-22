@@ -162,7 +162,7 @@ describe('BlockedRecoveryOwner', () => {
     expect(probe.evaluate(candidate)).toEqual({
       satisfied: true,
       reasonCode: 'execution_capability_added',
-      fingerprint: 'browser_verification:skill-browser,status',
+      fingerprint: 'browser_verification:skill-browser',
     });
 
     candidate.contract.permissions_json = JSON.stringify({

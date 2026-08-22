@@ -41,8 +41,8 @@ interface ExecutionProfile {
 
 ## 5. 激活规则
 
-- task-bound work：激活并要求 `task-status-receipt`。
-- planning：激活 `task-management`。
+- task-bound work：由 WorkContract 自身声明 `task_receipt` capability；不激活遗留的 `task-status-receipt`，也不暴露 `task_update_status`。
+- planning：通过 `propose_task_graph` Outcome 提交任务图；不激活会引导直接写 Task 的遗留 `task-management`。
 - review gate / code review：激活 `code-review`；存在 Git 合并策略时激活 `git-collaboration`。
 - Delivery policy 要求 Web E2E，或 Task/指令明确包含浏览器、Playwright、Web E2E 强信号：激活并要求 `browser-verification`，声明 `browser_verification` capability。普通 verification/test gate 可以使用自动测试或人工审查，不被误升格为浏览器验证。
 - prompt 中 `$skill-name`：精确激活并要求同名已绑定 Skill；未知或未绑定时 fail closed。
@@ -52,6 +52,8 @@ interface ExecutionProfile {
 ## 6. 权限
 
 WorkContract 持久化 `executionProfile`。只有包含 `browser_verification` capability 且 authority 仍有效的 WorkContract，ACP 权限策略才允许受限的本地 Playwright 命令：项目脚本 `test/e2e` 或直接 `npx/pnpm exec playwright test`。任意 shell 拼接、后台进程、外部发布与通用 `node -e` 继续拒绝。
+
+无论 Skill config 声明什么工具，WorkContract issuance 与 MCP grant 都统一裁掉 `task_create`、`task_update_status`、`task_assign`、`collaboration_record_pr/review/merge`。浏览器产物服务由 `browser-verification` Skill 独立提供；任务状态、Task Graph receipt 与 Gate 只由 accepted Outcome 后的 owner 更新。
 
 ## 7. 观测
 

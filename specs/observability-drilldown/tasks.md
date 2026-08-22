@@ -31,6 +31,16 @@
 
 ## 收敛
 
+## P3 — Phoenix 在线投影
+
+- [x] 增加确定性 OTLP trace planner 与 Phoenix sink。
+- [x] Runtime Worker 只在 collector 显式配置后注册 durable exporter。
+- [x] 默认 metadata-only，显式 preview/redacted 才导出脱敏内容。
+- [x] root span 同时投影 Invocation outcome 与 structured Outcome/Task/Gate 业务状态。
+- [x] WorkContract completed-without-accepted-outcome 在 Phoenix 标为 error。
+- [x] Phoenix export 从主事件 drain 分离；首次投递按 event time 持久化 plan，handler-scoped recovery，隐私收紧时只移除内容。
+- [x] exporter、redaction、OTLP receiver 与 worker registration 测试。
+
 - [x] 同步 `docs/technical/` 与 `docs/wiki/`；更新 `agent-observability` 迭代路径。
 - [x] 运行安装、类型检查、构建、单元/集成测试与真实 OpenCode ACP E2E。
 - [ ] 用户验收后，将本 spec 迁入 `docs/archive/specs/` 并从 active registry 移除。

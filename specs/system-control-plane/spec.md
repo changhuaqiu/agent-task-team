@@ -246,8 +246,9 @@ multi-step verification as a runtime failure. An accepted continuation is planne
 runtime-failure retry budget and must not use the generic `retry` action or
 `invocation_completed_without_outcome` reason. Continuations are independently bounded per Work;
 when the continuation budget is exhausted, the run escalates to a visible human boundary instead
-of looping forever. A terminal outcome, explicit handoff, or blocker always takes precedence over
-an older checkpoint. A queued continuation reserves the same durable role/global slot as an
+of looping forever. An accepted continuation consumes the current WorkContract's single accepted
+exit slot. A terminal outcome, handoff, or blocker can only be submitted before that acceptance or
+from the fresh fenced continuation epoch; the repository never accepts both in one Contract. A queued continuation reserves the same durable role/global slot as an
 activation or retry until Inbox cancellation, expiry, Invocation start, or Invocation termination
 releases it. Historical accepted `continue_work` rows that do not satisfy the versioned checkpoint
 schema remain on the legacy Invocation retry path; they are never silently reinterpreted as a new

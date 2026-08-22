@@ -3838,6 +3838,43 @@ CREATE INDEX IF NOT EXISTS idx_task_command_rejection_receipt_task
     version: 87,
     run: ensureA2AOutcomeOriginColumns,
   },
+  {
+    version: 88,
+    run: (db) => {
+      const tables = new Set(
+        (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>)
+          .map((row) => row.name),
+      );
+      if (tables.has('agent_outcome')) {
+        db.exec(`
+          CREATE TRIGGER IF NOT EXISTS trg_agent_outcome_single_accepted_exit
+          BEFORE INSERT ON agent_outcome
+          WHEN NEW.admission_status='accepted'
+            AND EXISTS (
+              SELECT 1 FROM agent_outcome existing
+              WHERE existing.contract_id=NEW.contract_id
+                AND existing.admission_status='accepted'
+            )
+          BEGIN
+            SELECT RAISE(ABORT,'work_exit_already_accepted');
+          END;
+        `);
+      }
+      if (tables.has('platform_event') && tables.has('invocation')) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS phoenix_export_plan (
+            event_id TEXT PRIMARY KEY REFERENCES platform_event(id) ON DELETE CASCADE,
+            invocation_id TEXT NOT NULL REFERENCES invocation(id) ON DELETE CASCADE,
+            content_mode TEXT NOT NULL CHECK(content_mode IN ('none','preview','redacted')),
+            plan_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_phoenix_export_plan_invocation
+            ON phoenix_export_plan(invocation_id,created_at);
+        `);
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

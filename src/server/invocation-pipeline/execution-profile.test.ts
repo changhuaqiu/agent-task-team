@@ -26,10 +26,10 @@ describe('resolveExecutionProfile', () => {
       exitPolicy: 'structured_outcome',
     });
     expect(profile.activatedSkills).toEqual(expect.arrayContaining([
-      { skillId: 'status', reason: 'task' },
       { skillId: 'browser', reason: 'rule' },
       { skillId: 'custom', reason: 'agent_binding' },
     ]));
+    expect(profile.activatedSkills).not.toContainEqual(expect.objectContaining({ skillId: 'status' }));
     expect(profile.activatedSkills).not.toContainEqual(expect.objectContaining({ skillId: 'git' }));
   });
 
@@ -43,10 +43,10 @@ describe('resolveExecutionProfile', () => {
 
     expect(profile.stage).toBe('plan');
     expect(profile.activatedSkills).toEqual(expect.arrayContaining([
-      { skillId: 'tasks', reason: 'rule' },
       { skillId: 'custom', reason: 'explicit' },
     ]));
-    expect(profile.requiredSkillIds).toEqual(expect.arrayContaining(['tasks', 'custom']));
+    expect(profile.activatedSkills).not.toContainEqual(expect.objectContaining({ skillId: 'tasks' }));
+    expect(profile.requiredSkillIds).toEqual(['custom']);
   });
 
   it('reports missing required browser Skill before dispatch', () => {

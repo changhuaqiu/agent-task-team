@@ -401,6 +401,15 @@ export class WorkContractRepository {
       .get(workId) as WorkAuthorityRow | undefined;
   }
 
+  hasAcceptedOutcome(contractId: string): boolean {
+    return Boolean(getDb().prepare(`
+      SELECT 1
+      FROM agent_outcome
+      WHERE contract_id=? AND admission_status='accepted'
+      LIMIT 1
+    `).get(contractId));
+  }
+
   private listActiveAuthoritiesForTask(projectId: string, taskId: string): WorkAuthorityRow[] {
     return getDb().prepare(`
       SELECT authority.*
@@ -659,22 +668,17 @@ export class WorkContractRepository {
       }
       if (!rejectionReason && contract && contract.correlation_id !== input.correlationId) {
         rejectionReason = 'correlation_mismatch';
-      } else if (!rejectionReason && contract && input.outcomeType === 'continue_work' && db.prepare(`
-        SELECT 1 FROM agent_outcome
+      } else if (!rejectionReason && contract) {
+        const acceptedExit = db.prepare(`
+          SELECT outcome_type FROM agent_outcome
         WHERE contract_id=?
           AND admission_status='accepted'
-          AND outcome_type='continue_work'
+          ORDER BY recorded_at,id
         LIMIT 1
-      `).get(contract.id)) {
-        rejectionReason = 'continuation_already_accepted';
-      } else if (!rejectionReason && contract && db.prepare(`
-        SELECT 1 FROM agent_outcome
-        WHERE contract_id=?
-          AND admission_status='accepted'
-          AND outcome_type<>'continue_work'
-        LIMIT 1
-      `).get(contract.id)) {
-        rejectionReason = 'terminal_outcome_already_accepted';
+        `).get(contract.id) as { outcome_type: AgentOutcomeType } | undefined;
+        if (acceptedExit) {
+          rejectionReason = 'work_exit_already_accepted';
+        }
       }
       const recordedAt = now.toISOString();
       if (!rejectionReason && contract && input.outcomeType === 'handoff_to_agent') {

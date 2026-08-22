@@ -326,7 +326,7 @@ describe('WorkContractRepository', () => {
     `).get(contract.contractId)).toEqual({ count: 0 });
   });
 
-  it('admits at most one continuation checkpoint and one terminal outcome per contract', () => {
+  it('admits exactly one structured exit per contract', () => {
     const repository = new WorkContractRepository();
     const contract = issue(repository, { attemptId: 'attempt-terminal' });
     expect(repository.admitOutcome(outcome(contract, {
@@ -342,19 +342,51 @@ describe('WorkContractRepository', () => {
       payload: CONTINUATION_CHECKPOINT,
     }))).toMatchObject({
       status: 'rejected',
-      reasonCode: 'continuation_already_accepted',
+      reasonCode: 'work_exit_already_accepted',
     });
     expect(repository.admitOutcome(outcome(contract, {
       outcomeId: 'outcome-terminal',
       idempotencyKey: 'outcome-terminal',
+    }))).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'work_exit_already_accepted',
+    });
+    expect(() => getDb().prepare(`
+      INSERT INTO agent_outcome (
+        id,idempotency_key,contract_id,project_id,work_id,work_epoch,attempt_id,
+        fencing_token,outcome_type,payload_json,evidence_refs_json,
+        authoritative_revisions_json,correlation_id,causation_id,occurred_at,
+        admission_status,rejection_reason,recorded_at
+      )
+      SELECT
+        'outcome-direct-second','outcome-direct-second',contract_id,project_id,work_id,
+        work_epoch,attempt_id,fencing_token,'submit_task_result',payload_json,evidence_refs_json,
+        authoritative_revisions_json,correlation_id,causation_id,occurred_at,
+        'accepted',NULL,recorded_at
+      FROM agent_outcome WHERE id='outcome-progress'
+    `).run()).toThrow('work_exit_already_accepted');
+
+    const terminalContract = issue(repository, { attemptId: 'attempt-terminal-first' });
+    expect(repository.admitOutcome(outcome(terminalContract, {
+      outcomeId: 'outcome-terminal-first',
+      idempotencyKey: 'outcome-terminal-first',
     }))).toMatchObject({ status: 'accepted' });
-    expect(repository.admitOutcome(outcome(contract, {
+    expect(repository.admitOutcome(outcome(terminalContract, {
+      outcomeId: 'outcome-progress-after-terminal',
+      idempotencyKey: 'outcome-progress-after-terminal',
+      outcomeType: 'continue_work',
+      payload: CONTINUATION_CHECKPOINT,
+    }))).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'work_exit_already_accepted',
+    });
+    expect(repository.admitOutcome(outcome(terminalContract, {
       outcomeId: 'outcome-second-terminal',
       idempotencyKey: 'outcome-second-terminal',
       payload: { summary: 'contradictory' },
     }))).toMatchObject({
       status: 'rejected',
-      reasonCode: 'terminal_outcome_already_accepted',
+      reasonCode: 'work_exit_already_accepted',
     });
   });
 

@@ -5,7 +5,11 @@ export const TASK_MANAGEMENT_SKILL: CreateSkillInput = {
   description: 'Task creation, assignment, and status management tools for coordinating team work',
   content: `# Task Management
 
-You can create, assign, and update tasks for your team through the platform fact source.
+In a structured WorkContract invocation, propose the Task Graph through exactly one
+agent_submit_outcome(propose_task_graph). Do not create, assign, or update Task rows directly;
+Task Authority validates and commits the proposal after Outcome admission.
+
+The legacy task tools below apply only outside WorkContract execution when the platform explicitly exposes them.
 
 Tool schemas in this skill are contracts, not proof that the current runtime registered them. Invoke only an exact platform tool name that the runtime explicitly exposes. If no exact platform task tool is exposed, edit the absolute TASKS.md path supplied by the platform.
 

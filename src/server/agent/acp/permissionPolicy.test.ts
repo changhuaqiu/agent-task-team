@@ -30,6 +30,7 @@ function createTestWorkContractPolicy(input: {
   cwd: string;
   engine: Parameters<typeof createWorkContractPermissionPolicy>[0]['engine'];
   isAuthorityActive: () => boolean;
+  hasAcceptedOutcome?: () => boolean;
 }) {
   const workContract = {
     contractId: 'test-contract',
@@ -52,6 +53,7 @@ function createTestWorkContractPolicy(input: {
       updated_at: new Date().toISOString(),
       closed_at: null,
     } : undefined,
+    acceptedOutcomeReader: () => input.hasAcceptedOutcome?.() ?? false,
   });
 }
 
@@ -339,6 +341,32 @@ describe('ACP permission policy', () => {
       outcome: { outcome: 'selected', optionId: 'allow-once' },
     });
     active = false;
+    await expect(createPermissionHandler(policy)(editRequest)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'reject' },
+    });
+  });
+
+  it('denies native side effects after the WorkContract exit is accepted', async () => {
+    let exitAccepted = false;
+    const policy = createTestWorkContractPolicy({
+      cwd: process.cwd(),
+      engine: 'claude',
+      isAuthorityActive: () => true,
+      hasAcceptedOutcome: () => exitAccepted,
+      permissions: { authorization: { allowCodeChanges: true } },
+    });
+    const editRequest = {
+      ...request,
+      toolCall: {
+        ...request.toolCall,
+        rawInput: { file_path: 'src/index.ts', content: 'x' },
+      },
+    } as RequestPermissionRequest;
+
+    await expect(createPermissionHandler(policy)(editRequest)).resolves.toEqual({
+      outcome: { outcome: 'selected', optionId: 'allow-once' },
+    });
+    exitAccepted = true;
     await expect(createPermissionHandler(policy)(editRequest)).resolves.toEqual({
       outcome: { outcome: 'selected', optionId: 'reject' },
     });

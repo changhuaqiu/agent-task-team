@@ -32,6 +32,7 @@ import { loadCatalog } from './agent/acp/catalog';
 import {
   prepareAcpRuntime,
 } from './agent/acp/runtimeSetup';
+import { resolveAcpSessionContextBudget } from './agent/acp/sessionBudget';
 import { createBackend as createAcpBackend } from './agent/acp/catalog';
 import { createWorkContractPermissionPolicy } from './agent/acp/permissionPolicy';
 import { buildAcpExecOptions } from './agent/acp/execOptions';
@@ -536,71 +537,97 @@ export default function registerDaemon(io: IOServer) {
         runtimeId: effectiveRuntimeId,
         accountId: accountId?.trim() || undefined,
       };
-      let existingSession = sessionRepo.findActiveByConversation(agentId, sessionConvId, sessionIsolationKey);
-
-      if (
-        existingSession
-        && sessionRepo.sealIfExecutionProfileChanged(
-          existingSession.id,
-          sessionExecutionProfile,
-        )
-      ) {
-        console.warn(
-          `[daemon] rotating session ${existingSession.id} for ${agentId} in ${sessionConvId} after runtime profile change`,
-        );
-        existingSession = undefined;
-      }
-
-      if (existingSession && sessionRepo.sealIfLatestInvocationLoadFailed(existingSession.id)) {
-        console.warn(
-          `[daemon] rotating session ${existingSession.id} for ${agentId} in ${sessionConvId} after persisted ACP load failure`,
-        );
-        existingSession = undefined;
-      }
-
-      if (!existingSession) {
-        const nextSeq = sessionRepo.nextSeqForAgent(agentId, taskId || '');
-        existingSession = sessionRepo.getOrCreateActive({
-          id: generateSortableId('ses'),
-          conversationId: sessionConvId,
-          agentId,
-          taskId: taskId || undefined,
-          seq: nextSeq,
-          isolationKey: sessionIsolationKey,
-          executionProfile: sessionExecutionProfile,
-        });
-      }
-      if (
-        existingSession.cli_session_id
-        && sessionRepo.releaseUnconfirmedRuntimeSessionId(
-          existingSession.id,
-          existingSession.cli_session_id,
-        )
-      ) {
-        console.warn(
-          `[daemon] released unconfirmed runtime session for ${agentId} in ${sessionConvId}`,
-        );
-        existingSession = sessionRepo.getById(existingSession.id)!;
-      }
-      const agentSession: AgentSessionRow = existingSession;
-
       invocationTraceId ??= generateTraceId();
-      const invocation: InvocationRow = invocationRepo.create({
-        id: workContract?.attemptId ?? generateSortableId('inv'),
-        conversation_id: sessionConvId,
-        task_id: taskId || '',
-        agent_id: agentId,
-        session_id: agentSession.id,
-        engine,
-        account_id: accountId,
-        prompt: prompt || '',
-        work_contract_id: workContract?.contractId,
-        work_id: workContract?.workId,
-        work_epoch: workContract?.workEpoch,
-        fencing_token: workContract?.fencingToken,
-        correlation_id: invocationTraceId,
-        causation_id: controlEnvelopeId ?? workContract?.causationId,
-      });
+      const acquired = getDb().transaction(() => {
+        let existingSession = sessionRepo.findActiveByConversation(
+          agentId,
+          sessionConvId,
+          sessionIsolationKey,
+        );
+        if (existingSession && sessionRepo.hasUnterminatedInvocation(existingSession.id)) {
+          throw new Error(`session_generation_busy:${existingSession.id}`);
+        }
+        if (
+          existingSession
+          && sessionRepo.sealIfExecutionProfileChanged(
+            existingSession.id,
+            sessionExecutionProfile,
+          )
+        ) {
+          console.warn(
+            `[daemon] rotating session ${existingSession.id} for ${agentId} in ${sessionConvId} after runtime profile change`,
+          );
+          existingSession = undefined;
+        }
+        if (existingSession && sessionRepo.sealIfLatestInvocationLoadFailed(existingSession.id)) {
+          console.warn(
+            `[daemon] rotating session ${existingSession.id} for ${agentId} in ${sessionConvId} after persisted ACP load failure`,
+          );
+          existingSession = undefined;
+        }
+        if (
+          existingSession
+          && sessionRepo.sealIfContextBudgetExceeded(
+            existingSession.id,
+            resolveAcpSessionContextBudget(),
+          )
+        ) {
+          console.warn(
+            `[daemon] rotating session ${existingSession.id} for ${agentId} in ${sessionConvId} after ACP context budget exhaustion`,
+          );
+          existingSession = undefined;
+        }
+        if (!existingSession) {
+          const nextSeq = sessionRepo.nextSeqForAgent(agentId, taskId || '');
+          existingSession = sessionRepo.getOrCreateActive({
+            id: generateSortableId('ses'),
+            conversationId: sessionConvId,
+            agentId,
+            taskId: taskId || undefined,
+            seq: nextSeq,
+            isolationKey: sessionIsolationKey,
+            executionProfile: sessionExecutionProfile,
+          });
+        }
+        const current = sessionRepo.getById(existingSession.id);
+        if (!current || current.status !== 'active') {
+          throw new Error('session_generation_not_active');
+        }
+        if (
+          current.cli_session_id
+          && sessionRepo.releaseUnconfirmedRuntimeSessionId(
+            current.id,
+            current.cli_session_id,
+          )
+        ) {
+          console.warn(
+            `[daemon] released unconfirmed runtime session for ${agentId} in ${sessionConvId}`,
+          );
+        }
+        const agentSession = sessionRepo.getById(current.id);
+        if (!agentSession || agentSession.status !== 'active') {
+          throw new Error('session_generation_not_active');
+        }
+        const invocation = invocationRepo.create({
+          id: workContract?.attemptId ?? generateSortableId('inv'),
+          conversation_id: sessionConvId,
+          task_id: taskId || '',
+          agent_id: agentId,
+          session_id: agentSession.id,
+          engine,
+          account_id: accountId,
+          prompt: prompt || '',
+          work_contract_id: workContract?.contractId,
+          work_id: workContract?.workId,
+          work_epoch: workContract?.workEpoch,
+          fencing_token: workContract?.fencingToken,
+          correlation_id: invocationTraceId,
+          causation_id: controlEnvelopeId ?? workContract?.causationId,
+        });
+        return { agentSession, invocation };
+      }).immediate();
+      const agentSession: AgentSessionRow = acquired.agentSession;
+      const invocation: InvocationRow = acquired.invocation;
       runtimeCompletionContextRepo.create({
         invocationId: invocation.id,
         conversationId: sessionConvId,
@@ -766,7 +793,11 @@ export default function registerDaemon(io: IOServer) {
       // DB-backed project sessions are conversation-scoped. Do not fall back to a
       // client-provided sessionId for a newly created conversation session, or a
       // stale frontend cache can resume another project's CLI context.
-      const effectiveSessionId = agentSession.cli_session_id ?? undefined;
+      const resumeGeneration = sessionRepo.getById(agentSession.id);
+      if (!resumeGeneration || resumeGeneration.status !== 'active') {
+        throw new Error('session_generation_not_active_before_resume');
+      }
+      const effectiveSessionId = resumeGeneration.cli_session_id ?? undefined;
 
       runtimeConfigDir = undefined;
       let runtimeConfigEnv: Record<string, string> = {};

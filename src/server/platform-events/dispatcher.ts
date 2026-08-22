@@ -101,11 +101,21 @@ export class PlatformEventDispatcher {
   recover(): DispatcherRecoveryResult {
     const db = this.database ?? getDb();
     const now = this.now().toISOString();
+    const durableIds = [...this.registrations.values()]
+      .filter((registration) => registration.reliability === 'durable')
+      .map((registration) => registration.id);
     return db.transaction(() => {
-      const expired = db.prepare(`
-        SELECT id, handler_id, attempt_count FROM platform_event_delivery
-        WHERE status = 'running' AND lease_expires_at <= ?
-      `).all(now) as Array<{ id: string; handler_id: string; attempt_count: number }>;
+      const expired = durableIds.length === 0
+        ? []
+        : db.prepare(`
+            SELECT id, handler_id, attempt_count FROM platform_event_delivery
+            WHERE status = 'running' AND lease_expires_at <= ?
+              AND handler_id IN (${durableIds.map(() => '?').join(',')})
+          `).all(now, ...durableIds) as Array<{
+            id: string;
+            handler_id: string;
+            attempt_count: number;
+          }>;
       for (const delivery of expired) {
         const registration = this.registrations.get(delivery.handler_id);
         const exhausted = delivery.attempt_count >= (registration?.maxAttempts ?? 5);

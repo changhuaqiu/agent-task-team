@@ -162,15 +162,20 @@ export function createWorkContractPermissionPolicy(input: {
   cwd: string;
   engine: EngineId;
   authorityReader?: (workId: string) => WorkAuthorityRow | undefined;
+  acceptedOutcomeReader?: (contractId: string) => boolean;
 }): AcpPermissionPolicy {
   const readAuthority = input.authorityReader ?? ((workId: string) => (
     workContractRepo.getAuthority(workId)
+  ));
+  const hasAcceptedOutcome = input.acceptedOutcomeReader ?? ((contractId: string) => (
+    workContractRepo.hasAcceptedOutcome(contractId)
   ));
   return createAutonomousWorkPermissionPolicy({
     permissions: input.workContract.permissions,
     cwd: input.cwd,
     engine: input.engine,
     isAuthorityActive: () => {
+      if (hasAcceptedOutcome(input.workContract.contractId)) return false;
       const authority = readAuthority(input.workContract.workId);
       return authority?.status === 'active'
         && authority.project_id === input.workContract.projectId

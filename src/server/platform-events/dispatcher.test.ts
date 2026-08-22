@@ -179,6 +179,40 @@ describe('PlatformEventDispatcher', () => {
     `).all()).toEqual([{ status: 'abandoned' }, { status: 'succeeded' }]);
   });
 
+  it('does not recover expired deliveries owned by another dispatcher registry', () => {
+    append('runtime.invocation.terminated', 'invocation:1');
+    const main = createDispatcher();
+    main.register({
+      id: 'main-task-handler',
+      pattern: 'task.*',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      handle: () => undefined,
+    });
+    const phoenix = createDispatcher();
+    phoenix.register({
+      id: 'phoenix-export-handler',
+      pattern: 'runtime.invocation.terminated',
+      stereotype: 'projection',
+      reliability: 'durable',
+      maxAttempts: 12,
+      handle: () => undefined,
+    });
+    phoenix.recover();
+    db.prepare(`
+      UPDATE platform_event_delivery
+      SET status='running',attempt_count=8,lease_owner='phoenix-dead',
+          lease_expires_at=?,updated_at=?
+      WHERE handler_id='phoenix-export-handler'
+    `).run(new Date(now.getTime() - 1_000).toISOString(), now.toISOString());
+
+    expect(main.recover()).toEqual({ enqueued: 0, abandonedAttempts: 0 });
+    expect(db.prepare(`
+      SELECT status,attempt_count,lease_owner
+      FROM platform_event_delivery WHERE handler_id='phoenix-export-handler'
+    `).get()).toEqual({ status: 'running', attempt_count: 8, lease_owner: 'phoenix-dead' });
+  });
+
   it('isolates best-effort failures without creating durable delivery rows', async () => {
     const event = append('runtime.warning.raised', 'invocation:1');
     const handled: string[] = [];

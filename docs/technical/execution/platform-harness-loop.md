@@ -90,6 +90,7 @@ Task mutation / Autonomy Guard / A2A pass
 - 当前持有者提交 `handoff_to_agent` 后必须立即结束本轮，不继续替目标角色读取、实现或等待底层子 Agent；
   平台在接纳 Outcome 后，由 A2A owner 原子创建 Pass、HandoffPacket 与下游 AgentInbox item。
 - daemon 只把平台工具白名单写入 invocation-scoped Skill/MCP grant；未知或 runtime-native 工具仅做观测，不得异步伪装成平台工具执行。
+- WorkContract 的平台工具白名单与实际 MCP grant 会统一裁掉 `task_create`、`task_update_status`、`task_assign` 以及 `collaboration_record_pr/review/merge` 等领域 mutation。Agent 只提交结构化 Outcome，Task/Graph/Gate owner 在接纳后修改权威事实；提示词、Skill 或错误的 grant 参数都不能重新开放这条写路径。
 - WorkContract 持久化 ExecutionProfile。真实浏览器验收只在 `browser_verification` capability 存在且 authority 有效时放行本地 Playwright test 命令；普通工作不能借验证名义获得任意 shell、后台进程或外部发布权限。
 - `browser-verification` 是阶段路由 Skill：Web E2E/test gate/Task 浏览器强信号会激活它；普通实现不加载其正文。Git 协作 Skill 同理，只在合并策略或 Git/PR 强信号存在时激活。
 - Codex ACP 文件修改请求不提供通用 `rawInput.file_path`，路径来自受信适配器元数据 `codex.params.grantRoot`；权限策略对两种形态统一执行 realpath 项目包含校验，缺路径继续拒绝。
@@ -104,7 +105,8 @@ Task mutation / Autonomy Guard / A2A pass
 
 - runtime accepted 可以把 ready owner 的 Task 推进到 in_progress；
 - runtime success 只代表本轮执行结束，不代表实现证据或交付证据通过；
-- in_review/done 仍只能由结构化 task mutation/tool 经过 gate 后进入。
+- in_review/done 只能由 accepted AgentOutcome 驱动对应 owner 进入；WorkContract 内的 Agent 不能直接写 Task revision。
+- 首个 accepted Outcome（包括 `continue_work`）消费当前 WorkContract 的唯一退出槽；继续执行必须由 ContinueGate 签发新 epoch，不能在同一合同内再交 terminal Outcome。
 - TASKS.md watcher 必须同时消费文件首次创建的 `add` 和后续更新的 `change`；watcher 先启动、Agent 后创建看板是新项目的正常路径，首个事件不能丢失。
 - Agent 完成边界仍执行一次 TASKS.md → DB 同步，作为 watcher 的一致性屏障；
   A2A 只消费已接纳的结构化 Outcome，不再依赖该轮自然语言输出顺序。
