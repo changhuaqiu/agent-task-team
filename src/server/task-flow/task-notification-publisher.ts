@@ -21,7 +21,8 @@ import {
   resolveTaskWakeups,
   type TaskWakeup,
 } from './task-wakeup';
-import { submitTaskWakeupToInvocationPipeline } from '../invocation-pipeline/registry';
+import { requestTaskWakeup } from './task-work-request';
+import { publishProjectView } from '../project-view/project-view-publisher';
 
 export interface PublishTaskNotificationInput {
   io?: IOServer;
@@ -48,20 +49,45 @@ const wakeupDeduper = createTaskWakeupDeduper();
 
 function emitToConversation(io: IOServer | undefined, conversationId: string, notification: TaskNotification): void {
   if (!io) return;
-  const room = io.to(conversationId);
-  room.emit('task.notification', { ...notification, projectId: conversationId });
+  publishProjectView(io, conversationId, {
+    type: 'task.notification',
+    delivery: 'durable',
+    actor: { type: notification.actorType ?? 'system', id: notification.actorId ?? 'task-owner' },
+    subject: notification.taskId ? { type: 'task', id: notification.taskId } : undefined,
+    eventId: notification.id,
+    correlationId: notification.id ?? notification.taskId ?? conversationId,
+    causationId: notification.id ?? notification.taskId ?? conversationId,
+    occurredAt: notification.createdAt,
+    payload: { ...notification },
+  });
 }
 
 function emitWakeupToConversation(io: IOServer | undefined, conversationId: string, wakeup: TaskWakeup): void {
   if (!io) return;
-  io.to(conversationId).emit('task.wakeup', { ...wakeup, projectId: conversationId });
+  publishProjectView(io, conversationId, {
+    type: 'task.wakeup',
+    delivery: 'durable',
+    actor: { type: 'system', id: 'task-wakeup-router' },
+    subject: { type: 'task', id: wakeup.taskId },
+    eventId: wakeup.id,
+    correlationId: wakeup.metadata.idempotencyKey,
+    causationId: wakeup.id ?? wakeup.metadata.idempotencyKey,
+    occurredAt: wakeup.createdAt,
+    payload: { ...wakeup },
+  });
 }
 
 function emitTaskState(io: IOServer | undefined, task: TaskRow): void {
   if (!io) return;
-  io.to(task.conversation_id).emit('task.state', {
-    projectId: task.conversation_id,
-    task,
+  publishProjectView(io, task.conversation_id, {
+    type: 'task.state',
+    delivery: 'durable',
+    actor: { type: 'system', id: 'task-authority' },
+    subject: { type: 'task', id: task.id },
+    eventId: `task:${task.conversation_id}:${task.id}:revision:${task.revision}`,
+    correlationId: task.id,
+    causationId: `task:${task.conversation_id}:${task.id}:revision:${task.revision}`,
+    payload: { task },
   });
 }
 
@@ -234,7 +260,6 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
   });
 
   for (const wakeup of wakeups) {
-    if (!input.io) continue;
     if (!wakeupDeduper.shouldPublish(wakeup)) continue;
     const id = messageRepo.append({
       conversationId: wakeup.conversationId,
@@ -255,7 +280,7 @@ export function publishTaskChangeNotification(input: PublishTaskChangeNotificati
     // Invocation Pipeline execution.
     const routedByPlatformEvent = wakeup.metadata.reasonCode === 'review_changes_requested';
     if (!routedByPlatformEvent) {
-      submitTaskWakeupToInvocationPipeline(input.io, { ...wakeup, id });
+      requestTaskWakeup({ ...wakeup, id });
     }
     emitWakeupToConversation(input.io, wakeup.conversationId, {
       ...wakeup,

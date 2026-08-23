@@ -174,6 +174,7 @@ function failedRun(
     yield { type: 'error', content: message };
   }
   return {
+    started: Promise.resolve({ ok: false, reasonCode, message }),
     events: ensureSingleTerminalDone(failureEvents(), resultPromise),
     result: resultPromise,
     kill: () => {},
@@ -323,6 +324,16 @@ export class AcpBackend implements AgentBackend {
     const resultPromise = new Promise<AgentResult>((resolveResult) => {
       resultResolve = resolveResult;
     });
+    let startResolved = false;
+    let resolveStarted!: (result: Awaited<AgentRun['started']>) => void;
+    const started = new Promise<Awaited<AgentRun['started']>>((resolveStart) => {
+      resolveStarted = resolveStart;
+    });
+    const settleStarted = (result: Awaited<AgentRun['started']>) => {
+      if (startResolved) return;
+      startResolved = true;
+      resolveStarted(result);
+    };
 
     const wakeGenerator = () => {
       streamFinished = true;
@@ -425,6 +436,13 @@ export class AcpBackend implements AgentBackend {
         status = 'failed';
         reasonCode = 'acp_permission_audit_failed';
         error = 'ACP permission decision could not be persisted for audit';
+      }
+      if (!startResolved) {
+        settleStarted({
+          ok: false,
+          reasonCode: reasonCode ?? 'acp_startup_failed',
+          message: error ?? `ACP ended before Runtime readiness (${status})`,
+        });
       }
       resultResolved = true;
       clearTimeout(idleTimeoutTimer);
@@ -723,6 +741,8 @@ export class AcpBackend implements AgentBackend {
             if (resultResolved) return;
             acceptSessionUpdates = true;
 
+            settleStarted({ ok: true, sessionId });
+
             let response = await ctx.request(acp.methods.agent.session.prompt, {
               sessionId,
               prompt: [{ type: 'text', text: promptText }],
@@ -863,6 +883,7 @@ export class AcpBackend implements AgentBackend {
     }
 
     return {
+      started,
       events: ensureSingleTerminalDone(generator(), resultPromise),
       result: resultPromise,
       kill: () => {

@@ -7,7 +7,8 @@ import {
   taskCommandService,
 } from '../repositories/task-command-service';
 import { updateTaskInMd } from '../task-file-service';
-import type { TaskWakeup } from '../task-flow/task-wakeup';
+import type { TaskWakeupReasonCode } from '../task-flow/task-wakeup';
+import { publishProjectView } from '../project-view/project-view-publisher';
 
 export const PROJECTION_ERROR_MESSAGE_LIMIT = 512;
 
@@ -21,7 +22,19 @@ export function sanitizeProjectionErrorMessage(error: unknown): string {
  * only automatic business transition is ready -> in_progress for a ready
  * owner. All quality-gate transitions still require structured task tools.
  */
-export async function reduceAcceptedWakeup(io: IOServer, wakeup: TaskWakeup): Promise<void> {
+export interface AcceptedTaskWakeup {
+  id?: string;
+  conversationId: string;
+  taskId: string;
+  agentId: string;
+  reasonCode: TaskWakeupReasonCode;
+  metadata: { idempotencyKey: string };
+}
+
+export async function reduceAcceptedWakeup(
+  io: IOServer,
+  wakeup: AcceptedTaskWakeup,
+): Promise<void> {
   if (wakeup.reasonCode !== 'owner_ready' && wakeup.reasonCode !== 'dependency_resolved') return;
   const previousTask = taskRepo.getById(wakeup.taskId);
   if (!previousTask || previousTask.status !== 'ready' || previousTask.agent_id !== wakeup.agentId) return;
@@ -73,12 +86,19 @@ export async function reduceAcceptedWakeup(io: IOServer, wakeup: TaskWakeup): Pr
         ...(projectionErrorMessage ? { errorMessage: projectionErrorMessage } : {}),
       },
     });
-    io.to(wakeup.conversationId).emit('task.sync_error', {
-      projectId: wakeup.conversationId,
-      conversationId: wakeup.conversationId,
-      taskId: wakeup.taskId,
-      reasonCode: 'runtime_projection_failed',
-      message: 'Task dispatch was accepted, but the runtime TASKS.md projection needs reconciliation.',
+    publishProjectView(io, wakeup.conversationId, {
+      type: 'task.sync_error',
+      delivery: 'durable',
+      actor: { type: 'system', id: 'invocation-outcome-reducer' },
+      subject: { type: 'task', id: wakeup.taskId },
+      correlationId: wakeup.metadata.idempotencyKey,
+      causationId: wakeup.metadata.idempotencyKey,
+      payload: {
+        conversationId: wakeup.conversationId,
+        taskId: wakeup.taskId,
+        reasonCode: 'runtime_projection_failed',
+        message: 'Task dispatch was accepted, but the runtime TASKS.md projection needs reconciliation.',
+      },
     });
   }
   proofLogRepo.append({

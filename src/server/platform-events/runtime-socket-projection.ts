@@ -15,10 +15,23 @@ export class RuntimeSocketProjection {
 
   project(event: PlatformEvent): void {
     const base = {
-      agentId: event.projectAgentId,
-      invocationId: event.invocationId,
       eventId: event.eventId,
       occurredAt: event.occurredAt,
+      delivery: 'durable' as const,
+      actor: event.actor,
+      agent: event.projectAgentId
+        ? { type: 'agent' as const, id: event.projectAgentId }
+        : undefined,
+      subject: event.invocationId
+        ? { type: 'invocation' as const, id: event.invocationId }
+        : event.subject,
+      correlationId: event.correlationId,
+      causationId: event.causationId ?? event.eventId,
+      source: {
+        eventId: event.eventId,
+        streamKey: event.streamKey,
+        streamSequence: event.streamSequence,
+      },
     };
     if (event.type === 'runtime.session.bound' || event.type === 'runtime.session.confirmed') {
       const payload = event.payload as { runtimeSessionId?: string; binding?: 'created' | 'resumed' };
@@ -26,7 +39,7 @@ export class RuntimeSocketProjection {
       if (canAnnounce && payload.runtimeSessionId && event.projectAgentId) {
         this.port.publish(event.projectId, {
           ...base,
-          kind: 'runtime.session',
+          type: 'runtime.session',
           payload: { sessionId: payload.runtimeSessionId },
         });
       }
@@ -35,14 +48,14 @@ export class RuntimeSocketProjection {
     if (event.type === 'runtime.plan.updated') {
       this.port.publish(event.projectId, {
         ...base,
-        kind: 'runtime.plan',
+        type: 'runtime.plan',
         payload: { content: (event.payload as { content?: string }).content ?? '' },
       });
     } else if (event.type === 'runtime.tool.started') {
       const payload = event.payload as { callId: string; toolName: string; input?: string };
       this.port.publish(event.projectId, {
         ...base,
-        kind: 'runtime.tool.started',
+        type: 'runtime.tool.started',
         payload: {
           callId: payload.callId,
           toolName: payload.toolName,
@@ -58,7 +71,7 @@ export class RuntimeSocketProjection {
       };
       this.port.publish(event.projectId, {
         ...base,
-        kind: event.type === 'runtime.tool.failed'
+        type: event.type === 'runtime.tool.failed'
           ? 'runtime.tool.failed'
           : 'runtime.tool.completed',
         payload: {
@@ -76,19 +89,19 @@ export class RuntimeSocketProjection {
     ) {
       this.port.publish(event.projectId, {
         ...base,
-        kind: 'runtime.warning',
+        type: 'runtime.warning',
         payload: event.payload as Record<string, unknown>,
       });
     } else if (event.type === 'runtime.usage.updated') {
       this.port.publish(event.projectId, {
         ...base,
-        kind: 'runtime.usage',
+        type: 'runtime.usage',
         payload: event.payload as Record<string, unknown>,
       });
     } else if (event.type === 'runtime.invocation.terminated') {
       this.port.publish(event.projectId, {
         ...base,
-        kind: 'runtime.completed',
+        type: 'runtime.completed',
         payload: event.payload as Record<string, unknown>,
       });
     }

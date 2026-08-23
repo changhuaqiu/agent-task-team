@@ -8,7 +8,14 @@ import { taskRepo } from '@/server/repositories/task-repo';
 import { seedPresetAgents } from '@/server/db/seed-agents';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { publishTaskChangeNotification, publishTaskNotification, resolveTaskNotificationAudience } from '@/server/task-flow/task-notification-publisher';
-import { registerInvocationCoordinator } from '@/server/invocation-pipeline/registry';
+import { AgentInbox } from '@/server/platform-events/agent-inbox';
+
+function expectProjectView(emit: ReturnType<typeof vi.fn>, type: string, payload: object): void {
+  expect(emit).toHaveBeenCalledWith('project:view', expect.objectContaining({
+    type,
+    payload: expect.objectContaining(payload),
+  }));
+}
 
 beforeEach(() => {
   setTestDb(createTestDb());
@@ -80,12 +87,12 @@ describe('publishTaskNotification', () => {
 
     expect(notification?.id).toMatch(/^msg-/);
     expect(to).toHaveBeenCalledWith('conv-1');
-    expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
+    expectProjectView(emit, 'task.notification', {
       id: notification?.id,
       conversationId: 'conv-1',
       taskId: 'TASK-003',
       recipients: ['toad', 'mario'],
-    }));
+    });
 
     const messages = messageRepo.getByConversation('conv-1');
     expect(messages).toHaveLength(1);
@@ -128,15 +135,24 @@ describe('publishTaskNotification', () => {
       changedFields: ['status'],
     });
 
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+    expectProjectView(emit, 'task.wakeup', {
       taskId: 'TASK-008',
       agentId: 'toad',
       reasonCode: 'owner_ready',
       dispatchSource: 'workflow',
-    }));
+    });
 
     const messages = messageRepo.getByConversation('conv-1');
     expect(messages.some((message) => message.sender_id === 'task-wakeup')).toBe(true);
+    expect(new AgentInbox().listPending('conv-1')).toEqual([
+      expect.objectContaining({
+        projectAgentId: 'toad',
+        command: expect.objectContaining({
+          taskId: 'TASK-008',
+          replyTo: { type: 'task', id: 'TASK-008' },
+        }),
+      }),
+    ]);
   });
 
   it('publishes a coordinator wakeup when a reviewer submits a review decision', () => {
@@ -167,18 +183,18 @@ describe('publishTaskNotification', () => {
       changedFields: ['review_note'],
     });
 
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+    expectProjectView(emit, 'task.wakeup', {
       taskId: 'TASK-009',
       agentId: 'mario',
       reasonCode: 'review_decision_ready',
       dispatchSource: 'review_gate',
-    }));
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+    });
+    expectProjectView(emit, 'task.wakeup', {
       taskId: 'TASK-009',
       agentId: 'peach',
       reasonCode: 'test_requested',
       dispatchSource: 'test_gate',
-    }));
+    });
 
     const wakeupMessages = messageRepo.getByConversation('conv-1')
       .filter((message) => message.sender_id === 'task-wakeup');
@@ -210,8 +226,6 @@ describe('publishTaskNotification', () => {
       to: vi.fn(() => ({ emit })),
       emit: vi.fn(),
     } as unknown as IOServer;
-    const submit = vi.fn();
-    registerInvocationCoordinator(io, { submit } as never);
 
     publishTaskChangeNotification({
       io,
@@ -223,10 +237,10 @@ describe('publishTaskNotification', () => {
       changedFields: ['status', 'review_note'],
     });
 
-    expect(submit).not.toHaveBeenCalled();
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+    expect(new AgentInbox().listPending('conv-1')).toEqual([]);
+    expectProjectView(emit, 'task.wakeup', {
       reasonCode: 'review_changes_requested',
-    }));
+    });
   });
 
   it('skips publish when there are no related recipients', () => {

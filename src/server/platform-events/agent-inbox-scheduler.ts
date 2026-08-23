@@ -1,29 +1,38 @@
 import type {
   AgentActivationCommand,
+  InvocationSubmitOptions,
   InvocationSubmission,
 } from '../invocation-pipeline/types';
 import { AgentInbox } from './agent-inbox';
 
 export interface AgentInboxSchedulerOptions {
   inbox?: AgentInbox;
-  submit: (trigger: AgentActivationCommand) => InvocationSubmission;
+  submit: (
+    trigger: AgentActivationCommand,
+    options?: InvocationSubmitOptions,
+  ) => InvocationSubmission;
   intervalMs?: number;
   retryDelayMs?: number;
+  maxRetryDelayMs?: number;
   maxClaimsPerTick?: number;
   leaseMs?: number;
   heartbeatMs?: number;
+  maxStartAttempts?: number;
 }
 
 export class AgentInboxScheduler {
   private readonly inbox: AgentInbox;
   private readonly intervalMs: number;
   private readonly retryDelayMs: number;
+  private readonly maxRetryDelayMs: number;
   private readonly maxClaimsPerTick: number;
   private readonly leaseMs: number;
   private readonly heartbeatMs: number;
+  private readonly maxStartAttempts: number;
   private timer?: ReturnType<typeof setTimeout>;
-  private readonly settlements = new Set<Promise<void>>();
-  private readonly settlementHeartbeats = new Map<string, ReturnType<typeof setInterval>>();
+  private readonly admissions = new Set<Promise<void>>();
+  private readonly admissionHeartbeats = new Map<string, ReturnType<typeof setInterval>>();
+  private readonly admissionControllers = new Map<string, AbortController>();
   private stopped = true;
   private generation = 0;
 
@@ -31,9 +40,11 @@ export class AgentInboxScheduler {
     this.inbox = options.inbox ?? new AgentInbox();
     this.intervalMs = options.intervalMs ?? 250;
     this.retryDelayMs = options.retryDelayMs ?? 1_000;
+    this.maxRetryDelayMs = options.maxRetryDelayMs ?? 30_000;
     this.maxClaimsPerTick = options.maxClaimsPerTick ?? 20;
     this.leaseMs = options.leaseMs ?? 30_000;
     this.heartbeatMs = options.heartbeatMs ?? Math.max(1_000, Math.floor(this.leaseMs / 3));
+    this.maxStartAttempts = options.maxStartAttempts ?? 3;
   }
 
   start(): void {
@@ -48,8 +59,10 @@ export class AgentInboxScheduler {
     this.generation += 1;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
-    for (const heartbeat of this.settlementHeartbeats.values()) clearInterval(heartbeat);
-    this.settlementHeartbeats.clear();
+    for (const heartbeat of this.admissionHeartbeats.values()) clearInterval(heartbeat);
+    this.admissionHeartbeats.clear();
+    for (const controller of this.admissionControllers.values()) controller.abort();
+    this.admissionControllers.clear();
   }
 
   private schedule(delayMs: number, generation: number): void {
@@ -87,64 +100,133 @@ export class AgentInboxScheduler {
           possessionRevision: item.command.possessionRevision,
           a2aHandoff: item.command.a2aHandoff,
           contextScenario: item.command.contextScenario,
+          wakeup: item.command.wakeup,
+          evaluation: item.command.evaluation,
           legacyProposal: item.command.legacyProposal,
+          inboxItemId: item.id,
+          runtimeOwnerToken: item.leaseToken,
         };
-        const submission = this.options.submit(trigger);
+        const controller = new AbortController();
+        const submission = this.options.submit(trigger, {
+          signal: controller.signal,
+          canAcknowledge: () => this.inbox.ownsClaim(item.id, item.leaseToken!),
+          commitRuntimeStart: (_envelopeId, acknowledgeEnvelope, context) => (
+            this.inbox.admitWithClaimFence(
+              item.id,
+              item.leaseToken!,
+              acknowledgeEnvelope,
+              context,
+            )
+          ),
+        });
         if (submission.disposition === 'deferred') {
-          this.inbox.release(item.id, item.leaseToken, this.retryDelayMs, 'agent_busy');
+          controller.abort();
+          this.inbox.release(
+            item.id,
+            item.leaseToken,
+            this.retryBackoffMs(item.attemptCount),
+            'agent_busy',
+          );
           continue;
         }
-        if (submission.disposition === 'duplicate') {
-          this.trackSettlement(item.id, item.leaseToken, submission.completion);
-          continue;
-        }
-        this.trackSettlement(item.id, item.leaseToken, submission.completion);
+        this.trackAdmission(
+          item.id,
+          item.leaseToken,
+          item.attemptCount,
+          submission.started,
+          controller,
+        );
       }
     } catch (error) {
       console.error('[agent-inbox] scheduler tick failed:', error);
     }
   }
 
-  private trackSettlement(
-    itemId: string,
-    leaseToken: string,
-    completion: InvocationSubmission['completion'],
-  ): void {
-    const settlement = this.settle(itemId, leaseToken, completion)
-      .catch((error) => {
-        console.error('[agent-inbox] Invocation Pipeline settlement failed:', error);
-      })
-      .finally(() => {
-        this.settlements.delete(settlement);
-      });
-    this.settlements.add(settlement);
+  private retryBackoffMs(attemptCount: number): number {
+    const exponent = Math.max(0, Math.min(attemptCount - 1, 20));
+    return Math.min(this.maxRetryDelayMs, this.retryDelayMs * (2 ** exponent));
   }
 
-  private async settle(
+  private trackAdmission(
     itemId: string,
     leaseToken: string,
-    completion: InvocationSubmission['completion'],
+    attemptCount: number,
+    started: InvocationSubmission['started'],
+    controller: AbortController,
+  ): void {
+    const admission = this.admitAfterRuntimeStart(
+      itemId,
+      leaseToken,
+      attemptCount,
+      started,
+      controller,
+    )
+      .catch((error) => {
+        console.error('[agent-inbox] Runtime admission failed:', error);
+      })
+      .finally(() => {
+        this.admissions.delete(admission);
+      });
+    this.admissions.add(admission);
+  }
+
+  private async admitAfterRuntimeStart(
+    itemId: string,
+    leaseToken: string,
+    attemptCount: number,
+    started: InvocationSubmission['started'],
+    controller: AbortController,
   ): Promise<void> {
-        const settlementKey = `${itemId}:${leaseToken}`;
-        const heartbeat = setInterval(() => {
-          this.inbox.renew(itemId, leaseToken, this.leaseMs);
-        }, this.heartbeatMs);
-        heartbeat.unref?.();
-        this.settlementHeartbeats.set(settlementKey, heartbeat);
-        try {
-          const outcome = await completion;
-          if (outcome.status === 'accepted') {
-            this.inbox.admit(itemId, leaseToken);
-          } else if (outcome.status === 'deferred') {
-            this.inbox.release(itemId, leaseToken, this.retryDelayMs, outcome.reasonCode);
-          } else {
-            this.inbox.expire(itemId, leaseToken, outcome.reasonCode);
-          }
-        } finally {
-          clearInterval(heartbeat);
-          if (this.settlementHeartbeats.get(settlementKey) === heartbeat) {
-            this.settlementHeartbeats.delete(settlementKey);
-          }
-        }
+    const admissionKey = `${itemId}:${leaseToken}`;
+    const heartbeat = setInterval(() => {
+      if (!this.inbox.renew(itemId, leaseToken, this.leaseMs)) controller.abort();
+    }, this.heartbeatMs);
+    heartbeat.unref?.();
+    this.admissionHeartbeats.set(admissionKey, heartbeat);
+    this.admissionControllers.set(admissionKey, controller);
+    try {
+      const outcome = await started;
+      const runtimeStartFailureCount = this.inbox.get(itemId)?.runtimeStartFailureCount
+        ?? this.maxStartAttempts;
+      if (outcome.status === 'accepted') {
+        // Production admission is committed atomically with Envelope ACK.
+        // Deterministic test runtimes may resolve `started` without an Envelope.
+        if (this.inbox.ownsClaim(itemId, leaseToken)) this.inbox.admit(itemId, leaseToken);
+      } else if (outcome.status === 'deferred') {
+        this.inbox.release(
+          itemId,
+          leaseToken,
+          this.retryBackoffMs(attemptCount),
+          outcome.reasonCode,
+        );
+      } else if (
+        outcome.status === 'failed'
+        && outcome.reasonCode === 'runtime_start_failed'
+        && runtimeStartFailureCount + 1 < this.maxStartAttempts
+      ) {
+        this.inbox.release(
+          itemId,
+          leaseToken,
+          this.retryBackoffMs(attemptCount),
+          outcome.reasonCode,
+          true,
+        );
+      } else {
+        this.inbox.expire(
+          itemId,
+          leaseToken,
+          outcome.reasonCode,
+          outcome.status === 'failed' && outcome.reasonCode === 'runtime_start_failed',
+        );
+      }
+    } finally {
+      clearInterval(heartbeat);
+      if (this.admissionHeartbeats.get(admissionKey) === heartbeat) {
+        this.admissionHeartbeats.delete(admissionKey);
+      }
+      if (this.admissionControllers.get(admissionKey) === controller) {
+        this.admissionControllers.delete(admissionKey);
+      }
+    }
   }
 }

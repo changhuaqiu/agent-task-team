@@ -1,15 +1,15 @@
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from '../db';
-import { PlatformEventLog } from './event-log';
-import { RuntimeAgentEventBridge } from './runtime-agent-event-bridge';
-import { RuntimeEventPublisher } from './runtime-event-publisher';
+import { PlatformEventLog } from '../platform-events/event-log';
+import { AcpTurnEventNormalizer } from './acp-turn-event-normalizer';
+import { RuntimeEventPublisher } from '../platform-events/runtime-event-publisher';
 
-describe('RuntimeAgentEventBridge', () => {
+describe('AcpTurnEventNormalizer', () => {
   let db: Database.Database;
   let log: PlatformEventLog;
   let publisher: RuntimeEventPublisher;
-  let bridge: RuntimeAgentEventBridge;
+  let bridge: AcpTurnEventNormalizer;
   let id = 0;
 
   beforeEach(() => {
@@ -33,7 +33,7 @@ describe('RuntimeAgentEventBridge', () => {
     });
     publisher.publish('runtime.invocation.accepted', { envelopeId: 'envelope-1' });
     publisher.publish('runtime.invocation.started', { adapter: 'acp', engine: 'codex' });
-    bridge = new RuntimeAgentEventBridge({
+    bridge = new AcpTurnEventNormalizer({
       invocationId: 'inv-1',
       publish: (type, payload) => {
         publisher.publish(type, payload);

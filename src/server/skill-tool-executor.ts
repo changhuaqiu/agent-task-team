@@ -17,6 +17,7 @@ import type { ImplementationEvidence, MergeEvidence, ReviewEvidence } from '@/li
 import type { Server as IOServer } from 'socket.io';
 import { appendTaskToOwnedTasksMd, updateTaskInMd } from './task-file-service';
 import { startArtifactLoopbackServer } from './verification/artifact-loopback-server';
+import { publishProjectView } from './project-view/project-view-publisher';
 
 // ── Types ──────────────────────────────────────
 
@@ -96,13 +97,22 @@ function reconcileAuthoritativeTaskProjection(invocation: ToolInvocation, taskId
         metadata: { taskProjectDir: invocation.taskProjectDir, error: error instanceof Error ? error.message : String(error) },
       });
       const projectionProjectId = task?.conversation_id ?? invocation.conversationId;
-      invocation.io?.to(projectionProjectId).emit('task.sync_error', {
-        projectId: projectionProjectId,
-        conversationId: projectionProjectId,
-        taskId,
-        reasonCode: 'runtime_projection_failed',
-        message: 'Task receipt was committed, but the runtime TASKS.md projection needs reconciliation.',
-      });
+      if (invocation.io) {
+        publishProjectView(invocation.io, projectionProjectId, {
+          type: 'task.sync_error',
+          delivery: 'durable',
+          actor: { type: 'system', id: 'skill-tool-executor' },
+          subject: { type: 'task', id: taskId },
+          correlationId: invocation.correlationId ?? `task:${taskId}`,
+          causationId: invocation.causationId ?? invocation.correlationId ?? `task:${taskId}`,
+          payload: {
+            conversationId: projectionProjectId,
+            taskId,
+            reasonCode: 'runtime_projection_failed',
+            message: 'Task receipt was committed, but the runtime TASKS.md projection needs reconciliation.',
+          },
+        });
+      }
     } catch (proofError) {
       console.error('[skill-tool] failed to persist runtime projection reconciliation proof:', proofError);
     }

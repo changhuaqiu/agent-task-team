@@ -76,6 +76,78 @@ describe('AgentInbox', () => {
     expect(inbox.claimNext()!.id).toBe(second.id);
   });
 
+  it('does not claim the next lane item while another Runtime owner lease is live', () => {
+    const item = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'cross-daemon-lane',
+      command: { source: 'system', prompt: 'Wait for the other daemon' },
+    });
+    const leaseExpiry = new Date(now.getTime() + 30_000).toISOString();
+    db.prepare(`INSERT INTO invocation
+      (id,conversation_id,agent_id,status,lease_expiry,runtime_owner_id,runtime_owner_token,
+       revision,created_at,updated_at)
+      VALUES ('inv-live','project-1','implementer','running',?,'daemon-1','owner-1',0,?,?)`)
+      .run(leaseExpiry, now.toISOString(), now.toISOString());
+
+    expect(inbox.claimNext()).toBeUndefined();
+    now = new Date(now.getTime() + 30_001);
+    expect(inbox.claimNext()?.id).toBe(item.id);
+  });
+
+  it('commits claim admission and Envelope acknowledgement as one fenced transaction', () => {
+    const item = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'atomic-runtime-ack',
+      command: { source: 'system', prompt: 'Commit atomically', taskId: 'TASK-1' },
+    });
+    const claim = inbox.claimNext()!;
+    db.prepare(`INSERT INTO invocation
+      (id,conversation_id,agent_id,status,lease_expiry,runtime_owner_id,runtime_owner_token,
+       revision,created_at,updated_at)
+      VALUES ('inv-1','project-1','implementer','starting',?,'daemon-1',?,0,?,?)`)
+      .run(
+        new Date(now.getTime() + 30_000).toISOString(),
+        claim.leaseToken,
+        now.toISOString(),
+        now.toISOString(),
+      );
+    db.exec('CREATE TABLE runtime_ack_probe (acknowledged INTEGER NOT NULL)');
+    db.prepare('INSERT INTO runtime_ack_probe (acknowledged) VALUES (0)').run();
+
+    const admission = { invocationId: 'inv-1', traceId: 'trace-1' };
+    const committed = inbox.admitWithClaimFence(item.id, claim.leaseToken!, () => {
+      db.prepare('UPDATE runtime_ack_probe SET acknowledged=1').run();
+      db.prepare(`UPDATE agent_inbox_item
+        SET status='cancelled',lease_token=NULL,lease_expires_at=NULL,
+          settled_at=?,updated_at=? WHERE id=?`).run(
+        now.toISOString(),
+        now.toISOString(),
+        item.id,
+      );
+      return true;
+    }, admission);
+
+    expect(committed).toBe(false);
+    expect(db.prepare('SELECT acknowledged FROM runtime_ack_probe').get())
+      .toEqual({ acknowledged: 0 });
+    expect(inbox.get(item.id)).toMatchObject({
+      status: 'claimed',
+      leaseToken: claim.leaseToken,
+    });
+
+    expect(inbox.admitWithClaimFence(item.id, claim.leaseToken!, () => {
+      db.prepare('UPDATE runtime_ack_probe SET acknowledged=1').run();
+      return true;
+    }, admission)).toBe(true);
+    expect(db.prepare('SELECT acknowledged FROM runtime_ack_probe').get())
+      .toEqual({ acknowledged: 1 });
+    expect(inbox.get(item.id)?.status).toBe('admitted');
+    expect(log.listStream('agent-work:project-1:implementer').at(-1)?.payload)
+      .toMatchObject({ runtimeAdmission: admission });
+  });
+
   it('carries source correlation and causation into the durable work command', () => {
     const source = log.append({
       type: 'task.assigned',

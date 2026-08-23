@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTurnScopedAcpEventMapper } from '../agent/acp/agentEventMapper';
 import { createTestDb } from '../db';
-import { AcpRuntimeEventCoordinator } from './acp-runtime-event-coordinator';
+import { AcpRuntimeEventCoordinator } from '../agent-runtime';
 import { PlatformEventLog } from './event-log';
 
 describe('ACP Runtime event integration', () => {

@@ -24,6 +24,25 @@ function emitServerEvent(event: string, payload: unknown) {
   (socket as unknown as { emitEvent(args: unknown[]): void }).emitEvent([event, payload]);
 }
 
+function emitTaskState(task: Record<string, unknown>): void {
+  emitServerEvent('project:view', {
+    version: 2,
+    envelopeVersion: 1,
+    eventId: `task-state-${String(task.id)}-${String(task.revision)}`,
+    projectId: CONVERSATION_ID,
+    occurredAt: typeof task.updated_at === 'string'
+      ? task.updated_at
+      : '2026-08-16T00:00:00.000Z',
+    type: 'task.state',
+    delivery: 'durable',
+    actor: { type: 'system', id: 'task-command-service' },
+    subject: { type: 'task', id: String(task.id) },
+    correlationId: String(task.id),
+    causationId: `task-revision:${String(task.id)}:${String(task.revision ?? 0)}`,
+    payload: { task },
+  });
+}
+
 function account(): Account {
   return {
     id: ACCOUNT_ID,
@@ -390,9 +409,7 @@ describe('server hydration runtime gate', () => {
 
     const refresh = useTaskHubStore.getState().loadFromServer();
     await stateRequested;
-    emitServerEvent('task.state', {
-      projectId: CONVERSATION_ID,
-      task: {
+    emitTaskState({
         id: 'TASK-STATE-RACE',
         conversation_id: CONVERSATION_ID,
         title: 'New socket fact',
@@ -404,7 +421,6 @@ describe('server hydration runtime gate', () => {
         revision: 2,
         created_at: '2026-08-16T00:00:00.000Z',
         updated_at: '2026-08-16T00:02:00.000Z',
-      },
     });
     resolveState(json({
       conversations: [{
@@ -468,9 +484,7 @@ describe('server hydration runtime gate', () => {
 
     const refresh = useTaskHubStore.getState().loadFromServer();
     await stateRequested;
-    emitServerEvent('task.state', {
-      projectId: CONVERSATION_ID,
-      task: {
+    emitTaskState({
         id: 'TASK-SOCKET-CREATED',
         conversation_id: CONVERSATION_ID,
         title: 'Socket-created task',
@@ -482,7 +496,6 @@ describe('server hydration runtime gate', () => {
         revision: 0,
         created_at: '2026-08-16T00:03:00.000Z',
         updated_at: '2026-08-16T00:03:00.000Z',
-      },
     });
     resolveState(json({
       conversations: [{

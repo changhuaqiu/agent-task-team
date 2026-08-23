@@ -5,6 +5,7 @@ import { invocationRepo } from '@/server/repositories/invocation-repo';
 import { generateTraceId, observationSpanRepo } from '@/server/repositories/observation-span-repo';
 import { projectObservationProjection } from '@/server/observability/ProjectObservationProjection';
 import { AgentInbox } from '@/server/platform-events/agent-inbox';
+import { CollaborationKernel } from '@/server/collaboration-kernel';
 import { A2ACollaborationRepository } from '@/server/a2a/collaboration';
 
 beforeEach(() => { setTestDb(createTestDb()); conversationRepo.create({ id: 'conv-obs', title: 'Observability' }); });
@@ -15,10 +16,10 @@ describe('projectObservationProjection', () => {
     let sequence = 0;
     const collaboration = new A2ACollaborationRepository({
       db: getDb(),
-      inbox: new AgentInbox({
+      collaboration: new CollaborationKernel({ inbox: new AgentInbox({
         db: getDb(),
         idFactory: (prefix) => `${prefix}-${++sequence}`,
-      }),
+      }) }),
       idFactory: (prefix) => `${prefix}-${++sequence}`,
     });
     const chain = collaboration.createChain({

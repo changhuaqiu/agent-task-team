@@ -1,16 +1,10 @@
 import type Database from 'better-sqlite3';
 import { getDb } from '../db';
-import type { AgentInboxItem } from '../platform-events/agent-inbox';
 import type { PlatformEventHandler } from '../platform-events/dispatcher';
 import { A2ACollaborationRepository } from './collaboration';
 
 interface RuntimeCompletionPassRow {
   pass_id: string | null;
-}
-
-interface InboxRow {
-  command_json: string;
-  last_error: string | null;
 }
 
 export interface A2ALifecycleProcessManagerOptions {
@@ -32,21 +26,17 @@ export class A2ALifecycleProcessManager {
     if (signal.aborted) throw signal.reason ?? new Error('a2a_lifecycle_processing_aborted');
     const db = this.database ?? getDb();
     if (event.type.startsWith('agent.work.')) {
-      const row = db.prepare(`
-        SELECT command_json,last_error FROM agent_inbox_item WHERE id=?
-      `).get(event.aggregate.id) as InboxRow | undefined;
-      if (!row) return;
-      const command = JSON.parse(row.command_json) as AgentInboxItem['command'];
-      if (!command.passId) return;
+      const payload = event.payload as { passId?: string; reasonCode?: string };
+      if (!payload.passId) return;
       if (event.type === 'agent.work.admitted') {
-        this.advanceToStarting(command.passId);
+        this.advanceToStarting(payload.passId);
       } else if (
         event.type === 'agent.work.expired'
         || event.type === 'agent.work.cancelled'
       ) {
         this.failBeforeStart(
-          command.passId,
-          row.last_error ?? (
+          payload.passId,
+          payload.reasonCode ?? (
             event.type === 'agent.work.cancelled'
               ? 'agent_work_cancelled'
               : 'agent_work_expired'

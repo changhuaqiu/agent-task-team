@@ -168,23 +168,25 @@ export class DispatchGateway {
     return executionEnvelopeRepo.getById(envelope.id)!;
   }
 
-  markSent(envelopeId: string): void {
+  markSent(envelopeId: string): boolean {
     const envelope = executionEnvelopeRepo.transition(envelopeId, {
       to: 'sent',
       expectedFrom: 'routed',
     });
-    if (!envelope) return;
+    if (!envelope) return false;
     proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.sent'));
+    return true;
   }
 
-  acknowledge(envelopeId: string): void {
+  acknowledge(envelopeId: string): boolean {
     const envelope = executionEnvelopeRepo.transition(envelopeId, {
       to: 'acknowledged',
       expectedFrom: 'sent',
     });
-    if (!envelope) return;
+    if (!envelope) return false;
     agentBindingRepo.markStarted(envelope.conversation_id, envelope.to_agent_id, envelope.id);
     proofLogRepo.append(this.eventFromEnvelope(envelope, 'dispatch.acknowledged'));
+    return true;
   }
 
   markExecutionFinished(envelopeId: string): void {

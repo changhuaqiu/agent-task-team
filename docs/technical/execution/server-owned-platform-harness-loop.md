@@ -23,7 +23,7 @@ Accepted and implemented — 2026-07-14（2026-07-26 完成浏览器控制路径
 - Task/A2A repository 负责业务状态；
 - 浏览器只提交用户意图并投影服务端状态。
 
-ACP 和 legacy backend 都位于 `AgentRuntimePort` 后面。ACP 集成不改变 Invocation Pipeline 上层契约。
+ACP executor 位于 `AgentRuntime` 后面；legacy backend 已删除。ACP 集成不改变 Invocation Pipeline 上层契约。
 
 ## 放弃的方案
 

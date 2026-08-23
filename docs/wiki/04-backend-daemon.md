@@ -110,7 +110,7 @@ Repository 当前覆盖的核心对象：
 - [`src/server/workdir-manager.ts`](../../src/server/workdir-manager.ts) — WorkdirManager：统一拥有 per-task cwd 解析、GC 元数据与 Worktree GC；路径编码和 GC row 属于内部实现，不生成无人消费的 session/role/team sidecar 文件。逻辑与 runtime session 持久化由 `sessionRepo` 唯一拥有
 - [`src/lib/agent-context/layers/toolLayer.ts`](../../src/lib/agent-context/layers/toolLayer.ts) — 从 skill.config.tools 生成 tool 定义注入 prompt
 - [`src/server/task-file-service.ts`](../../src/server/task-file-service.ts) — TaskFileService：md 读写解析（ParsedTask + ParsedBlocker + 格式兼容）
-- [`src/server/task-file-watcher.ts`](../../src/server/task-file-watcher.ts) — TaskFileWatcher：chokidar 文件监听 + DB 创建/更新 + Socket 广播
+- [`src/server/task-file-watcher.ts`](../../src/server/task-file-watcher.ts) — TaskFileWatcher：chokidar 文件监听 + DB 创建/更新 + 统一 Project View 投影
 - [`src/server/skill-tool-executor.ts`](../../src/server/skill-tool-executor.ts) — Skill Tool 执行器：直接 DB 查询 + 文件双写
 - [`src/server/skill-tool-router.ts`](../../src/server/skill-tool-router.ts) — 正式平台 Tool 名称 allowlist
 
@@ -125,9 +125,13 @@ Repository 当前覆盖的核心对象：
 [`src/server/daemon.ts`](../../src/server/daemon.ts) 是服务端执行器，接收 Invocation Planner 已裁决的
 `InvocationDispatchPlan`：
 
-- 通过 [`DaemonExecutionAdapter`](../../src/server/daemon-execution-adapter.ts) 暴露最小 `isBusy + execute(plan)` 端口；
-  Adapter 先原子占用本地 agent + delivery 进程键，占位成功后才建立定向 envelope、完成 `sent -> acknowledged`，
+- 通过 [`DirectedAgentRuntime`](../../src/server/agent-runtime/directed-agent-runtime.ts) 暴露最小 `isBusy + execute(plan)` 端口；
+  Agent Runtime 先原子占用本地 agent + project 进程键，占位成功后才建立定向 envelope、完成 `sent -> acknowledged`，
   再进入慢速 backend setup；并发 activation 在 envelope 创建前以 `agent_busy` 延后
+- [`AcpRuntimeDriver`](../../src/server/agent-runtime/acp-runtime-driver.ts) 统一拥有 ACP Catalog、隔离环境、
+  permission policy、backend/exec options 与 setup cleanup
+- [`AgentSessionLifecycle`](../../src/server/agent-runtime/agent-session-lifecycle.ts) 原子完成 Session generation rotation
+  和 Invocation acquisition；[`AgentProcessRegistry`](../../src/server/agent-runtime/agent-process-registry.ts) 拥有占位、活动进程、kill 与 shutdown cleanup
 - 使用 Plan 中已裁决的 engine / runtime / account / context / WorkContract
 - 查找或创建 agent session
 - 创建 invocation 记录
@@ -161,23 +165,25 @@ Daemon 的边界是执行，不是团队规则解释器：
 - Daemon 不直接读取前端 store，也不在执行循环中手写 TeamPack workflow 或通信矩阵判断。
 - Task Graph 的恢复、closure wakeup 和归档扫描由独立
   [`AutonomyGuardOwner`](../../src/server/control-plane/autonomy-guard-owner.ts) 决策；它可与 executor 同进程部署，
-  但不属于 daemon transport 或 ExecutionAdapter。
+  但不属于 daemon transport 或 Agent Runtime。
 
 ## 4.4 Socket 事件协议
 
 ### 输入事件
 
 浏览器不再拥有执行输入事件：`terminal:start` 与 `terminal:kill` Socket 命令均已删除。服务端内部入口是
-`AgentInbox/Task Wakeup -> InvocationCoordinator -> InvocationPlanner -> DaemonExecutionAdapter`。
+`AgentInbox/Task Wakeup -> InvocationCoordinator -> InvocationPlanner -> DirectedAgentRuntime`。
 
 `daemon:status` 是当前保留的只读 Socket 查询，只用于按项目水合活动 Agent，不具备启动、取消、重试或恢复写权限。
 
 ### 输出事件
 
-- `project:view` — 带版本和 `projectId` 的 Runtime/ACP 展示信封，只向项目 room 投递
-- `task.sync` — 任务文件变更同步（来自 TaskFileWatcher，含 tasks + blockers + conversationId）
-- `task.state` / `task.notification` / `task.wakeup` — 项目任务展示事件；浏览器不负责自动 dispatch
-- `a2a:*` / `dispatch.receipt` — 项目协作展示事件；执行和失败处理留在服务端
+- `project:view` — 唯一项目运行展示通道。信封共享 event identity、actor/subject、
+  correlation/causation 与 `projectId`，并显式区分 `durable` / `transient`；Runtime/ACP、Task、
+  A2A、消息、dispatch receipt 和 projection error 都以明确 `type` 进入该通道
+
+旧 `task.state`、`task.notification`、`task.wakeup`、`task.sync`、`task.sync_error`、
+`dispatch.receipt` 与 `command:error` Socket 协议已删除，不保留双写或客户端兼容 listener。
 
 除系统级 `runtimes:update` 外，项目事实不得使用全局 `io.emit`；必须携带 `projectId` 并投递到同名 room。
 
@@ -243,8 +249,8 @@ identity 或 causation，不能替换 trace。所有 A2A domain event 与下游 
 2. `prepareAcpRuntime(entry, ...)` 做每运行时准备：opencode 在隔离临时目录写 fallback config 并通过 `OPENCODE_CONFIG` 注入，不修改项目文件；codex 隔离 `CODEX_HOME`（复制必要配置到收紧权限的临时目录，turn 后幂等清理）；claude passthrough（认证来自主机）。
 3. `createAcpBackend(entry, ...)` 构造 `AcpBackend`——由该唯一 backend 直接经 `cross-spawn`（Windows `.cmd/.bat` 安全）启动进程，完成 `initialize` → `session/new` → `prompt`，把 `session/update` 映射为统一 `AgentEvent`；不保留单调用者透传 spawn 模块。
    `AcpBackend` 同时是终止事件的唯一归一化 owner：每个事件流恰好包含一个 `done`，daemon 不再对返回流做第二次包装或补写。
-4. daemon 通过 `AcpRuntimeEventCoordinator` 驱动 canonical 生命周期，并由其内部
-   `RuntimeAgentEventBridge` 将 `AgentEvent` 归一化为 `runtime.*` Platform Event。
+4. Agent Runtime 的 `AcpRuntimeEventCoordinator` 驱动 canonical 生命周期，并由同模块内部
+   `AcpTurnEventNormalizer` 将 `AgentEvent` 归一化为 `runtime.*` Platform Event。
    Socket、消息、Invocation、A2A outcome 与 observation 均从该事件流消费；原始
    text/thinking delta 仅作为低延迟瞬态传输，不是持久事实。
 
@@ -262,7 +268,7 @@ aggregate、actor、correlation 和 causation 引用。migration 按 `_schema_ve
   accepted、started、Session binding/confirm、活动、正常终态与启动失败终态；
 - `RuntimeEventPublisher` 在 SQLite immediate transaction 内按持久事件校验状态，
   即使多个 publisher 实例竞争，也不会在 terminated 后追加活动；
-- `RuntimeAgentEventBridge` 把现有 text/thinking/plan/tool/error/usage 信号归一化为
+- `AcpTurnEventNormalizer` 把现有 text/thinking/plan/tool/error/usage 信号归一化为
   Runtime 活动事件，并维护 turn-scoped segment 与 legacy tool call 关联；文本和
   thinking delta 只实时广播，事件日志仅写完成的合并段；ACP 工具中间状态不生成
   终态，`failed` 与 `completed` 分别写入失败和完成事实；
@@ -292,9 +298,10 @@ daemon 还启动持久 `AgentInboxScheduler`。`agent_inbox_item` 是 Agent Comm
 事实源：按 project + ProjectAgent 保证同一 Agent 同时最多一个 claim，并禁止延迟的队首
 被后续 item 超车；使用 lease token 隔离过期 worker，Harness 异步接管期间持续 heartbeat，
 在 lease 过期或 Harness 返回 busy 时重新排队。不同 Agent 的 settlement 可并发。enqueue、claim 和恢复
-分别与 `agent.work.enqueued/claimed/recovered` coordination 事件同事务写入。
-`AgentInboxRouter` 只把 domain event 解析为幂等 Inbox Command，不直接启动 Runtime；
-Scheduler claim 后才通过 Harness 提交执行。`dispatch.enqueue` API 已改为写 Inbox，
+分别与 `agent.work.enqueued/claimed/released` coordination 事件同事务写入。
+`CollaborationKernel` 将所有 domain intent 编译为带 identity、scope、cause 与 reply address 的幂等 Inbox
+Command，不直接启动 Runtime；Scheduler claim 后才通过 Invocation Pipeline 提交执行。claim token 会传到
+Runtime ACK closure，取消或 lease loss 后旧 worker 不能迟到 ACK。`dispatch.enqueue` API 已改为写 Inbox，
 不再伪造空引擎 invocation；浏览器 `pendingDispatches` 仅是按项目从服务端恢复的显示投影，
 写入使用稳定 idempotency key 确认并重试；请求失败只表示提交结果未知，不被当成服务端未写入，
 未确认项不会因 Runtime 终态被移除。移除、清空和强制发送均先按 project + ProjectAgent +
@@ -306,7 +313,7 @@ autonomous delivery、A2A、execution envelope、agent binding、runtime node、
 invocation 与 session。inline seam 只做状态守护和事件 append，不做网络 I/O 或 fan-out；
 `DomainEventPublisher` 失败会回滚对应领域写入。Dispatcher 下半部注册
 `task-wakeup-router:v1` 以及 task/review 两个稳定的 delivery Process Manager handler：
-Router 只创建 Inbox Command，并在恢复历史事件时核对当前 task 状态；终态事实会取消尚未
+Router 只创建 WorkRequest，并在恢复历史事件时核对当前 task 状态；终态事实会取消尚未
 claim 的旧命令。Process Manager 只调用 delivery advancement port；该 port 以 source
 event 幂等持久接纳请求，delivery worker 在 `DeliveryControlRuntime.advance()`
 真正成功前不确认完成，失败会重新排队。内部 `DeliveryControlProcessManager` 依据权威
@@ -317,8 +324,8 @@ reconcile 仅保留为 crash/retry 恢复触发器。
 兼容双写已经退出：daemon 不再持久化 `agent_event`，`event.append` mutation 已删除，
 `forwardAgentEvent()` 的消息、UI、observability 与 A2A 缓冲副作用已由 canonical 消费者
 替代。A2A completion 从该 Invocation 的完成消息段重建输出，不再读取进程内文本缓冲。
-长期契约见
-[`platform-runtime-event-model.md`](../technical/execution/platform-runtime-event-model.md)。
+长期契约见 [`platform-runtime-event-model.md`](../technical/execution/platform-runtime-event-model.md)
+与 [`unified-event-agent-runtime.md`](../technical/execution/unified-event-agent-runtime.md)。
 
 Catalog 三个条目（spec §2 / §5.1）：
 

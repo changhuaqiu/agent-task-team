@@ -426,7 +426,7 @@ the actual `execution_envelope` table contract before mutating lifecycle state:
   and every runtime success, runtime failure, timeout, or setup-failure
   path settles the Invocation created by that attempt;
 - lifecycle methods report whether a transition was applied; daemon
-  `dispatch.receipt` events are emitted only for applied transitions, so late,
+  `project:view(type=dispatch.receipt)` events are emitted only for applied transitions, so late,
   duplicate, expired, and rejected callbacks cannot become UI lifecycle truth;
 - terminal Invocation outcomes are monotonic: runtime-session confirmation and
   other late callbacks cannot reverse a prior timeout or failure;
@@ -734,7 +734,8 @@ Future federation may extend this to a full PII pipeline and trust-level matrix.
   own budget escalates visibly instead of becoming a fake runtime failure.
 - Existing A2A compatibility dispatch passes chain/pass metadata into the execution envelope.
 - Task Graph policy now writes proof events for blocked high-impact actions and keeps task action ids correlated through task/pass fields where available.
-- Full directed runtime routing and executor-only envelope consumption remain future work.
+- Local directed routing and executor-only envelope admission are implemented by `DirectedAgentRuntime`;
+  multi-node remote transport consumption remains future work and fails closed today.
 
 ## Acceptance Criteria
 

@@ -35,12 +35,12 @@
 
 ## Phase 4: Runtime Router and Executor Contract
 
-- [ ] Add directed runtime routing by `toNodeId`.
-- [x] Keep socket compatibility events as transport adapters.
+- [x] Add local directed runtime routing by `toNodeId`; unconnected remote executors fail closed.
+- [x] Delete parallel socket compatibility events; publish typed presentation through `project:view` only.
 - [x] Make daemon acknowledge envelope start explicitly.
 - [x] Make local daemon execution report the same lifecycle states.
 - [x] Store envelope terminal state on completion, failure, timeout, or rejection.
-- [ ] Add integration tests for no-ACK and unreachable-node paths.
+- [x] Add runtime tests for no-ACK and unreachable-node fail-closed paths.
 
 ## Phase 5: Integration Migration
 

@@ -1,23 +1,19 @@
 import type { AgentEvent } from '../agent/types';
-import type { RuntimeEventPayload, RuntimeEventType } from './types';
+import type { RuntimeEventPayload, RuntimeEventType } from '../platform-events/types';
 
 export type RuntimeEventSink = <TType extends RuntimeEventType>(
   type: TType,
   payload: RuntimeEventPayload<TType>,
 ) => void;
 
-export interface RuntimeAgentEventBridgeOptions {
+export interface AcpTurnEventNormalizerOptions {
   invocationId: string;
   publish: RuntimeEventSink;
   isPlatformTool?: (toolName: string) => boolean;
 }
 
-/**
- * Compatibility adapter from the current AgentEvent stream into canonical
- * Runtime activity events. It owns only turn-local correlation state; Session
- * identity and Invocation lifecycle remain Platform Runtime responsibilities.
- */
-export class RuntimeAgentEventBridge {
+/** Turn-local ACP/AgentEvent normalization into canonical runtime.* events. */
+export class AcpTurnEventNormalizer {
   private messageSegment = 0;
   private thinkingSegment = 0;
   private textBuffer = '';
@@ -26,19 +22,15 @@ export class RuntimeAgentEventBridge {
   private readonly toolCalls = new Map<string, string[]>();
   private readonly isPlatformTool: (toolName: string) => boolean;
 
-  constructor(private readonly options: RuntimeAgentEventBridgeOptions) {
+  constructor(private readonly options: AcpTurnEventNormalizerOptions) {
     this.isPlatformTool = options.isPlatformTool ?? (() => false);
   }
 
   publish(event: AgentEvent): void {
     this.closeOtherSegment(event.type);
     switch (event.type) {
-      case 'text':
-        this.textBuffer += event.content;
-        break;
-      case 'thinking':
-        this.thinkingBuffer += event.content;
-        break;
+      case 'text': this.textBuffer += event.content; break;
+      case 'thinking': this.thinkingBuffer += event.content; break;
       case 'plan':
         this.options.publish('runtime.plan.updated', { content: event.content });
         break;
@@ -74,9 +66,7 @@ export class RuntimeAgentEventBridge {
         break;
       case 'error':
         this.options.publish('runtime.diagnostic.observed', {
-          severity: 'error',
-          reasonCode: 'adapter_event_error',
-          message: event.content,
+          severity: 'error', reasonCode: 'adapter_event_error', message: event.content,
         });
         if (/(websockets?.*(?:fallback|falling back)|falling back.*https|reconnecting)/i.test(event.content)) {
           this.options.publish('runtime.transport.degraded', {
@@ -87,18 +77,13 @@ export class RuntimeAgentEventBridge {
           });
         } else if (/(websockets?.*(?:recovered|connected)|transport recovered)/i.test(event.content)) {
           this.options.publish('runtime.transport.recovered', {
-            transport: 'websocket',
-            reasonCode: 'runtime_transport_recovered',
+            transport: 'websocket', reasonCode: 'runtime_transport_recovered',
           });
         }
         break;
-      case 'done':
-        this.flush();
-        break;
+      case 'done': this.flush(); break;
     }
-    if (event.usage) {
-      this.options.publish('runtime.usage.updated', event.usage);
-    }
+    if (event.usage) this.options.publish('runtime.usage.updated', event.usage);
   }
 
   flush(): void {

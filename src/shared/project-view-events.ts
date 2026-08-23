@@ -1,5 +1,13 @@
+import {
+  EVENT_ENVELOPE_VERSION,
+  isEventEnvelope,
+  isIdentityRef,
+  type EventEnvelope,
+  type IdentityRef,
+} from './event-envelope';
+
 export const PROJECT_VIEW_CHANNEL = 'project:view' as const;
-export const PROJECT_VIEW_VERSION = 1 as const;
+export const PROJECT_VIEW_VERSION = 2 as const;
 
 export type ProjectViewEventKind =
   | 'runtime.session'
@@ -15,22 +23,39 @@ export type ProjectViewEventKind =
   | 'runtime.completed'
   | 'a2a.snapshot'
   | 'chat.message.persisted'
+  | 'task.state'
+  | 'task.notification'
+  | 'task.wakeup'
+  | 'task.sync'
+  | 'task.sync_error'
+  | 'dispatch.receipt'
   | 'terminal.output'
   | 'terminal.exited';
 
 export interface ProjectViewEventInput {
-  kind: ProjectViewEventKind;
-  agentId?: string;
-  invocationId?: string;
+  type: ProjectViewEventKind;
+  delivery: 'durable' | 'transient';
+  actor: IdentityRef;
+  agent?: IdentityRef<'agent'>;
+  subject?: IdentityRef<string>;
+  correlationId: string;
+  causationId: string;
   eventId?: string;
   occurredAt?: string;
   payload: Record<string, unknown>;
+  source?: {
+    eventId: string;
+    streamKey: string;
+    streamSequence: number;
+  };
 }
 
-export interface ProjectViewEnvelope extends ProjectViewEventInput {
+export interface ProjectViewEnvelope
+  extends EventEnvelope<ProjectViewEventKind, Record<string, unknown>> {
   version: typeof PROJECT_VIEW_VERSION;
-  projectId: string;
-  occurredAt: string;
+  delivery: 'durable' | 'transient';
+  agent?: IdentityRef<'agent'>;
+  source?: ProjectViewEventInput['source'];
 }
 
 export type A2AProjectionChainStatus = 'active' | 'completed' | 'aborted' | 'timeout';
@@ -73,13 +98,21 @@ export interface A2AProjectionSnapshot {
 }
 
 export function isProjectViewEnvelope(value: unknown): value is ProjectViewEnvelope {
-  if (!value || typeof value !== 'object') return false;
+  if (!isEventEnvelope(value)) return false;
   const envelope = value as Partial<ProjectViewEnvelope>;
+  const actorType = envelope.actor?.type;
   return envelope.version === PROJECT_VIEW_VERSION
-    && typeof envelope.projectId === 'string'
-    && envelope.projectId.trim().length > 0
-    && typeof envelope.kind === 'string'
-    && typeof envelope.occurredAt === 'string'
+    && envelope.envelopeVersion === EVENT_ENVELOPE_VERSION
+    && typeof envelope.type === 'string'
+    && (actorType === 'user'
+      || actorType === 'agent'
+      || actorType === 'system'
+      || actorType === 'runtime')
+    && (envelope.agent === undefined
+      || (isIdentityRef(envelope.agent) && envelope.agent.type === 'agent'))
+    && typeof envelope.causationId === 'string'
+    && envelope.causationId.trim().length > 0
+    && (envelope.delivery === 'durable' || envelope.delivery === 'transient')
     && !!envelope.payload
     && typeof envelope.payload === 'object';
 }

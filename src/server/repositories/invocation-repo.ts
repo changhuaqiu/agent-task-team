@@ -12,14 +12,7 @@ const INVOCATION_STATUSES = [
 export type InvocationStatus = (typeof INVOCATION_STATUSES)[number];
 const INVOCATION_STATUS_SET = new Set<string>(INVOCATION_STATUSES);
 
-const INVOCATION_OUTCOMES = [
-  'completed',
-  'failed',
-  'cancelled',
-  'timed_out',
-] as const;
-
-export type InvocationOutcome = (typeof INVOCATION_OUTCOMES)[number];
+export type InvocationOutcome = 'completed' | 'failed' | 'cancelled' | 'timed_out';
 
 const INVOCATION_TRANSITIONS: Readonly<Record<InvocationStatus, ReadonlySet<InvocationStatus>>> = {
   planned: new Set(['starting', 'terminating', 'terminated']),
@@ -52,6 +45,8 @@ export interface InvocationRow {
   dispatch_status: string | null;
   token_usage: string | null;
   lease_expiry: string | null;
+  runtime_owner_id: string | null;
+  runtime_owner_token: string | null;
   started_at: string | null;
   terminated_at: string | null;
   revision: number;
@@ -74,6 +69,9 @@ export interface NewInvocation {
   fencing_token?: string;
   correlation_id?: string;
   causation_id?: string;
+  runtime_owner_id?: string;
+  runtime_owner_token?: string;
+  runtime_lease_ms?: number;
 }
 
 export type InvocationPatch = Partial<
@@ -159,15 +157,20 @@ function invocationStatusEvent(status: InvocationStatus): DomainEventType {
 
 export const invocationRepo = {
   create(input: NewInvocation): InvocationRow {
-    const now = new Date().toISOString();
+    const nowDate = new Date();
+    const now = nowDate.toISOString();
+    const leaseExpiry = input.runtime_owner_token
+      ? new Date(nowDate.getTime() + (input.runtime_lease_ms ?? 45_000)).toISOString()
+      : null;
     const db = getDb();
     return db.transaction(() => {
       db.prepare(
         `INSERT INTO invocation (
           id, conversation_id, task_id, agent_id, session_id, status,
           engine, account_id, prompt, work_contract_id, work_id, work_epoch,
-          fencing_token, revision, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          fencing_token, lease_expiry, runtime_owner_id, runtime_owner_token,
+          revision, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       )
       .run(
         input.id,
@@ -182,6 +185,9 @@ export const invocationRepo = {
         input.work_id ?? null,
         input.work_epoch ?? null,
         input.fencing_token ?? null,
+        leaseExpiry,
+        input.runtime_owner_id ?? null,
+        input.runtime_owner_token ?? null,
         now,
         now,
       );
@@ -224,6 +230,59 @@ export const invocationRepo = {
         'SELECT * FROM invocation WHERE conversation_id = ? ORDER BY created_at ASC, id ASC',
       )
       .all(conversationId) as InvocationRow[];
+  },
+
+  listUnterminatedForLane(conversationId: string, agentId: string): InvocationRow[] {
+    return getDb().prepare(`
+      SELECT * FROM invocation
+      WHERE conversation_id=? AND agent_id=? AND status<>'terminated'
+      ORDER BY created_at,id
+    `).all(conversationId, agentId) as InvocationRow[];
+  },
+
+  ownsRuntimeLease(id: string, ownerToken: string, now = new Date()): boolean {
+    return Boolean(getDb().prepare(`
+      SELECT 1 FROM invocation
+      WHERE id=? AND status<>'terminated' AND runtime_owner_token=? AND lease_expiry>?
+    `).get(id, ownerToken, now.toISOString()));
+  },
+
+  renewRuntimeLease(id: string, ownerToken: string, leaseMs = 45_000): boolean {
+    const nowDate = new Date();
+    const result = getDb().prepare(`
+      UPDATE invocation
+      SET lease_expiry=?,updated_at=?
+      WHERE id=? AND status<>'terminated' AND runtime_owner_token=? AND lease_expiry>?
+    `).run(
+      new Date(nowDate.getTime() + leaseMs).toISOString(),
+      nowDate.toISOString(),
+      id,
+      ownerToken,
+      nowDate.toISOString(),
+    );
+    return result.changes === 1;
+  },
+
+  /**
+   * Linearizes a Runtime-owned state change against lease takeover. The owner
+   * token and live lease are checked under the same SQLite writer transaction
+   * that publishes the Invocation transition.
+   */
+  transitionOwned(
+    id: string,
+    ownerToken: string,
+    transition: InvocationTransition,
+  ): InvocationRow | undefined {
+    const db = getDb();
+    return db.transaction(() => {
+      const now = new Date().toISOString();
+      const owned = db.prepare(`
+        SELECT 1 FROM invocation
+        WHERE id=? AND status<>'terminated' AND runtime_owner_token=? AND lease_expiry>?
+      `).get(id, ownerToken, now);
+      if (!owned) return undefined;
+      return invocationRepo.transition(id, transition);
+    }).immediate();
   },
 
   transition(id: string, transition: InvocationTransition): InvocationRow | undefined {

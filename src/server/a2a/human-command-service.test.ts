@@ -51,16 +51,6 @@ describe('HumanA2ACommandService', () => {
       handoff: {
         group: { mode: 'transfer', status: 'offered' },
         passes: [{ toAgentId: 'builder', status: 'offered' }],
-        inboxItems: [{
-          projectAgentId: 'builder',
-          status: 'enqueued',
-          command: {
-            source: 'a2a',
-            taskId: 'TASK-1',
-            fromAgentId: 'human',
-            passId: expect.any(String),
-          },
-        }],
       },
     });
     expect(getDb().prepare('SELECT COUNT(*) count FROM invocation').get())

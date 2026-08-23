@@ -64,5 +64,5 @@
 - [ ] Existing A2A possession behavior remains compatible during migration.
 - [ ] Existing direct user dispatch still works while moving through Dispatch Gateway.
 - [ ] Existing runtime execution can report lifecycle events in the new model.
-- [ ] Old compatibility socket events are treated as transport adapters.
-- [ ] Documentation reflects actual implementation state at every phase.
+- [x] Old compatibility socket events are deleted; `project:view` is the only project presentation transport.
+- [x] Documentation reflects the implemented local runtime and single project presentation transport.

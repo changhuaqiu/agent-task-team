@@ -4,6 +4,7 @@ import { createTestDb, resetDb, setTestDb } from '../db';
 import { taskRepo } from '../repositories/task-repo';
 import { buildWorkIdentity } from '../work-contract/work-identity';
 import { AgentInbox } from './agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 import { PlatformEventLog } from './event-log';
 import { TaskWakeupRouter } from './task-wakeup-router';
 
@@ -23,7 +24,9 @@ describe('TaskWakeupRouter', () => {
     `).run(now, now);
     log = new PlatformEventLog({ db });
     inbox = new AgentInbox({ db, eventLog: log });
-    router = new TaskWakeupRouter({ inbox });
+    router = new TaskWakeupRouter({
+      collaboration: new CollaborationKernel({ inbox }),
+    });
   });
 
   afterEach(() => resetDb());

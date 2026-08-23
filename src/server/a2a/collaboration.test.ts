@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 import { AgentInbox } from '../platform-events/agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 import { WorkContractRepository } from '../work-contract/repository';
 import {
   A2ACollaborationInvariantError,
@@ -38,11 +39,11 @@ describe('A2ACollaborationRepository', () => {
     sequence = 0;
     repository = new A2ACollaborationRepository({
       db,
-      inbox: new AgentInbox({
+      collaboration: new CollaborationKernel({ inbox: new AgentInbox({
         db,
         now: () => NOW,
         idFactory: (prefix) => `${prefix}-${++sequence}`,
-      }),
+      }) }),
       now: () => NOW,
       idFactory: (prefix) => `${prefix}-${++sequence}`,
     });
@@ -76,8 +77,9 @@ describe('A2ACollaborationRepository', () => {
       group: { mode: 'fan_out', status: 'offered', expectedCount: 2, hopCount: 1 },
     });
     expect(offered.passes.map((pass) => pass.toAgentId)).toEqual(['builder', 'reviewer']);
-    expect(offered.inboxItems).toHaveLength(2);
-    expect(offered.inboxItems.map((item) => item.command.passId)).toEqual(
+    const inboxItems = new AgentInbox({ db: getDb() }).listPending('project-a2a-aggregate');
+    expect(inboxItems).toHaveLength(2);
+    expect(inboxItems.map((item) => item.command.passId)).toEqual(
       offered.passes.map((pass) => pass.id),
     );
     expect(repository.getPossession(created.rootPossession.id)).toMatchObject({

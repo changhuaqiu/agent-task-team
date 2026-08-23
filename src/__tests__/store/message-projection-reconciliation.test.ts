@@ -23,12 +23,17 @@ function message(input: Partial<ChatMessage> & Pick<ChatMessage, 'id' | 'content
 
 function persistedEnvelope() {
   return {
-    version: 1 as const,
+    version: 2 as const,
+    envelopeVersion: 1 as const,
+    eventId: 'event-message-persisted',
     projectId: 'project-a',
     occurredAt: timestamp,
-    kind: 'chat.message.persisted' as const,
-    agentId: 'mario',
-    invocationId: 'inv-1',
+    type: 'chat.message.persisted' as const,
+    delivery: 'durable' as const,
+    actor: { type: 'agent', id: 'mario' },
+    subject: { type: 'invocation', id: 'inv-1' },
+    correlationId: 'inv-1',
+    causationId: 'runtime-event-1',
     payload: {
       message: {
         id: 'msg-durable',
@@ -236,12 +241,17 @@ describe('durable message reconciliation', () => {
     expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toHaveLength(2);
 
     expect(consumeProjectViewEvent({
-      version: 1,
+      version: 2,
+      envelopeVersion: 1,
+      eventId: 'event-runtime-completed',
       projectId: 'project-a',
       occurredAt: timestamp,
-      kind: 'runtime.completed',
-      agentId: 'mario',
-      invocationId: 'inv-1',
+      type: 'runtime.completed',
+      delivery: 'durable',
+      actor: { type: 'agent', id: 'mario' },
+      subject: { type: 'invocation', id: 'inv-1' },
+      correlationId: 'inv-1',
+      causationId: 'runtime-event-1',
       payload: { outcome: 'completed' },
     })).toBe(true);
 

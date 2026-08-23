@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { InvocationCoordinator, InvocationSubmission } from '../invocation-pipeline';
+import type { CollaborationKernel } from '../collaboration-kernel';
 import { getDb } from '../db';
 import { taskRepo } from '../repositories/task-repo';
 import { taskCommandService } from '../repositories/task-command-service';
@@ -100,7 +100,7 @@ export function createRunnerExperiment(input: {
 }
 
 export class EvaluationCaseRunner {
-  constructor(private readonly coordinator: Pick<InvocationCoordinator, 'submit'>) {}
+  constructor(private readonly collaboration: Pick<CollaborationKernel, 'request'>) {}
 
   pump(limit = 2): number {
     this.reconcileEvaluations();
@@ -180,30 +180,38 @@ export class EvaluationCaseRunner {
         },
       });
     }
-    transitionCaseExecution({
-      id: String(execution.id),
-      conversationId: String(execution.conversation_id),
-      status: 'planning',
-      taskId,
-      harnessTriggerId: String(execution.id),
-    });
-    let submission: InvocationSubmission;
     try {
-      submission = this.coordinator.submit({
-        id: String(execution.id),
-        idempotencyKey: String(execution.id),
-        source: 'test_gate',
-        conversationId: String(execution.conversation_id),
-        taskId,
-        agentId,
-        prompt: casePrompt(execution),
-        evaluation: {
-          executionId: String(execution.id),
-          caseId: String(execution.case_id),
-          applicationSnapshotId: String(execution.application_snapshot_id),
-          targetManifestDigest: String(execution.target_manifest_digest),
-        },
-      });
+      getDb().transaction(() => {
+        transitionCaseExecution({
+          id: String(execution.id),
+          conversationId: String(execution.conversation_id),
+          status: 'planning',
+          taskId,
+          harnessTriggerId: String(execution.id),
+        });
+        this.collaboration.request({
+          projectId: String(execution.conversation_id),
+          targetAgentId: agentId,
+          requestedAction: casePrompt(execution),
+          idempotencyKey: `evaluation:${String(execution.id)}`,
+          source: 'test_gate',
+          cause: {
+            correlationId: String(execution.id),
+            causationId: String(execution.case_id),
+          },
+          scope: { taskId },
+          context: {
+            scenario: 'verification',
+            evaluation: {
+              executionId: String(execution.id),
+              caseId: String(execution.case_id),
+              applicationSnapshotId: String(execution.application_snapshot_id),
+              targetManifestDigest: String(execution.target_manifest_digest),
+            },
+          },
+          replyTo: { type: 'evaluation_case', id: String(execution.id) },
+        });
+      }).immediate();
     } catch (error) {
       transitionCaseExecution({
         id: String(execution.id),
@@ -212,29 +220,7 @@ export class EvaluationCaseRunner {
         errorCode: 'harness_submit_failed',
         errorMessage: error instanceof Error ? error.message : String(error),
       });
-      return;
     }
-    void submission.completion.then((outcome) => {
-      if (outcome.status === 'accepted') return;
-      const current = getDb().prepare('SELECT status FROM eval_case_execution WHERE id=?')
-        .get(execution.id) as { status: string } | undefined;
-      if (current?.status !== 'planning') return;
-      if (outcome.status === 'deferred') {
-        transitionCaseExecution({
-          id: String(execution.id),
-          conversationId: String(execution.conversation_id),
-          status: 'queued',
-        });
-        return;
-      }
-      transitionCaseExecution({
-        id: String(execution.id),
-        conversationId: String(execution.conversation_id),
-        status: 'failed',
-        errorCode: 'reasonCode' in outcome ? outcome.reasonCode : 'harness_dispatch_failed',
-        errorMessage: 'message' in outcome ? outcome.message : undefined,
-      });
-    });
   }
 
   private reconcileEvaluations(): void {

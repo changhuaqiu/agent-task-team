@@ -1,11 +1,15 @@
 import type { AgentEvent, AgentResult } from '../agent/types';
-import { PlatformEventLog } from './event-log';
-import { RuntimeAgentEventBridge } from './runtime-agent-event-bridge';
+import { PlatformEventLog } from '../platform-events/event-log';
+import { AcpTurnEventNormalizer } from './acp-turn-event-normalizer';
 import {
   RuntimeEventPublisher,
   type RuntimeEventPublisherContext,
-} from './runtime-event-publisher';
-import type { PlatformEvent, RuntimeEventPayload, RuntimeEventType } from './types';
+} from '../platform-events/runtime-event-publisher';
+import type {
+  PlatformEvent,
+  RuntimeEventPayload,
+  RuntimeEventType,
+} from '../platform-events/types';
 
 export interface AcpRuntimeEventCoordinatorOptions {
   context: RuntimeEventPublisherContext;
@@ -26,7 +30,7 @@ export interface AcpRuntimeEventCoordinatorOptions {
  */
 export class AcpRuntimeEventCoordinator {
   private readonly publisher: RuntimeEventPublisher;
-  private readonly bridge: RuntimeAgentEventBridge;
+  private readonly bridge: AcpTurnEventNormalizer;
   private readonly now: () => number;
   private acceptedAtMs?: number;
   private terminated = false;
@@ -36,7 +40,7 @@ export class AcpRuntimeEventCoordinator {
       options.log ?? new PlatformEventLog(),
       options.context,
     );
-    this.bridge = new RuntimeAgentEventBridge({
+    this.bridge = new AcpTurnEventNormalizer({
       invocationId: options.context.invocationId,
       publish: (type, payload) => this.publish(type, payload),
       isPlatformTool: options.isPlatformTool,

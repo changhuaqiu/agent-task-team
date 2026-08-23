@@ -8,20 +8,28 @@ describe('ProjectViewPublisher', () => {
     const publisher = new ProjectViewPublisher({ to });
 
     const envelope = publisher.publish('project-a', {
-      kind: 'runtime.plan',
-      agentId: 'mario',
+      type: 'runtime.plan',
+      delivery: 'durable',
+      actor: { type: 'agent', id: 'mario' },
+      subject: { type: 'invocation', id: 'inv-1' },
       eventId: 'event-1',
+      correlationId: 'inv-1',
+      causationId: 'command-1',
       payload: { content: 'plan' },
     });
 
     expect(to).toHaveBeenCalledWith('project-a');
     expect(emit).toHaveBeenCalledWith('project:view', envelope);
     expect(envelope).toMatchObject({
-      version: 1,
+      version: 2,
+      envelopeVersion: 1,
       projectId: 'project-a',
-      kind: 'runtime.plan',
-      agentId: 'mario',
+      type: 'runtime.plan',
+      delivery: 'durable',
+      actor: { type: 'agent', id: 'mario' },
+      subject: { type: 'invocation', id: 'inv-1' },
       eventId: 'event-1',
+      causationId: 'command-1',
     });
     expect(envelope.occurredAt).toBeTruthy();
   });
@@ -32,8 +40,42 @@ describe('ProjectViewPublisher', () => {
     });
 
     expect(() => publisher.publish('  ', {
-      kind: 'runtime.warning',
+      type: 'runtime.warning',
+      delivery: 'transient',
+      actor: { type: 'system', id: 'test' },
+      correlationId: 'root-event',
+      causationId: 'root-event',
       payload: { message: 'no project' },
     })).toThrow('project_view_project_id_required');
+  });
+
+  it('rejects a projection without explicit correlation', () => {
+    const publisher = new ProjectViewPublisher({
+      to: vi.fn(() => ({ emit: vi.fn() })),
+    });
+
+    expect(() => publisher.publish('project-a', {
+      type: 'runtime.warning',
+      delivery: 'transient',
+      actor: { type: 'system', id: 'test' },
+      correlationId: '',
+      causationId: 'root-event',
+      payload: { message: 'uncorrelated' },
+    })).toThrow('project_view_correlation_id_required');
+  });
+
+  it('rejects a projection without explicit causation', () => {
+    const publisher = new ProjectViewPublisher({
+      to: vi.fn(() => ({ emit: vi.fn() })),
+    });
+
+    expect(() => publisher.publish('project-a', {
+      type: 'runtime.warning',
+      delivery: 'transient',
+      actor: { type: 'system', id: 'test' },
+      correlationId: 'trace-1',
+      causationId: '',
+      payload: { message: 'uncaused' },
+    })).toThrow('project_view_causation_id_required');
   });
 });

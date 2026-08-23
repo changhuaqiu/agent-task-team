@@ -4,10 +4,16 @@ import { useTaskHubStore } from '@/store/taskHubStore';
 
 function emitProjectView(payload: Record<string, unknown>) {
   (socket as unknown as { emitEvent(args: unknown[]): void }).emitEvent(['project:view', {
-    version: 1,
+    version: 2,
+    envelopeVersion: 1,
+    eventId: 'event-a2a-snapshot',
     projectId: 'project-a2a-view',
     occurredAt: '2026-07-28T00:00:00.000Z',
-    kind: 'a2a.snapshot',
+    type: 'a2a.snapshot',
+    delivery: 'durable',
+    actor: { type: 'system', id: 'a2a-projection' },
+    correlationId: 'chain-1',
+    causationId: 'a2a-source-1',
     payload,
   }]);
 }

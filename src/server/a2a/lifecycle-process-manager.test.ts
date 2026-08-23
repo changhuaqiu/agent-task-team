@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 import { AgentInbox } from '../platform-events/agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 import { PlatformEventLog } from '../platform-events/event-log';
 import { runtimeCompletionContextRepo } from '../platform-events/runtime-completion-process-manager';
 import { invocationRepo } from '../repositories/invocation-repo';
@@ -43,7 +44,7 @@ describe('A2ALifecycleProcessManager', () => {
     });
     collaboration = new A2ACollaborationRepository({
       db,
-      inbox,
+      collaboration: new CollaborationKernel({ inbox }),
       now: () => NOW,
       idFactory: (prefix) => `${prefix}-${++sequence}`,
     });

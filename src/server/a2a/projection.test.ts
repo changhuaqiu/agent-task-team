@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 import { AgentInbox } from '../platform-events/agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { A2ACollaborationRepository } from './collaboration';
 import { A2AReadModelProjection } from './projection';
@@ -17,10 +18,10 @@ describe('A2AReadModelProjection', () => {
     let sequence = 0;
     const repository = new A2ACollaborationRepository({
       db: getDb(),
-      inbox: new AgentInbox({
+      collaboration: new CollaborationKernel({ inbox: new AgentInbox({
         db: getDb(),
         idFactory: (prefix) => `${prefix}-${++sequence}`,
-      }),
+      }) }),
       idFactory: (prefix) => `${prefix}-${++sequence}`,
     });
     const created = repository.createChain({

@@ -4,6 +4,7 @@ import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository'
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { taskRepo } from '../repositories/task-repo';
 import { AgentInbox } from '../platform-events/agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 import { PlatformEventLog } from '../platform-events/event-log';
 import { buildWorkIdentity } from './work-identity';
 import { WorkContractRepository } from './repository';
@@ -104,7 +105,10 @@ describe('WorkLifecycleReconciler', () => {
     taskRepo.transition(task.id, { to: 'in_review' });
     taskRepo.transition(task.id, { to: 'done' });
     const taskDone = log.listStream(`task:${task.id}`).find((event) => event.type === 'task.done')!;
-    const reconciler = new WorkLifecycleReconciler({ inbox, contracts });
+    const reconciler = new WorkLifecycleReconciler({
+      collaboration: new CollaborationKernel({ inbox }),
+      contracts,
+    });
 
     await reconciler.handle(taskDone, { signal: new AbortController().signal });
 
@@ -162,7 +166,10 @@ describe('WorkLifecycleReconciler', () => {
     taskRepo.transition(task.id, { to: 'cancelled' });
     const taskTerminal = log.listStream(`task:${task.id}`)
       .find((event) => event.type === 'task.cancelled')!;
-    const reconciler = new WorkLifecycleReconciler({ inbox, contracts });
+    const reconciler = new WorkLifecycleReconciler({
+      collaboration: new CollaborationKernel({ inbox }),
+      contracts,
+    });
 
     await reconciler.handle(taskTerminal, { signal: new AbortController().signal });
 

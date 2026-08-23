@@ -1,6 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import type { Server as IOServer } from 'socket.io';
 import type { TaskPatch } from '@/server/repositories/task-repo';
 import { taskEvidenceRecoveryCommand } from '@/server/task-flow/task-evidence-recovery-command';
+import { publishProjectView } from '@/server/project-view/project-view-publisher';
 
 type MutationType =
   | 'conversation.create'
@@ -276,13 +278,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
               });
             }
             if (admission.status === 'recorded' && admission.receipt.wakeup) {
-              const io = (res.socket as any)?.server?.io;
-              io?.to(previousTask.conversation_id).emit('task.wakeup', {
-                ...admission.receipt.wakeup,
-                projectId: previousTask.conversation_id,
-                id: admission.receipt.recoveryInboxItemId,
-                createdAt: admission.receipt.recordedAt,
-              });
+              const io = (res.socket as typeof res.socket & {
+                server?: { io?: IOServer };
+              })?.server?.io;
+              if (io) {
+                publishProjectView(io, previousTask.conversation_id, {
+                  type: 'task.wakeup',
+                  delivery: 'durable',
+                  actor: { type: 'system', id: 'task-evidence-recovery' },
+                  subject: { type: 'task', id },
+                  eventId: admission.receipt.recoveryInboxItemId,
+                  correlationId: admission.receipt.recoveryInboxItemId ?? idempotencyKey,
+                  causationId: admission.receipt.recoveryInboxItemId ?? idempotencyKey,
+                  occurredAt: admission.receipt.recordedAt,
+                  payload: {
+                    ...admission.receipt.wakeup,
+                    id: admission.receipt.recoveryInboxItemId,
+                    createdAt: admission.receipt.recordedAt,
+                  },
+                });
+              }
             }
             return res.status(403).json(admission.receipt.response);
           }

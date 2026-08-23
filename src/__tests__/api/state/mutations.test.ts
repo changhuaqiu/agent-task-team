@@ -3,6 +3,13 @@ import { createTestDb, setTestDb, resetDb } from '@/server/db/index';
 import { resetSeq } from '@/server/repositories/sortable-id';
 import handler from '@/pages/api/mutations';
 
+function expectProjectView(emit: ReturnType<typeof vi.fn>, type: string, payload: object): void {
+  expect(emit).toHaveBeenCalledWith('project:view', expect.objectContaining({
+    type,
+    payload: expect.objectContaining(payload),
+  }));
+}
+
 function mockReq(method: string, body?: any): any {
   return { method, body: body ?? {} };
 }
@@ -303,11 +310,11 @@ describe('POST /api/mutations', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+    expectProjectView(emit, 'task.wakeup', {
       taskId: 'task-start-on-create',
       agentId: 'agent-a',
       reasonCode: 'owner_ready',
-    }));
+    });
   });
 
   it('task.create assigns a TeamPack task from TeamRuntime initialAgentId when no explicit agent is supplied', async () => {
@@ -392,11 +399,11 @@ describe('POST /api/mutations', () => {
 
     const { taskRepo } = await import('@/server/repositories/task-repo');
     expect(taskRepo.getById('task-1')!.status).toBe('in_progress');
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+    expectProjectView(emit, 'task.wakeup', {
       taskId: 'task-1',
       agentId: 'agent-a',
       reasonCode: 'owner_ready',
-    }));
+    });
   });
 
   it('task.updateStatus rejects a stale browser revision instead of overwriting newer facts', async () => {
@@ -433,15 +440,8 @@ describe('POST /api/mutations', () => {
     await seedTask();
     const { taskRepo } = await import('@/server/repositories/task-repo');
     taskRepo.transition('task-1', { to: 'in_progress' });
-    const submit = vi.fn(() => ({
-      handled: true,
-      disposition: 'accepted' as const,
-      completion: new Promise<never>(() => {}),
-    }));
     const to = vi.fn(() => ({ emit: vi.fn() }));
     const io = { to };
-    const { registerInvocationCoordinator } = await import('@/server/invocation-pipeline/registry');
-    registerInvocationCoordinator(io as never, { submit } as never);
     const res = mockRes();
     res.socket = { server: { io } };
 
@@ -458,7 +458,6 @@ describe('POST /api/mutations', () => {
 
     expect(res.statusCode).toBe(409);
     expect(res._json.reasonCode).toBe('stale_task_revision');
-    expect(submit).not.toHaveBeenCalled();
     expect(to).not.toHaveBeenCalled();
   });
 
@@ -587,10 +586,10 @@ describe('POST /api/mutations', () => {
       taskId: 'task-1',
     });
     expect(to).toHaveBeenCalledWith('conv-1');
-    expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
+    expectProjectView(emit, 'task.notification', {
       taskId: 'task-1',
       recipients: ['agent-a'],
-    }));
+    });
   });
 
   it('task.updateStatus blocks review without implementation evidence', async () => {
@@ -619,14 +618,14 @@ describe('POST /api/mutations', () => {
     expect(res._json.error).toContain('installResult');
     expect(taskRepo.getById('task-1')!.status).toBe('ready');
     expect(to).toHaveBeenCalledWith('conv-1');
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+    expectProjectView(emit, 'task.wakeup', {
       taskId: 'task-1',
       agentId: 'agent-a',
       reasonCode: 'missing_implementation_evidence',
       metadata: expect.objectContaining({
         missingFields: expect.arrayContaining(['installResult', 'buildResult', 'impactEvidence']),
       }),
-    }));
+    });
     const { getDb } = await import('@/server/db');
     expect(getDb().prepare(`
       SELECT project_id,project_agent_id,idempotency_key,command_json
@@ -659,11 +658,11 @@ describe('POST /api/mutations', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(403);
-    expect(emit).toHaveBeenCalledWith('task.wakeup', expect.objectContaining({
+    expectProjectView(emit, 'task.wakeup', {
       taskId: 'task-1',
       agentId: 'agent-a',
       reasonCode: 'missing_implementation_evidence',
-    }));
+    });
     const { getDb } = await import('@/server/db');
     expect(getDb().prepare(`
       SELECT project_agent_id FROM agent_inbox_item

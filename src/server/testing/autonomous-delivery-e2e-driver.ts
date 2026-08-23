@@ -8,10 +8,10 @@ import {
   InvocationCoordinator,
   InvocationPlanner,
   registerInvocationCoordinator,
-  type AgentRuntimePort,
   type InvocationDispatchPlan,
   type InvocationDispatchOutcome,
 } from '../invocation-pipeline';
+import type { AgentRuntime } from '../agent-runtime';
 import { executeSkillTool } from '../skill-tool-executor';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { teamPackRepo } from '../repositories/team-pack-repo';
@@ -118,7 +118,7 @@ async function updateTask(
     : { status: 'failed', reasonCode: 'runtime_rejected', message: result.error };
 }
 
-class DeterministicAgentRuntime implements AgentRuntimePort {
+class DeterministicAgentRuntime implements AgentRuntime {
   constructor(private readonly state: DriverState) {}
 
   isBusy(agentId: string, conversationId: string): boolean {

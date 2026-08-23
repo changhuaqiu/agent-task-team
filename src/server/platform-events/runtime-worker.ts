@@ -34,6 +34,9 @@ import {
   createPhoenixHandlerRegistration,
   type PhoenixProjectionOverrides,
 } from '../observability/phoenix-config';
+import type { Server as IOServer } from 'socket.io';
+import { TaskWorkLifecycleProcessManager } from '../invocation-pipeline/task-work-lifecycle-process-manager';
+import { EvaluationWorkLifecycleProcessManager } from '../evaluation/evaluation-work-lifecycle-process-manager';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -56,6 +59,7 @@ export interface PlatformEventRuntimeWorkerOptions {
   a2aLifecycle?: A2ALifecycleProcessManagerOptions | false;
   phoenix?: PhoenixProjectionOverrides | false;
   phoenixDispatcher?: WorkerDispatcher;
+  io?: IOServer;
 }
 
 export class PlatformEventRuntimeWorker {
@@ -140,6 +144,24 @@ export class PlatformEventRuntimeWorker {
       stereotype: 'router',
       reliability: 'durable',
       handle: taskWakeupRouter.handle,
+    });
+    if (resolved.io) {
+      const taskWorkLifecycle = new TaskWorkLifecycleProcessManager(resolved.io);
+      this.dispatcher.register({
+        id: 'task-work-lifecycle-process-manager:v1',
+        pattern: 'agent.work.*',
+        stereotype: 'process_manager',
+        reliability: 'durable',
+        handle: taskWorkLifecycle.handle,
+      });
+    }
+    const evaluationWorkLifecycle = new EvaluationWorkLifecycleProcessManager();
+    this.dispatcher.register({
+      id: 'evaluation-work-lifecycle-process-manager:v1',
+      pattern: 'agent.work.*',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      handle: evaluationWorkLifecycle.handle,
     });
     const workLifecycle = new WorkLifecycleReconciler();
     for (const [id, pattern] of [

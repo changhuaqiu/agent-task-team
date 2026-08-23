@@ -2307,15 +2307,17 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
   }
   const event = envelope as ProjectViewEnvelope;
   const payload = event.payload;
-  const agentId = event.agentId;
+  const agentId = event.agent?.id
+    ?? (event.actor.type === 'agent' ? event.actor.id : undefined);
+  const invocationId = event.subject?.type === 'invocation' ? event.subject.id : undefined;
 
-  if (event.kind === 'runtime.session' && agentId && typeof payload.sessionId === 'string') {
+  if (event.type === 'runtime.session' && agentId && typeof payload.sessionId === 'string') {
     handleAgentSession({
       projectId: event.projectId,
       agentId,
       sessionId: payload.sessionId,
     });
-  } else if (event.kind === 'runtime.activity' && agentId) {
+  } else if (event.type === 'runtime.activity' && agentId) {
     const status = payload.status;
     if (status === 'running' || status === 'awaiting_children' || status === 'idle') {
       handleAgentActivity({
@@ -2328,36 +2330,36 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       });
     }
   } else if (
-    (event.kind === 'runtime.text.delta' || event.kind === 'runtime.thinking.delta')
+    (event.type === 'runtime.text.delta' || event.type === 'runtime.thinking.delta')
     && agentId
   ) {
     handleAgentDelta({
       projectId: event.projectId,
       agentId,
-      type: event.kind === 'runtime.text.delta' ? 'text' : 'thinking',
+      type: event.type === 'runtime.text.delta' ? 'text' : 'thinking',
       content: typeof payload.content === 'string' ? payload.content : '',
-      invocationId: event.invocationId,
+      invocationId,
     });
-    if (event.kind === 'runtime.text.delta' && typeof payload.content === 'string') {
+    if (event.type === 'runtime.text.delta' && typeof payload.content === 'string') {
       handleTerminalData({ agentId, data: payload.content });
     }
-  } else if (event.kind === 'runtime.plan' && agentId) {
+  } else if (event.type === 'runtime.plan' && agentId) {
     useTaskHubStore.getState().addEvent({
       conversationId: event.projectId,
       type: 'runtime.plan',
-      payload: { ...payload, agentId, invocationId: event.invocationId },
+      payload: { ...payload, agentId, invocationId },
     });
     appendStructuredTerminalLine(
       agentId,
       'plan',
       typeof payload.content === 'string' ? payload.content : '',
     );
-  } else if (event.kind === 'runtime.tool.started' && agentId) {
+  } else if (event.type === 'runtime.tool.started' && agentId) {
     handleAgentEvent({
       agentId,
       type: 'tool_use',
       conversationId: event.projectId,
-      invocationId: event.invocationId,
+      invocationId,
       tool: {
         name: typeof payload.toolName === 'string' ? payload.toolName : 'unknown',
         input: typeof payload.input === 'string' ? payload.input : undefined,
@@ -2369,14 +2371,14 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       typeof payload.toolName === 'string' ? payload.toolName : 'unknown',
     );
   } else if (
-    (event.kind === 'runtime.tool.completed' || event.kind === 'runtime.tool.failed')
+    (event.type === 'runtime.tool.completed' || event.type === 'runtime.tool.failed')
     && agentId
   ) {
     handleAgentEvent({
       agentId,
-      type: event.kind === 'runtime.tool.failed' ? 'error' : 'tool_result',
+      type: event.type === 'runtime.tool.failed' ? 'error' : 'tool_result',
       conversationId: event.projectId,
-      invocationId: event.invocationId,
+      invocationId,
       content: typeof payload.output === 'string' ? payload.output : undefined,
       tool: {
         name: typeof payload.toolName === 'string' ? payload.toolName : 'unknown',
@@ -2385,10 +2387,10 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
     });
     appendStructuredTerminalLine(
       agentId,
-      event.kind === 'runtime.tool.failed' ? 'tool:failed' : 'tool:completed',
+      event.type === 'runtime.tool.failed' ? 'tool:failed' : 'tool:completed',
       typeof payload.toolName === 'string' ? payload.toolName : 'unknown',
     );
-  } else if (event.kind === 'runtime.warning' && agentId) {
+  } else if (event.type === 'runtime.warning' && agentId) {
     const message = typeof payload.message === 'string' ? payload.message : 'Runtime warning';
     const state = useTaskHubStore.getState();
     const activeId = state.activeStreamMessageId[agentId];
@@ -2399,13 +2401,13 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       appendProjectedChatMessage(event.projectId, agentId, `⚠️ ${message}`);
     }
     appendStructuredTerminalLine(agentId, 'warning', message);
-  } else if (event.kind === 'runtime.usage') {
+  } else if (event.type === 'runtime.usage') {
     useTaskHubStore.getState().addEvent({
       conversationId: event.projectId,
       type: 'runtime.usage',
-      payload: { ...payload, agentId, invocationId: event.invocationId },
+      payload: { ...payload, agentId, invocationId },
     });
-  } else if (event.kind === 'a2a.snapshot') {
+  } else if (event.type === 'a2a.snapshot') {
     const snapshot = payload.snapshot;
     if (!snapshot || typeof snapshot !== 'object') return false;
     const candidate = snapshot as Partial<A2APossessionView>;
@@ -2416,7 +2418,7 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       || !Array.isArray(candidate.handoffs)
     ) return false;
     useTaskHubStore.getState().replaceA2AProjection(candidate as A2APossessionView);
-  } else if (event.kind === 'chat.message.persisted') {
+  } else if (event.type === 'chat.message.persisted') {
     const rawMessage = payload.message;
     if (!rawMessage || typeof rawMessage !== 'object') return false;
     const durableMessages = mapMessagesToState({
@@ -2432,24 +2434,24 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
         ),
       },
     }));
-  } else if (event.kind === 'runtime.completed' && agentId) {
+  } else if (event.type === 'runtime.completed' && agentId) {
     handleAgentEvent({
       agentId,
       type: 'done',
       conversationId: event.projectId,
-      invocationId: event.invocationId,
+      invocationId,
     });
     appendStructuredTerminalLine(
       agentId,
       'runtime:completed',
       typeof payload.outcome === 'string' ? payload.outcome : '',
     );
-    if (event.invocationId) {
-      reconcileProjectedInvocation(event.projectId, event.invocationId);
+    if (invocationId) {
+      reconcileProjectedInvocation(event.projectId, invocationId);
     }
-  } else if (event.kind === 'terminal.output' && agentId && typeof payload.data === 'string') {
+  } else if (event.type === 'terminal.output' && agentId && typeof payload.data === 'string') {
     handleTerminalData({ agentId, data: payload.data });
-  } else if (event.kind === 'terminal.exited' && agentId && typeof payload.code === 'number') {
+  } else if (event.type === 'terminal.exited' && agentId && typeof payload.code === 'number') {
     const activity = payload.activity;
     handleTerminalExit({
       projectId: event.projectId,
@@ -2459,6 +2461,32 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
       reasonCode: typeof payload.reasonCode === 'string' ? payload.reasonCode : undefined,
       activity: activity === 'awaiting_children' || activity === 'idle' ? activity : undefined,
     });
+  } else if (event.type === 'dispatch.receipt') {
+    handleDispatchReceipt(payload as unknown as DispatchReceipt);
+  } else if (event.type === 'task.state') {
+    handleTaskState({ projectId: event.projectId, task: payload.task as TaskStateSocketRow });
+  } else if (event.type === 'task.notification') {
+    handleTaskNotification({ ...payload, projectId: event.projectId });
+  } else if (event.type === 'task.wakeup') {
+    handleTaskWakeup({ ...payload, projectId: event.projectId });
+  } else if (event.type === 'task.sync') {
+    handleTaskSync({
+      projectId: event.projectId,
+      projectPath: typeof payload.projectPath === 'string' ? payload.projectPath : undefined,
+      conversationId: typeof payload.conversationId === 'string'
+        ? payload.conversationId
+        : event.projectId,
+      tasks: Array.isArray(payload.tasks) ? payload.tasks : [],
+      blockers: Array.isArray(payload.blockers) ? payload.blockers : undefined,
+    });
+  } else if (event.type === 'task.sync_error') {
+    handleTaskSyncError({
+      projectId: event.projectId,
+      conversationId: typeof payload.conversationId === 'string'
+        ? payload.conversationId
+        : event.projectId,
+      message: typeof payload.message === 'string' ? payload.message : 'Task projection failed',
+    });
   } else {
     return false;
   }
@@ -2467,11 +2495,11 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
 
 socket.on(PROJECT_VIEW_CHANNEL, consumeProjectViewEvent);
 
-socket.on('dispatch.receipt', (receipt: DispatchReceipt) => {
+function handleDispatchReceipt(receipt: DispatchReceipt): void {
   if (!receipt || !isCurrentProjectEvent(receipt.projectId, receipt.conversationId)) return;
   if (!receipt.receiptId || !receipt.targetAgentId) return;
   useTaskHubStore.getState().recordDispatchReceipt(receipt);
-});
+}
 
 function handleTerminalExit({ projectId, agentId, code, command, reasonCode, activity }: {
   projectId: string;
@@ -2534,24 +2562,6 @@ function handleTerminalExit({ projectId, agentId, code, command, reasonCode, act
   useTaskHubStore.getState().completeStreamMessage(agentId);
 }
 
-socket.on('command:error', ({ projectId, agentId, message }: {
-  projectId?: string;
-  agentId?: string;
-  message?: string;
-}) => {
-  if (!agentId || !message) return;
-  if (!isCurrentProject(projectId)) return;
-  const state = useTaskHubStore.getState();
-
-  const activeId = state.activeStreamMessageId[agentId];
-  if (activeId) {
-    state.appendToStreamMessage(activeId, { content: `\n⚠️ ${message}` });
-    state.completeStreamMessage(agentId);
-  } else {
-    appendProjectedChatMessage(projectId, agentId || 'system', `⚠️ ${message}`);
-  }
-});
-
 interface TaskStateSocketRow {
   id?: string;
   conversation_id?: string;
@@ -2568,7 +2578,7 @@ interface TaskStateSocketRow {
   revision?: number;
 }
 
-socket.on('task.state', ({ projectId, task: row }: { projectId?: string; task?: TaskStateSocketRow }) => {
+function handleTaskState({ projectId, task: row }: { projectId?: string; task?: TaskStateSocketRow }): void {
   if (!row?.id || !row.conversation_id) return;
   if (!isCurrentProjectEvent(projectId, row.conversation_id)) return;
   if (!isTaskStatus(row.status)) {
@@ -2630,9 +2640,9 @@ socket.on('task.state', ({ projectId, task: row }: { projectId?: string; task?: 
         : [...state.tasks, task],
     };
   });
-});
+}
 
-socket.on('task.notification', (notification: {
+function handleTaskNotification(notification: {
   projectId?: string;
   id?: string;
   conversationId?: string;
@@ -2643,7 +2653,7 @@ socket.on('task.notification', (notification: {
   kind?: string;
   changedFields?: string[];
   metadata?: Record<string, any>;
-}) => {
+}): void {
   const projectId = notification.projectId;
   const conversationId = notification.conversationId;
   const content = notification.content;
@@ -2675,9 +2685,9 @@ socket.on('task.notification', (notification: {
       },
     };
   });
-});
+}
 
-socket.on('task.wakeup', (wakeup: {
+function handleTaskWakeup(wakeup: {
   projectId?: string;
   id?: string;
   conversationId?: string;
@@ -2689,7 +2699,7 @@ socket.on('task.wakeup', (wakeup: {
   content?: string;
   createdAt?: string;
   metadata?: Record<string, any>;
-}) => {
+}): void {
   const projectId = wakeup.projectId;
   const conversationId = wakeup.conversationId;
   const taskId = wakeup.taskId;
@@ -2728,9 +2738,38 @@ socket.on('task.wakeup', (wakeup: {
 
   // The service-side Harness owns every continuation. The browser only keeps
   // the wakeup visible.
-});
+}
 
-socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, tasks: syncedTasks, blockers: syncedBlockers }: { projectId?: string; projectPath: string; conversationId: string; tasks: any[]; blockers?: any[] }) => {
+interface TaskSyncProjection {
+  id: string;
+  title: string;
+  phase?: string;
+  deliverable?: string;
+  status: TaskStatus;
+  agent?: string;
+  depends?: string[];
+}
+
+interface TaskSyncBlockerProjection {
+  id: string;
+  taskId: string;
+  type: Blocker['type'];
+  summary: string;
+  status: Blocker['status'];
+}
+
+function handleTaskSync({
+  projectId,
+  conversationId,
+  tasks: syncedTasks,
+  blockers: syncedBlockers,
+}: {
+  projectId?: string;
+  projectPath?: string;
+  conversationId: string;
+  tasks: TaskSyncProjection[];
+  blockers?: TaskSyncBlockerProjection[];
+}): void {
   if (!isCurrentProjectEvent(projectId, conversationId)) return;
   const invalidTask = syncedTasks.find((task) => !isTaskStatus(task?.status));
   if (invalidTask) {
@@ -2801,7 +2840,8 @@ socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, 
   if (syncedBlockers && syncedBlockers.length > 0) {
     for (const b of syncedBlockers) {
       if (b.status === 'open') {
-        const existingBlk = (store.blockersByConversation[conversationId] || []).find((eb: any) => eb.id === b.id);
+        const existingBlk = (store.blockersByConversation[conversationId] || [])
+          .find((existingBlocker) => existingBlocker.id === b.id);
         if (!existingBlk) {
           store.openBlocker({
             id: b.id,
@@ -2815,11 +2855,11 @@ socket.on('task.sync', ({ projectId, projectPath: _projectPath, conversationId, 
       }
     }
   }
-});
+}
 
-socket.on('task.sync_error', ({ projectId, conversationId, message }: { projectId?: string; conversationId: string; message: string }) => {
+function handleTaskSyncError({ projectId, conversationId, message }: { projectId?: string; conversationId: string; message: string }): void {
   if (!isCurrentProjectEvent(projectId, conversationId)) return;
   useTaskHubStore.setState({
     taskSyncError: { message, timestamp: new Date().toISOString(), conversationId },
   });
-});
+}

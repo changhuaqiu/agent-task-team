@@ -7,14 +7,23 @@ function emitServerEvent(event: string, payload: unknown) {
   (socket as unknown as { emitEvent(args: unknown[]): void }).emitEvent([event, payload]);
 }
 
-function envelope(projectId: string, kind: 'terminal.output' | 'runtime.text.delta') {
+function envelope(
+  projectId: string,
+  type: string,
+  payload?: Record<string, unknown>,
+) {
   return {
-    version: 1 as const,
+    version: 2 as const,
+    envelopeVersion: 1 as const,
+    eventId: `event-${type}`,
     projectId,
     occurredAt: '2026-07-26T00:00:00.000Z',
-    kind,
-    agentId: 'mario',
-    payload: kind === 'terminal.output' ? { data: 'hello\r\n' } : { content: 'hello' },
+    type,
+    delivery: 'transient' as const,
+    actor: { type: 'agent' as const, id: 'mario' },
+    correlationId: 'trace-1',
+    causationId: 'command-1',
+    payload: payload ?? (type === 'terminal.output' ? { data: 'hello\r\n' } : { content: 'hello' }),
   };
 }
 
@@ -90,13 +99,29 @@ describe('project view isolation', () => {
     expect(useTaskHubStore.getState().terminalLogs).toEqual({});
   });
 
-  it('rejects empty project scope and unsupported envelope versions', () => {
+  it('rejects empty project scope, unsupported versions and invalid actor identities', () => {
     const before = useTaskHubStore.getState();
     expect(consumeProjectViewEvent(envelope('', 'terminal.output'))).toBe(false);
     expect(consumeProjectViewEvent({
       ...envelope('project-a', 'terminal.output'),
-      version: 2,
+      version: 3,
     } as never)).toBe(false);
+    expect(consumeProjectViewEvent({
+      ...envelope('project-a', 'terminal.output'),
+      actor: { type: 'task', id: 'mario' },
+    })).toBe(false);
+    expect(consumeProjectViewEvent({
+      ...envelope('project-a', 'terminal.output'),
+      agent: null,
+    } as never)).toBe(false);
+    expect(consumeProjectViewEvent({
+      ...envelope('project-a', 'terminal.output'),
+      agent: { type: 'agent', id: 1 },
+    } as never)).toBe(false);
+    expect(consumeProjectViewEvent({
+      ...envelope('project-a', 'terminal.output'),
+      causationId: '',
+    })).toBe(false);
     expect(useTaskHubStore.getState()).toBe(before);
   });
 
@@ -121,14 +146,11 @@ describe('project view isolation', () => {
     vi.stubGlobal('fetch', fetchSpy);
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
-    expect(consumeProjectViewEvent({
-      version: 1,
-      projectId: 'project-a',
-      occurredAt: '2026-07-26T00:00:00.000Z',
-      kind: 'runtime.warning',
-      agentId: 'mario',
-      payload: { message: 'display-only warning' },
-    })).toBe(true);
+    expect(consumeProjectViewEvent(envelope(
+      'project-a',
+      'runtime.warning',
+      { message: 'display-only warning' },
+    ))).toBe(true);
 
     expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toContainEqual(
       expect.objectContaining({ agentId: 'mario', content: '⚠️ display-only warning' }),
@@ -139,39 +161,32 @@ describe('project view isolation', () => {
 
   it('rejects an unknown project view kind without side effects', () => {
     const before = useTaskHubStore.getState();
-    expect(consumeProjectViewEvent({
-      version: 1,
-      projectId: 'project-a',
-      occurredAt: '2026-07-26T00:00:00.000Z',
-      kind: 'runtime.future.kind',
-      agentId: 'mario',
-      payload: {},
-    })).toBe(false);
+    expect(consumeProjectViewEvent(envelope('project-a', 'runtime.future.kind', {}))).toBe(false);
     expect(useTaskHubStore.getState()).toBe(before);
   });
 
   it('requires matching project identifiers for non-runtime projections', () => {
     emitServerEvent('project:view', {
-      version: 1,
-      projectId: 'project-a',
-      occurredAt: '2026-07-26T00:00:00.000Z',
-      kind: 'a2a.snapshot',
-      payload: {
+      ...envelope('project-a', 'a2a.snapshot', {
         snapshot: {
           conversationId: 'project-b',
           chainId: 'chain-mismatch',
           currentHolderIds: [],
           handoffs: [],
         },
-      },
+      }),
+      actor: { type: 'system', id: 'a2a-projection' },
     });
-    emitServerEvent('dispatch.receipt', {
-      projectId: 'project-a',
-      conversationId: 'project-b',
-      receiptId: 'receipt-mismatch',
-      targetAgentId: 'mario',
-      phase: 'acknowledged',
-      createdAt: '2026-07-26T00:00:00.000Z',
+    emitServerEvent('project:view', {
+      ...envelope('project-a', 'dispatch.receipt', {
+        projectId: 'project-a',
+        conversationId: 'project-b',
+        receiptId: 'receipt-mismatch',
+        targetAgentId: 'mario',
+        phase: 'acknowledged',
+        createdAt: '2026-07-26T00:00:00.000Z',
+      }),
+      actor: { type: 'runtime', id: 'daemon:local' },
     });
 
     const state = useTaskHubStore.getState();
@@ -185,11 +200,7 @@ describe('project view isolation', () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
     emitServerEvent('project:view', {
-      version: 1,
-      projectId: 'project-a',
-      occurredAt: '2026-07-26T00:00:00.000Z',
-      kind: 'a2a.snapshot',
-      payload: {
+      ...envelope('project-a', 'a2a.snapshot', {
         snapshot: {
           conversationId: 'project-a',
           chainId: 'chain-a',
@@ -199,7 +210,8 @@ describe('project view isolation', () => {
           updatedAt: '2026-07-26T00:00:00.000Z',
           handoffs: [],
         },
-      },
+      }),
+      actor: { type: 'system', id: 'a2a-projection' },
     });
 
     expect(useTaskHubStore.getState().a2aByConversation['project-a'])
@@ -257,15 +269,17 @@ describe('project view isolation', () => {
       ],
     });
 
-    emitServerEvent('task.sync', {
-      projectId: 'project-a',
-      conversationId: 'project-a',
-      projectPath: 'C:/project-a',
-      tasks: [{
-        id: 'TASK-001', title: 'A task updated', deliverable: 'A only',
-        status: 'done', agent: 'mario', depends: [],
-      }],
-      blockers: [],
+    emitServerEvent('project:view', {
+      ...envelope('project-a', 'task.sync', {
+        conversationId: 'project-a',
+        projectPath: 'C:/project-a',
+        tasks: [{
+          id: 'TASK-001', title: 'A task updated', deliverable: 'A only',
+          status: 'done', agent: 'mario', depends: [],
+        }],
+        blockers: [],
+      }),
+      actor: { type: 'system', id: 'task-file-projection' },
     });
 
     const state = useTaskHubStore.getState();
@@ -281,25 +295,29 @@ describe('project view isolation', () => {
     const before = useTaskHubStore.getState().tasks;
 
     for (const status of ['pending', '', null, undefined]) {
-      emitServerEvent('task.state', {
-        projectId: 'project-a',
-        task: {
+      emitServerEvent('project:view', {
+        ...envelope('project-a', 'task.state', {
+          task: {
           id: 'TASK-BAD-STATE',
           conversation_id: 'project-a',
           status,
-        },
+          },
+        }),
+        actor: { type: 'system', id: 'task-authority' },
       });
 
       expect(useTaskHubStore.getState().tasks).toBe(before);
       expect(useTaskHubStore.getState().taskSyncError?.message).toContain('task.state');
     }
 
-    emitServerEvent('task.sync', {
-      projectId: 'project-a',
-      conversationId: 'project-a',
-      projectPath: 'C:/project-a',
-      tasks: [{ id: 'TASK-BAD-SYNC', title: 'Bad', status: 'rejected' }],
-      blockers: [],
+    emitServerEvent('project:view', {
+      ...envelope('project-a', 'task.sync', {
+        conversationId: 'project-a',
+        projectPath: 'C:/project-a',
+        tasks: [{ id: 'TASK-BAD-SYNC', title: 'Bad', status: 'rejected' }],
+        blockers: [],
+      }),
+      actor: { type: 'system', id: 'task-file-projection' },
     });
 
     expect(useTaskHubStore.getState().tasks).toBe(before);

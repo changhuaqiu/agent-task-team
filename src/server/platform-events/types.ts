@@ -1,3 +1,8 @@
+import {
+  type EventEnvelope,
+  type IdentityRef,
+} from '../../shared/event-envelope';
+
 export const PLATFORM_EVENT_SCHEMA_VERSION = 1 as const;
 
 export type PlatformEventCategory =
@@ -8,38 +13,24 @@ export type PlatformEventCategory =
 
 export type PlatformEventActorType = 'user' | 'agent' | 'system' | 'runtime';
 
-export interface EventObjectRef {
-  type: string;
-  id: string;
-}
+export type EventObjectRef<TKind extends string = string> = IdentityRef<TKind>;
 
-export interface EventAggregateRef extends EventObjectRef {
+export interface EventAggregateRef extends IdentityRef<string> {
   version?: number;
 }
 
-export interface PlatformEvent<TType extends string = string, TPayload = unknown> {
-  eventId: string;
-  type: TType;
+export interface PlatformEvent<TType extends string = string, TPayload = unknown>
+  extends EventEnvelope<TType, TPayload, PlatformEventActorType> {
   category: PlatformEventCategory;
   schemaVersion: typeof PLATFORM_EVENT_SCHEMA_VERSION;
-  projectId: string;
   streamKey: string;
   streamSequence: number;
   aggregate: EventAggregateRef;
-  actor: {
-    type: PlatformEventActorType;
-    id: string;
-  };
-  subject?: EventObjectRef;
   projectAgentId?: string;
   invocationId?: string;
   inboxItemId?: string;
-  correlationId: string;
-  causationId?: string;
   dedupeKey?: string;
-  occurredAt: string;
   recordedAt: string;
-  payload: TPayload;
 }
 
 export interface AppendPlatformEvent<TType extends string = string, TPayload = unknown> {
@@ -48,10 +39,7 @@ export interface AppendPlatformEvent<TType extends string = string, TPayload = u
   projectId: string;
   streamKey: string;
   aggregate: EventAggregateRef;
-  actor: {
-    type: PlatformEventActorType;
-    id: string;
-  };
+  actor: IdentityRef<PlatformEventActorType>;
   subject?: EventObjectRef;
   projectAgentId?: string;
   invocationId?: string;

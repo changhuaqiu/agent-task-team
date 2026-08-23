@@ -118,7 +118,7 @@ spec §7 的四角色就是这"不同方法"的分类。
          │     │  Platform Runtime（归一化层）  │          │
          │     │  ★ runtime.* 唯一生产者       │          │
          │     │  AcpRuntimeEventCoordinator   │          │
-         │     │  RuntimeAgentEventBridge      │          │
+         │     │  AcpTurnEventNormalizer       │          │
          │     │  RuntimeEventPublisher        │          │
          │     └──────────────┬───────────────┘          │
          │                    │ canonical runtime.*      │
@@ -518,6 +518,13 @@ terminal UI 由 `RuntimeSocketProjection` 消费；A2A/closure outcome 由 durab
 Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留在 invocation 控制层。
 低延迟 text/thinking delta 通过同一个带项目隔离的 `project:view` 瞬态信封发布；
 其 durable 边界仍是完成消息段。`forwardAgentEvent` 与生产 `agent_event` 写入均已删除。
+
+2026-08-23 起，`PlatformEvent` 与 `ProjectViewEnvelope` 复用
+`src/shared/event-envelope.ts` 的 event identity、project identity、actor/subject 和 causality 语义。
+Project View version 2 显式标记 `durable | transient`，并在 durable Runtime projection 中保留 source
+event id、stream key 与 sequence。Task、dispatch 与 command error 的平行 Socket 通道已删除，浏览器
+只订阅 `project:view`。ACP/AgentEvent 的 turn-local buffer、tool correlation 与 transport diagnostic
+归一化由 `src/server/agent-runtime/acp-turn-event-normalizer.ts` 正式拥有，不再称为 compatibility bridge。
 
 ---
 

@@ -50,6 +50,11 @@ export interface ExecOptions {
 }
 
 export interface AgentRun {
+  /** Resolves only after ACP initialization and session setup, before prompt execution. */
+  started: Promise<
+    | { ok: true; sessionId?: string }
+    | { ok: false; reasonCode: string; message: string }
+  >;
   /** Backend-normalized stream containing exactly one terminal `done` event. */
   events: AsyncGenerator<AgentEvent>;
   result: Promise<AgentResult>;

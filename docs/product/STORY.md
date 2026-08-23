@@ -2,7 +2,7 @@
 topics: [product-story, user-outcomes, optimization, evidence]
 doc_kind: product-story
 created: 2026-08-02
-updated: 2026-08-18
+updated: 2026-08-23
 ---
 
 # Agent Task Hub 产品故事
@@ -22,6 +22,43 @@ updated: 2026-08-18
 - 对应 spec、产品文档或技术设计的链接。
 
 只有直接覆盖所述用户效果的证据，才能支持“已经改善”：例如针对性自动化测试、真实界面观察或实际运行链验证。构建通过只能作为可交付性的辅助证据，不能单独证明用户体验已经改善。未验证目标不进入本故事文档，应留在 spec、计划或任务清单中。
+
+---
+
+## 2026-08-23：多个项目里的 Agent 工作不再各走一套触发逻辑
+
+### 原来的处境
+
+用户同时推进多个项目和交付时，补充要求、任务开始、评审、Agent 交接和失败恢复分别走不同的后台入口。
+界面可能已经显示“接手”，但底层 Agent Runtime 还没有真正建立执行；同一 Agent 的长任务也会让后续工作频繁
+重试。用户感受到的是协作偶发失联、重复唤醒，或者结果回来后找不到原任务。
+
+### 优化后的变化
+
+- 所有 Agent 工作都用同一种持久请求表达“哪个项目、哪个 Agent、做什么、为什么触发、结果回到哪里”；
+- 同一请求重放不会重复建工作，内容冲突会明确拒绝；同项目同 Agent 串行，不同 Agent 可以并行；
+- 只有 Runtime 建立 Invocation、Session 和真实执行句柄后才确认接手，准备失败不再制造假“已启动”；
+- 浏览器断开不影响排队事实，A2A 分支、任务、质量门和交付结果都能沿持久回复地址回到各自 owner；
+- 慢启动使用有界准备窗口，繁忙 Agent 的重试会退避，不再形成高频空转。
+
+### 已验证的效果
+
+- 生产领域直接创建/投递 AgentInbox 的入口从 5 个降为 0，并由静态架构测试阻止回归；
+- WorkRequest 重放/冲突、同 Agent 串行、跨 Agent 并行、租约恢复、A2A 回调、ACK 前后失败和慢启动窗口均有
+  确定性自动化覆盖；
+- 全量回归 1727 项通过、2 项跳过，TypeScript、核心受影响文件 ESLint 与 Next.js production build 通过。
+
+### 仍然保留的边界
+
+这些证据证明组件契约已经稳定，不等价于真实 Agent 任务成功率已经提升；后者仍需固定任务集的 E 级 paired
+experiment。当前只接通本地 daemon，远端 Runtime transport 仍然明确拒绝。内部仍保留 `Conversation` 作为
+Project 的持久化兼容表名，但用户与新协作契约使用 Project/Delivery 语义。
+
+### 设计与实现依据
+
+- [统一协作内核](../technical/execution/collaboration-kernel.md)
+- [统一事件、身份与 Agent Runtime](../technical/execution/unified-event-agent-runtime.md)
+- [变更评测记录](../technical/evaluation/2026-08-23-collaboration-kernel-evaluation.md)
 
 ---
 

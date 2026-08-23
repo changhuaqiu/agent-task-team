@@ -52,6 +52,18 @@ function wakeup(reasonCode: 'owner_ready' | 'dependency_resolved' | 'review_requ
   };
 }
 
+function expectProjectView(emit: ReturnType<typeof vi.fn>, type: string, payload: object): void {
+  expect(emit).toHaveBeenCalledWith('project:view', expect.objectContaining({
+    type,
+    payload: expect.objectContaining(payload),
+  }));
+}
+
+function hasProjectViewType(emit: ReturnType<typeof vi.fn>, type: string): boolean {
+  return emit.mock.calls.some(([channel, event]) => channel === 'project:view'
+    && (event as { type?: string } | undefined)?.type === type);
+}
+
 describe('Invocation Pipeline outcome reducer', () => {
   function projectionFailures() {
     return proofLogRepo.findByType({
@@ -92,11 +104,11 @@ describe('Invocation Pipeline outcome reducer', () => {
 
     expect(taskRepo.getById('TASK-1')?.status).toBe('in_progress');
     expect(readTasksMd(projectPath).tasks[0].status).toBe('in_progress');
-    expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
+    expectProjectView(emit, 'task.notification', {
       taskId: 'TASK-1',
       actorId: 'platform-harness',
-    }));
-    expect(emit).not.toHaveBeenCalledWith('task.sync_error', expect.anything());
+    });
+    expect(hasProjectViewType(emit, 'task.sync_error')).toBe(false);
   });
 
   it('does not infer review or done transitions from runtime acceptance', async () => {
@@ -120,14 +132,14 @@ describe('Invocation Pipeline outcome reducer', () => {
       failureCause: 'work_dir_missing',
       status: 'in_progress',
     });
-    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+    expectProjectView(emit, 'task.sync_error', {
       taskId: 'TASK-1',
       reasonCode: 'runtime_projection_failed',
-    }));
-    expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
+    });
+    expectProjectView(emit, 'task.notification', {
       taskId: 'TASK-1',
       actorId: 'platform-harness',
-    }));
+    });
   });
 
   it('ignores an accepted wakeup whose task no longer exists', async () => {
@@ -172,14 +184,14 @@ describe('Invocation Pipeline outcome reducer', () => {
       failureCause: 'task_entry_missing',
       status: 'in_progress',
     });
-    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+    expectProjectView(emit, 'task.sync_error', {
       taskId: 'TASK-1',
       reasonCode: 'runtime_projection_failed',
-    }));
-    expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
+    });
+    expectProjectView(emit, 'task.notification', {
       taskId: 'TASK-1',
       actorId: 'platform-harness',
-    }));
+    });
   });
 
   it('records a stable I/O failure cause without rolling back the accepted transition', async () => {
@@ -201,14 +213,14 @@ describe('Invocation Pipeline outcome reducer', () => {
       status: 'in_progress',
       errorMessage: expect.any(String),
     });
-    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+    expectProjectView(emit, 'task.sync_error', {
       taskId: 'TASK-1',
       reasonCode: 'runtime_projection_failed',
-    }));
-    expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
+    });
+    expectProjectView(emit, 'task.notification', {
       taskId: 'TASK-1',
       actorId: 'platform-harness',
-    }));
+    });
   });
 
   it('bounds and normalizes durable projection error messages', () => {

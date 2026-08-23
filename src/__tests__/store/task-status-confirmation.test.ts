@@ -6,6 +6,23 @@ function emitServerEvent(event: string, payload: unknown) {
   (socket as unknown as { emitEvent(args: unknown[]): void }).emitEvent([event, payload]);
 }
 
+function emitTaskState(taskRow: Record<string, unknown>): void {
+  emitServerEvent('project:view', {
+    version: 2,
+    envelopeVersion: 1,
+    eventId: `task-state-${String(taskRow.id)}-${String(taskRow.revision)}`,
+    projectId: 'conv-1',
+    occurredAt: '2026-07-19T00:00:02.000Z',
+    type: 'task.state',
+    delivery: 'durable',
+    actor: { type: 'system', id: 'task-command-service' },
+    subject: { type: 'task', id: String(taskRow.id) },
+    correlationId: String(taskRow.id),
+    causationId: `task-revision:${String(taskRow.id)}:${String(taskRow.revision ?? 0)}`,
+    payload: { task: taskRow },
+  });
+}
+
 const task = {
   id: 'TASK-015',
   conversationId: 'conv-1',
@@ -160,12 +177,9 @@ describe('task.updateStatus confirmation boundary', () => {
     }));
     const update = useTaskHubStore.getState().updateTaskStatus('TASK-015', 'in_progress');
 
-    emitServerEvent('task.state', {
-      projectId: 'conv-1',
-      task: {
+    emitTaskState({
         ...acceptedTask('blocked', 2),
         phase_id: 'P1',
-      },
     });
     resolveMutation({
       ok: true,

@@ -37,6 +37,9 @@ export interface AgentActivationCommand {
     applicationSnapshotId: string;
     targetManifestDigest: string;
   };
+  /** Scheduler-issued Runtime ownership; never supplied by domain callers. */
+  inboxItemId?: string;
+  runtimeOwnerToken?: string;
 }
 export interface InvocationDispatchPlan {
   trigger: AgentActivationCommand;
@@ -79,6 +82,7 @@ export type InvocationReasonCode =
   | 'a2a_possession_stale'
   | 'work_authority_conflict'
   | 'runtime_rejected'
+  | 'runtime_start_failed'
   | 'internal_error';
 
 export type InvocationDispatchOutcome =
@@ -119,14 +123,28 @@ export interface InvocationPlannerPort {
   prepare(trigger: AgentActivationCommand): Promise<InvocationPlanResolution>;
 }
 
-export interface AgentRuntimePort {
-  isBusy(agentId: string, conversationId: string): boolean;
-  execute(plan: InvocationDispatchPlan): Promise<InvocationDispatchOutcome>;
-}
-
 export interface InvocationSubmission {
   disposition: 'accepted' | 'duplicate' | 'deferred';
   handled: boolean;
+  /** Resolves when a real Runtime acknowledges the Invocation, or admission fails. */
+  started: Promise<InvocationDispatchOutcome>;
   completion: Promise<InvocationDispatchOutcome>;
   duplicateInFlight?: boolean;
+}
+
+/** Durable binding captured at the Runtime admission linearization point. */
+export interface RuntimeAdmissionContext {
+  invocationId: string;
+  traceId: string;
+  observedManifestDigest?: string;
+}
+
+export interface InvocationSubmitOptions {
+  signal?: AbortSignal;
+  canAcknowledge?: () => boolean;
+  commitRuntimeStart?: (
+    envelopeId: string,
+    acknowledgeEnvelope: () => boolean,
+    context: RuntimeAdmissionContext,
+  ) => boolean;
 }

@@ -4,13 +4,14 @@ import { invocationRepo } from '../repositories/invocation-repo';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
 import { taskRepo } from '../repositories/task-repo';
-import { submitTaskWakeupToInvocationPipeline } from '../invocation-pipeline';
 import { teamLogProjection } from '../team-log/TeamLogProjection';
 import { autonomousDeliveryRepo } from '../autonomous-delivery/repository';
 import { qualityGateRepo } from '../quality-gate/repository';
 import { resolveAutonomyGuardActions } from '../task-flow/autonomy-guard';
+import { requestTaskWakeup } from '../task-flow/task-work-request';
 import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 import { BlockedRecoveryOwner } from './blocked-recovery-owner';
+import { publishProjectView } from '../project-view/project-view-publisher';
 
 export interface AutonomyGuardOwnerOptions {
   io: IOServer;
@@ -155,11 +156,9 @@ export class AutonomyGuardOwner {
         idempotencyKey: key,
       },
     });
-    const submission = submitTaskWakeupToInvocationPipeline(this.io, wakeup);
+    requestTaskWakeup(wakeup);
     if (
       wakeup.reasonCode === 'chain_ready_for_closure'
-      && submission?.handled
-      && submission.disposition === 'accepted'
     ) {
       proofLogRepo.append({
         eventType: 'chain_closure_dispatched',
@@ -174,11 +173,17 @@ export class AutonomyGuardOwner {
         },
       });
     }
-    this.io.to(wakeup.conversationId).emit('task.wakeup', {
-      ...wakeup,
-      projectId: wakeup.conversationId,
-      id: `wakeup-${now}-${Math.random().toString(36).slice(2, 8)}`,
-      createdAt: new Date(now).toISOString(),
+    const eventId = `wakeup-${now}-${Math.random().toString(36).slice(2, 8)}`;
+    publishProjectView(this.io, wakeup.conversationId, {
+      type: 'task.wakeup',
+      delivery: 'durable',
+      actor: { type: 'system', id: 'autonomy-guard' },
+      subject: { type: 'task', id: wakeup.taskId },
+      eventId,
+      correlationId: wakeup.metadata.idempotencyKey,
+      causationId: wakeup.metadata.idempotencyKey,
+      occurredAt: new Date(now).toISOString(),
+      payload: { ...wakeup, id: eventId, createdAt: new Date(now).toISOString() },
     });
   }
 }

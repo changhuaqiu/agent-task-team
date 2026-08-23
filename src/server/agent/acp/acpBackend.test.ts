@@ -30,6 +30,7 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
       env: { MOCK_ACP_SCENARIO: 'prompt_echo' },
     });
     const run = backend.execute('user request', { systemPrompt: 'system context' });
+    await expect(run.started).resolves.toMatchObject({ ok: true, sessionId: 'mock-1' });
     for await (const event of run.events) { void event; }
     const result = await run.result;
 

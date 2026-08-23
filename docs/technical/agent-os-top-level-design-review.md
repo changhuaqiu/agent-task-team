@@ -257,7 +257,7 @@ Observability 和 Audit 是横跨所有 module seam 的只读投影；Evaluation
 - `DispatchGateway`：应成长为唯一执行入口；
 - `resolveTeamRuntime()`：团队配置的唯一解析 seam；
 - `AgentEvaluation`：评估提交、冻结、计算和报告深模块；
-- `AgentRuntimePort`、Delivery Control Command adapter、`JudgePort`：已有两个以上 adapter 或明确生产/测试 adapter，seam 成立。
+- `AgentRuntime`、Delivery Control Command adapter、`JudgePort`：已有两个以上 adapter 或明确生产/测试 adapter，seam 成立。
 
 ### 4.2 当前最危险的浅层与重叠
 

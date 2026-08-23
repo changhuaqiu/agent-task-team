@@ -116,11 +116,14 @@
 - `docs/technical/evaluation/agent-evaluation-system.md`：任务级跨 trace 冻结快照、四层判定、在线诊断与离线回归的目标架构
 - `docs/technical/evaluation/README.md`：所有变更的 V/C/E 评测分级、Why→Industry→Measure→Decision 证据链与记录模板
 - `docs/technical/evaluation/2026-07-20-project-context-bootstrap-evaluation.md`：项目上下文初始化的前后效率、相关性和交接复用评测记录
+- `docs/technical/evaluation/2026-08-23-collaboration-kernel-evaluation.md`：统一协作请求、Lane、回复地址与真实 Runtime ACK 的确定性前后对比
 - `docs/archive/technical/autonomous-delivery-loop.md`：已被 Platform Harness 状态机设计替代的历史 Action/Attempt 方案
 - `docs/technical/execution/durable-effect-outbox.md`：Process Manager 副作用的原子接纳、lane 顺序、两类执行语义、崩溃恢复与 Runtime completion 首个采用者设计
 - `docs/technical/execution/platform-runtime-current-architecture.html`：当前 Platform Runtime 的可视化架构、事件投递与终态后 Effect 重试边界
 - `docs/technical/execution/webui-passive-project-projection.md`：Human Command 与自动展示消费分离、项目 room 隔离和 WebUI 被动投影契约
 - `docs/technical/execution/frontend-control-plane-convergence.md`：交付工作区投影、Human Command 单入口、浏览器退出派发控制与 Daemon executor-only 的目标架构
+- `docs/technical/execution/unified-event-agent-runtime.md`：统一事件/身份语义、单一项目展示通道与 Agent Runtime 深模块的当前架构
+- `docs/technical/execution/desktop-host-target-architecture.md`：Tauri Host + Node Service sidecar 的桌面目标边界、启动/恢复与安全契约（尚未实现桌面壳）
 - `docs/technical/execution/platform-runtime-webui-current-architecture.html`：当前 Runtime 与 WebUI 的可视化架构，明确人的主动 Command 通路与自动展示投影通路
 - `docs/technical/integrations/github-issue-agent-hook.md`：GitHub Issue webhook 验签、幂等映射与 GoalContract 接入设计
 - `docs/technical/execution/project-context-bootstrap.md`：代码库发现、分层知识索引、workstream 投影、增量刷新和 ContextManager 接线设计

@@ -12,6 +12,8 @@ import { DEFAULT_RUBRIC_REVISION_ID, EVALUATOR_BUNDLE_REVISION, digest } from '.
 import { buildSubjectSnapshot } from './snapshot-builder';
 import { taskRepo } from '../repositories/task-repo';
 import { invocationRepo } from '../repositories/invocation-repo';
+import { AgentInbox } from '../platform-events/agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 
 const now = '2026-07-19T00:00:00.000Z';
 
@@ -319,7 +321,7 @@ describe('application snapshot and case execution', () => {
     })).toThrow(/observed application manifest digest/);
   });
 
-  it('creates both isolated variants and records a blocked Harness dispatch', async () => {
+  it('creates both isolated variants and routes evaluation work through the Collaboration Kernel', () => {
     const baseline = freezeApplicationSnapshot({
       conversationId: 'conv-runner', name: 'baseline', source: 'published',
     });
@@ -343,18 +345,34 @@ describe('application snapshot and case execution', () => {
       { variant: 'baseline', status: 'queued' },
       { variant: 'candidate', status: 'queued' },
     ]);
-    const submit = vi.fn(() => ({
-        disposition: 'accepted',
-        handled: true,
-        completion: Promise.resolve({ status: 'blocked', reasonCode: 'runtime_profile_missing' }),
-      } as const));
-    const runner = new EvaluationCaseRunner({ submit });
+    const inbox = new AgentInbox();
+    const kernel = new CollaborationKernel({ inbox });
+    const request = vi.spyOn(kernel, 'request');
+    const runner = new EvaluationCaseRunner(kernel);
     expect(runner.pump(2)).toBe(1);
-    expect(submit).toHaveBeenCalledTimes(1);
-    await Promise.resolve();
-    const failed = getDb().prepare(
-      "SELECT status,error_code FROM eval_case_execution WHERE experiment_id=? AND status='failed'",
-    ).get(experiment.id) as { status: string; error_code: string };
-    expect(failed).toEqual({ status: 'failed', error_code: 'runtime_profile_missing' });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'conv-runner',
+      source: 'test_gate',
+      replyTo: expect.objectContaining({ type: 'evaluation_case' }),
+      context: expect.objectContaining({
+        scenario: 'verification',
+        evaluation: expect.objectContaining({ caseId: 'case-runner' }),
+      }),
+    }));
+    const planning = getDb().prepare(
+      "SELECT status FROM eval_case_execution WHERE experiment_id=? AND status='planning'",
+    ).get(experiment.id) as { status: string };
+    expect(planning.status).toBe('planning');
+    expect(inbox.listPending('conv-runner')).toEqual([
+      expect.objectContaining({
+        projectId: 'conv-runner',
+        command: expect.objectContaining({
+          source: 'test_gate',
+          replyTo: expect.objectContaining({ type: 'evaluation_case' }),
+          evaluation: expect.objectContaining({ caseId: 'case-runner' }),
+        }),
+      }),
+    ]);
   });
 });

@@ -2,13 +2,21 @@ import type Database from 'better-sqlite3';
 import type { ContextRequest } from '../../lib/agent-context/ContextManager';
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 import { getDb } from '../db';
-import type { AgentActivationSource, AgentExecutionMode } from '../invocation-pipeline/types';
+import type {
+  AgentActivationSource,
+  AgentExecutionMode,
+  RuntimeAdmissionContext,
+} from '../invocation-pipeline/types';
+import type { CollaborationReplyAddress } from '../collaboration-kernel/types';
 import { generateSortableId } from '../repositories/sortable-id';
 import { parseWorkIdentity } from '../work-contract/work-identity';
 import { PlatformEventLog } from './event-log';
 import type { PlatformEvent } from './types';
 
 export interface AgentWorkCommand {
+  requestId?: string;
+  laneId?: string;
+  replyTo?: CollaborationReplyAddress;
   source: AgentActivationSource;
   prompt: string;
   correlationId?: string;
@@ -25,6 +33,13 @@ export interface AgentWorkCommand {
   a2aHandoff?: ContextRequest['a2aHandoff'];
   contextScenario?: ContextScenario;
   legacyProposal?: boolean;
+  wakeup?: ContextRequest['wakeup'];
+  evaluation?: {
+    executionId: string;
+    caseId: string;
+    applicationSnapshotId: string;
+    targetManifestDigest: string;
+  };
 }
 
 export type AgentInboxStatus =
@@ -44,6 +59,7 @@ export interface AgentInboxItem {
   command: AgentWorkCommand;
   status: AgentInboxStatus;
   attemptCount: number;
+  runtimeStartFailureCount: number;
   availableAt: string;
   leaseToken?: string;
   leaseExpiresAt?: string;
@@ -62,6 +78,7 @@ interface AgentInboxRow {
   command_json: string;
   status: AgentInboxItem['status'];
   attempt_count: number;
+  runtime_start_failure_count: number;
   available_at: string;
   lease_token: string | null;
   lease_expires_at: string | null;
@@ -96,6 +113,7 @@ function fromRow(row: AgentInboxRow): AgentInboxItem {
     command: JSON.parse(row.command_json) as AgentWorkCommand,
     status: row.status,
     attemptCount: row.attempt_count,
+    runtimeStartFailureCount: row.runtime_start_failure_count,
     availableAt: row.available_at,
     ...(row.lease_token ? { leaseToken: row.lease_token } : {}),
     ...(row.lease_expires_at ? { leaseExpiresAt: row.lease_expires_at } : {}),
@@ -114,6 +132,25 @@ function rowCorrelationId(row: AgentInboxRow): string {
 function rowCausationId(row: AgentInboxRow): string | undefined {
   const command = JSON.parse(row.command_json) as AgentWorkCommand;
   return command.causationId?.trim() || row.source_event_id || undefined;
+}
+
+function rowCoordinationRefs(row: AgentInboxRow): Record<string, unknown> {
+  const command = JSON.parse(row.command_json) as AgentWorkCommand;
+  return {
+    requestId: command.requestId,
+    idempotencyKey: row.idempotency_key,
+    laneId: command.laneId,
+    replyTo: command.replyTo,
+    workId: command.workId,
+    taskId: command.taskId,
+    deliveryRunId: command.deliveryRunId,
+    chainId: command.chainId,
+    passId: command.passId,
+    possessionId: command.possessionId,
+    commandSource: command.source,
+    wakeup: command.wakeup,
+    evaluation: command.evaluation,
+  };
 }
 
 export class AgentInboxConflictError extends Error {
@@ -146,8 +183,13 @@ export class AgentInbox {
     const commandJson = JSON.stringify(command);
     return db.transaction(() => {
       const existing = db.prepare(`
-        SELECT * FROM agent_inbox_item WHERE idempotency_key=?
-      `).get(input.idempotencyKey) as AgentInboxRow | undefined;
+        SELECT * FROM agent_inbox_item
+        WHERE project_id=? AND project_agent_id=? AND idempotency_key=?
+      `).get(
+        input.projectId,
+        input.projectAgentId,
+        input.idempotencyKey,
+      ) as AgentInboxRow | undefined;
       if (existing) {
         if (
           existing.project_id !== input.projectId
@@ -183,7 +225,21 @@ export class AgentInbox {
         projectAgentId: input.projectAgentId,
         correlationId: command.correlationId!,
         causationId: command.causationId,
-        payload: { sourceEventId: input.sourceEvent?.eventId, commandSource: command.source },
+        payload: {
+          sourceEventId: input.sourceEvent?.eventId,
+          idempotencyKey: input.idempotencyKey,
+          commandSource: command.source,
+          requestId: command.requestId,
+          laneId: command.laneId,
+          replyTo: command.replyTo,
+          workId: command.workId,
+          taskId: command.taskId,
+          deliveryRunId: command.deliveryRunId,
+          chainId: command.chainId,
+          passId: command.passId,
+          possessionId: command.possessionId,
+          wakeup: command.wakeup,
+        },
       });
       return this.get(id)!;
     }).immediate();
@@ -197,6 +253,13 @@ export class AgentInbox {
       const candidate = db.prepare(`
         SELECT candidate.* FROM agent_inbox_item candidate
         WHERE candidate.status IN ('enqueued','released') AND candidate.available_at <= ?
+          AND NOT EXISTS (
+            SELECT 1 FROM invocation active_invocation
+            WHERE active_invocation.conversation_id=candidate.project_id
+              AND active_invocation.agent_id=candidate.project_agent_id
+              AND active_invocation.status<>'terminated'
+              AND active_invocation.lease_expiry>?
+          )
           AND NOT EXISTS (
             SELECT 1 FROM agent_inbox_item active
             WHERE active.project_id=candidate.project_id
@@ -218,7 +281,7 @@ export class AgentInbox {
           )
         ORDER BY candidate.available_at ASC, candidate.created_at ASC, candidate.id ASC
         LIMIT 1
-      `).get(now) as AgentInboxRow | undefined;
+      `).get(now, now) as AgentInboxRow | undefined;
       if (!candidate) return undefined;
       const leaseToken = this.idFactory('lease');
       const leaseExpiresAt = new Date(nowDate.getTime() + leaseMs).toISOString();
@@ -235,7 +298,7 @@ export class AgentInbox {
         projectAgentId: candidate.project_agent_id,
         correlationId: rowCorrelationId(candidate),
         causationId: rowCausationId(candidate),
-        payload: { attemptCount: candidate.attempt_count + 1 },
+        payload: { ...rowCoordinationRefs(candidate), attemptCount: candidate.attempt_count + 1 },
       });
       return this.get(candidate.id);
     }).immediate();
@@ -265,7 +328,11 @@ export class AgentInbox {
           projectAgentId: item.project_agent_id,
           correlationId: rowCorrelationId(item),
           causationId: rowCausationId(item),
-          payload: { reasonCode: 'lease_expired', attemptCount: item.attempt_count },
+          payload: {
+            ...rowCoordinationRefs(item),
+            reasonCode: 'lease_expired',
+            attemptCount: item.attempt_count,
+          },
         });
       }
       return recovered;
@@ -283,7 +350,13 @@ export class AgentInbox {
     return result.changes === 1;
   }
 
-  release(itemId: string, leaseToken: string, delayMs: number, reasonCode: string): boolean {
+  release(
+    itemId: string,
+    leaseToken: string,
+    delayMs: number,
+    reasonCode: string,
+    countRuntimeStartFailure = false,
+  ): boolean {
     const db = this.database ?? getDb();
     const nowDate = this.now();
     const now = nowDate.toISOString();
@@ -295,9 +368,18 @@ export class AgentInbox {
       const result = db.prepare(`
         UPDATE agent_inbox_item
         SET status='released', available_at=?, lease_token=NULL, lease_expires_at=NULL,
-            last_error=?, updated_at=?
+            last_error=?, updated_at=?,
+            runtime_start_failure_count=runtime_start_failure_count+?
         WHERE id=? AND status='claimed' AND lease_token=? AND lease_expires_at>?
-      `).run(availableAt, reasonCode, now, itemId, leaseToken, now);
+      `).run(
+        availableAt,
+        reasonCode,
+        now,
+        countRuntimeStartFailure ? 1 : 0,
+        itemId,
+        leaseToken,
+        now,
+      );
       if (result.changes !== 1) return false;
       this.appendCoordination('agent.work.released', {
         id: item.id,
@@ -305,7 +387,7 @@ export class AgentInbox {
         projectAgentId: item.project_agent_id,
         correlationId: rowCorrelationId(item),
         causationId: rowCausationId(item),
-        payload: { reasonCode, attemptCount: item.attempt_count },
+        payload: { ...rowCoordinationRefs(item), reasonCode, attemptCount: item.attempt_count },
       });
       return true;
     }).immediate();
@@ -315,8 +397,58 @@ export class AgentInbox {
     return this.settleClaim(itemId, leaseToken, 'admitted');
   }
 
-  expire(itemId: string, leaseToken: string, reasonCode: string): boolean {
-    return this.settleClaim(itemId, leaseToken, 'expired', reasonCode);
+  /** Atomically fences the Inbox claim and the directed Envelope ACK. */
+  admitWithClaimFence(
+    itemId: string,
+    leaseToken: string,
+    acknowledgeEnvelope: () => boolean,
+    runtimeAdmission: RuntimeAdmissionContext,
+  ): boolean {
+    const db = this.database ?? getDb();
+    try {
+      return db.transaction(() => {
+        if (!this.ownsClaim(itemId, leaseToken)) return false;
+        const now = this.now().toISOString();
+        const ownsRuntime = db.prepare(`
+          SELECT 1 FROM invocation
+          WHERE id=? AND status<>'terminated' AND runtime_owner_token=? AND lease_expiry>?
+        `).get(runtimeAdmission.invocationId, leaseToken, now);
+        if (!ownsRuntime) return false;
+        if (!acknowledgeEnvelope()) return false;
+        if (!this.settleClaim(
+          itemId,
+          leaseToken,
+          'admitted',
+          undefined,
+          false,
+          { runtimeAdmission },
+        )) {
+          throw new Error('agent_inbox_claim_lost_during_runtime_ack');
+        }
+        return true;
+      }).immediate();
+    } catch (error) {
+      if (
+        error instanceof Error
+        && error.message === 'agent_inbox_claim_lost_during_runtime_ack'
+      ) return false;
+      throw error;
+    }
+  }
+
+  expire(
+    itemId: string,
+    leaseToken: string,
+    reasonCode: string,
+    countRuntimeStartFailure = false,
+  ): boolean {
+    return this.settleClaim(
+      itemId,
+      leaseToken,
+      'expired',
+      reasonCode,
+      countRuntimeStartFailure,
+    );
   }
 
   get(id: string): AgentInboxItem | undefined {
@@ -389,6 +521,32 @@ export class AgentInbox {
     }).immediate();
   }
 
+  ownsClaim(itemId: string, leaseToken: string): boolean {
+    const now = this.now().toISOString();
+    const row = (this.database ?? getDb()).prepare(`
+      SELECT 1 FROM agent_inbox_item
+      WHERE id=? AND status='claimed' AND lease_token=? AND lease_expires_at>?
+    `).get(itemId, leaseToken, now);
+    return Boolean(row);
+  }
+
+  cancelPendingForChain(projectId: string, chainId: string): number {
+    const rows = (this.database ?? getDb()).prepare(`
+      SELECT project_agent_id,idempotency_key
+      FROM agent_inbox_item
+      WHERE project_id=? AND status IN ('enqueued','released')
+        AND json_extract(command_json,'$.chainId')=?
+    `).all(projectId, chainId) as Array<{
+      project_agent_id: string;
+      idempotency_key: string;
+    }>;
+    let cancelled = 0;
+    for (const row of rows) {
+      cancelled += this.cancelPending(projectId, row.project_agent_id, row.idempotency_key);
+    }
+    return cancelled;
+  }
+
   cancelPendingForWorkIds(
     projectId: string,
     workIds: readonly string[],
@@ -449,6 +607,8 @@ export class AgentInbox {
     leaseToken: string,
     status: 'admitted' | 'expired',
     error?: string,
+    countRuntimeStartFailure = false,
+    extraPayload: Record<string, unknown> = {},
   ): boolean {
     const now = this.now().toISOString();
     const db = this.database ?? getDb();
@@ -465,9 +625,19 @@ export class AgentInbox {
       const result = db.prepare(`
         UPDATE agent_inbox_item
         SET status=?, lease_token=NULL, lease_expires_at=NULL, last_error=?,
-            updated_at=?, settled_at=?
+            updated_at=?, settled_at=?,
+            runtime_start_failure_count=runtime_start_failure_count+?
         WHERE id=? AND status='claimed' AND lease_token=? AND lease_expires_at>?
-      `).run(status, error ?? null, now, now, itemId, leaseToken, now);
+      `).run(
+        status,
+        error ?? null,
+        now,
+        now,
+        countRuntimeStartFailure ? 1 : 0,
+        itemId,
+        leaseToken,
+        now,
+      );
       if (result.changes !== 1) return false;
       this.appendCoordination(`agent.work.${status}`, {
         id: item.id,
@@ -476,8 +646,10 @@ export class AgentInbox {
         correlationId: rowCorrelationId(item),
         causationId: rowCausationId(item),
         payload: {
+          ...rowCoordinationRefs(item),
           attemptCount: item.attempt_count,
           ...(error ? { reasonCode: error } : {}),
+          ...extraPayload,
         },
       });
       return true;
@@ -510,7 +682,7 @@ export class AgentInbox {
         projectAgentId: item.project_agent_id,
         correlationId: rowCorrelationId(item),
         causationId: rowCausationId(item),
-        payload: { reasonCode },
+        payload: { ...rowCoordinationRefs(item), reasonCode },
       });
     }
     return cancelled;

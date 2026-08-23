@@ -2,16 +2,17 @@
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import type {
   AgentActivationCommand,
-  AgentRuntimePort,
   InvocationDispatchOutcome,
   InvocationPlannerPort,
+  InvocationSubmitOptions,
   InvocationSubmission,
 } from './types';
+import type { AgentRuntime } from '../agent-runtime';
 import type { InvocationFailureEventPublisher } from './failure-event-publisher';
 
 export interface InvocationCoordinatorOptions {
   planner: InvocationPlannerPort;
-  runtime: AgentRuntimePort;
+  runtime: AgentRuntime;
   dedupeTtlMs?: number;
   now?: () => number;
   recordProof?: typeof proofLogRepo.append;
@@ -19,12 +20,13 @@ export interface InvocationCoordinatorOptions {
 }
 export class InvocationCoordinator {
   private readonly planner: InvocationPlannerPort;
-  private readonly runtime: AgentRuntimePort;
+  private readonly runtime: AgentRuntime;
   private readonly dedupeTtlMs: number;
   private readonly now: () => number;
   private readonly recordProof: typeof proofLogRepo.append;
   private readonly acceptedAt = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<InvocationDispatchOutcome>>();
+  private readonly inFlightStarts = new Map<string, Promise<InvocationDispatchOutcome>>();
   private readonly completedOutcomes = new Map<string, InvocationDispatchOutcome>();
   private readonly failureEvents?: Pick<InvocationFailureEventPublisher, 'publish'>;
 
@@ -37,18 +39,21 @@ export class InvocationCoordinator {
     this.failureEvents = options.failureEvents;
   }
 
-  submit(trigger: AgentActivationCommand): InvocationSubmission {
-    const key = trigger.idempotencyKey?.trim() || trigger.id;
+  submit(trigger: AgentActivationCommand, options: InvocationSubmitOptions = {}): InvocationSubmission {
+    const localKey = trigger.idempotencyKey?.trim() || trigger.id;
+    const key = `${trigger.conversationId}:${trigger.agentId}:${localKey}`;
     this.cleanupDedupe();
 
     const existing = this.inFlight.get(key);
     const completed = this.completedOutcomes.get(key);
     if (existing || completed) {
       const completion = existing ?? Promise.resolve(completed!);
+      const started = this.inFlightStarts.get(key) ?? completion;
       this.proof(trigger, 'invocation.activation.duplicate', 'duplicate_trigger');
       return {
         disposition: 'duplicate',
         handled: true,
+        started,
         completion,
         duplicateInFlight: Boolean(existing),
       };
@@ -60,30 +65,54 @@ export class InvocationCoordinator {
       return {
         disposition: 'deferred',
         handled: false,
+        started: Promise.resolve(outcome),
         completion: Promise.resolve(outcome),
       };
     }
 
     this.acceptedAt.set(key, this.now());
     this.proof(trigger, 'invocation.activation.accepted');
-    const completion = this.run(trigger)
+    let startSettled = false;
+    let resolveStarted!: (outcome: InvocationDispatchOutcome) => void;
+    const started = new Promise<InvocationDispatchOutcome>((resolve) => {
+      resolveStarted = resolve;
+    });
+    const settleStarted = (outcome: InvocationDispatchOutcome) => {
+      if (startSettled) return;
+      startSettled = true;
+      resolveStarted(outcome);
+    };
+    const completion = this.run(trigger, settleStarted, options)
       .catch((error: unknown): InvocationDispatchOutcome => ({
         status: 'failed',
         reasonCode: 'internal_error',
         message: error instanceof Error ? error.message : String(error),
       }))
       .then((outcome) => {
-        this.completedOutcomes.set(key, outcome);
+        settleStarted(outcome);
+        // Startup failure is retriable work, not a completed dedupe receipt.
+        if (
+          outcome.status !== 'deferred'
+          && !('reasonCode' in outcome && outcome.reasonCode === 'runtime_start_failed')
+        ) {
+          this.completedOutcomes.set(key, outcome);
+        }
         return outcome;
       })
       .finally(() => {
         this.inFlight.delete(key);
+        this.inFlightStarts.delete(key);
       });
     this.inFlight.set(key, completion);
-    return { disposition: 'accepted', handled: true, completion };
+    this.inFlightStarts.set(key, started);
+    return { disposition: 'accepted', handled: true, started, completion };
   }
 
-  private async run(trigger: AgentActivationCommand): Promise<InvocationDispatchOutcome> {
+  private async run(
+    trigger: AgentActivationCommand,
+    onStarted: (outcome: InvocationDispatchOutcome) => void,
+    options: InvocationSubmitOptions,
+  ): Promise<InvocationDispatchOutcome> {
     const resolution = await this.planner.prepare(trigger);
     if (!resolution.ok) {
       this.proof(trigger, 'invocation.plan.blocked', resolution.outcome.reasonCode);
@@ -96,7 +125,12 @@ export class InvocationCoordinator {
       engine: resolution.plan.engine,
       hasSystemPrompt: Boolean(resolution.plan.systemPrompt),
     });
-    const outcome = await this.runtime.execute(resolution.plan);
+    const outcome = await this.runtime.execute(resolution.plan, {
+      onAcknowledged: (envelopeId) => onStarted({ status: 'accepted', envelopeId }),
+      signal: options.signal,
+      canAcknowledge: options.canAcknowledge,
+      commitRuntimeStart: options.commitRuntimeStart,
+    });
     this.proof(
       trigger,
       `invocation.dispatch.${outcome.status}`,

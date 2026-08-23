@@ -293,9 +293,9 @@ store 监听 daemon 推送的实时事件，并将其映射成前端状态：
 - `runtime.session`
   - 通过 `project:view` 更新执行会话，并写入 `agentSessions[conversationId][agentId]`
   - 前端成员配置面板读取该缓存展示调试用 CLI session id，避免普通配置流程依赖实现细节
-- `task.sync`
-  - 文件变更触发的任务同步事件（来自 TaskFileWatcher）
-  - payload: `{ projectId, projectPath, conversationId, tasks, blockers }`
+- `project:view(type=task.sync)`
+  - 文件变更触发的任务同步投影（来自 TaskFileWatcher；不再有平行 `task.sync` Socket channel）
+  - envelope 携带 `projectId`；payload 为 `{ projectPath, conversationId, tasks, blockers }`
   - 要求 `projectId === conversationId === selectedConversationId`
   - 新任务 → 加入 `tasks[]`（之前被跳过，现已修复）
   - 已有任务 → 更新 `status` / `agentId`

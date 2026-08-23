@@ -61,7 +61,7 @@ HumanCommandGateway
 server Command owner -> domain event -> Process Manager / Inbox / DispatchGateway
                                                 |
                                                 v
-                                      Daemon ExecutionAdapter
+                                      Directed AgentRuntime
                                                 |
                                                 v
                                       ACP lifecycle + receipts
@@ -162,7 +162,7 @@ Task 创建、改派和显式开始仍由既有 Task Command Service 持有事�
 经服务端 Invocation Pipeline/Inbox 推进；`platform-harness` 对 accepted Wakeup 的 `in_progress` 投影不得再次产生 Wakeup。
 因此删除 `taskStore` 中 task create/reassign/status change 后直接调用 `dispatchToAgent()` 的实现，不另包一层客户端 façade。
 浏览器不得先写 Task 领域状态：创建、编辑和状态命令等待服务端返回带 `revision` 的权威 Task 后再更新投影，请求携带
-`expectedTaskRevision`。`GET /api/state` 和 `task.state` Socket 投影都必须携带该 revision；rehydrate 按
+`expectedTaskRevision`。`GET /api/state` 和统一 `project:view(type=task.state)` 投影都必须携带该 revision；rehydrate 按
 `(conversationId, taskId)` 与当前 Store 合并，旧快照不能覆盖更高 revision 的 Socket 投影，只有实际接纳的投影才推进
 本地 epoch。HTTP 响应也只有 revision 不落后于当前投影时才能提交。服务端在证据 Gate、恢复 Wakeup 等副作用之前完成
 revision admission；证据不足的拒绝把恢复 Inbox Command 与 `task_command_rejection_receipt` 放入同一事务。仅已经持久化的
@@ -195,15 +195,18 @@ Implementation：复用 `consumeProjectViewEvent`、项目 room 和消息快照�
 
 这些规则由纯时间线投影函数持有，`GlobalChatRoom` 只渲染投影结果，不再按连续发送者临时分组。
 
-### 3.4 `Daemon ExecutionAdapter` Module
+### 3.4 `AgentRuntime` Module
 
 Interface：消费已裁决的 Execution Envelope，报告 started/completed/failed/cancelled lifecycle。
 
-Implementation：隐藏 ACP Catalog、Session、进程、流式事件和清理。Daemon 不再从 socket payload 重做业务 policy，
+Implementation：`src/server/agent-runtime/` 通过 `DirectedAgentRuntime`、`AcpRuntimeDriver`、
+`AgentSessionLifecycle`、`AgentProcessRegistry` 和 `AcpRuntimeEventCoordinator` 隐藏定向 envelope、
+占位/ACK、ACP Catalog/permission/backend、Session generation、进程清理和 turn event normalization。
+Daemon 不再从 socket payload 重做业务 policy，
 不把 UI 在线状态当执行条件。
 
 对 Invocation Pipeline 暴露的最小端口固定为 `isBusy(agentId, deliveryId)` 与
-`execute(InvocationDispatchPlan)`。Adapter 对本地 agent + delivery 先做原子进程占位；占位失败时在创建 envelope 之前
+`execute(InvocationDispatchPlan)`。`DirectedAgentRuntime` 对本地 agent + project 先做原子进程占位；占位失败时在创建 envelope 之前
 返回 `agent_busy`。占位成功后才按 Agent Binding 创建定向 Execution Envelope，并依次完成
 `sent -> acknowledged`，随后把 Plan 和 envelope context 交给慢速 ACP setup。这样并发 activation 不会 ACK 一个最终
 未获准启动的进程。指向其他节点但当前进程没有对应 executor 的命令以
@@ -226,7 +229,7 @@ Execution Envelope 必须定向到唯一 `toNodeId`，节点只能读取自己�
 transport consumer。非本地 `toNodeId` 一律 fail closed；多节点远端执行属于目标架构，不计入本次已完成能力。
 
 任务图恢复、closure wakeup 和归档扫描由 `AutonomyGuardOwner` 持有。它可以与本地 executor 同进程部署，但不在
-Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务端 owner，不再读取 Task/Envelope/Gate 来决定恢复动作。
+Agent Runtime 内执行；daemon transport 只启动/停止该服务端 owner，不再读取 Task/Envelope/Gate 来决定恢复动作。
 
 ## 4. Locality 规则
 
@@ -263,7 +266,7 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
 
 ### Phase 4：Daemon executor-only 与删除兼容
 
-- Daemon transport 只归一化 envelope/cancel 命令并调用 ExecutionAdapter。
+- Daemon transport 只归一化 envelope/cancel 命令并调用 AgentRuntime。
 - 业务 policy、任务状态推进、自动恢复和重试只在服务端 owner。
 - 删除零消费者类型、旧事件、兼容测试和失效文档，更新当前架构图与 wiki。
 
@@ -392,7 +395,7 @@ Daemon ExecutionAdapter 内执行；daemon transport 只启动/停止该服务�
   owner 时继续保留恢复 wakeup，避免任务停在 ready/in_progress/in_review 且没有任何用户可见升级事实。
 - `taskStore` 的任务变化后自动派发已删除；`daemonStore` 的浏览器 runtime 注册、busy queue、强制发送、自动重试、
   `terminal:start` emitter 与 `dispatch.enqueue/cancel` 兼容 API 已删除。React/store 仅保留运行展示状态和只读水合。
-- Phase 3 浏览器控制面收缩和核心回归已完成；Phase 4 已让 daemon 通过定向 `ExecutionAdapter` 接受已裁决 Plan，
+- Phase 3 浏览器控制面收缩和核心回归已完成；Phase 4 已让 daemon 通过定向 `AgentRuntime` 接受已裁决 Plan，
   在 envelope 前原子占位、在 ACP setup 前 ACK，并把自主恢复 policy 移到 `AutonomyGuardOwner`。当前只接通本地单 daemon；
   更细的进程生命周期拆分、取消命令、远端 transport 和重启恢复仍保留在活动规格中。
 

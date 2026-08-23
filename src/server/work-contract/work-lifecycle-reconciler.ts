@@ -1,8 +1,7 @@
 import { getDb } from '../db';
-import { AgentInbox } from '../platform-events/agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 import type { PlatformEventHandler } from '../platform-events/dispatcher';
 import { WorkContractRepository } from './repository';
-import type { AgentWorkCommand } from '../platform-events/agent-inbox';
 import { parseWorkIdentity } from './work-identity';
 
 const TERMINAL_TASK_EVENTS = new Set(['task.done', 'task.cancelled']);
@@ -13,7 +12,7 @@ const TERMINAL_DELIVERY_EVENTS = new Set([
 ]);
 
 export interface WorkLifecycleReconcilerOptions {
-  inbox?: AgentInbox;
+  collaboration?: CollaborationKernel;
   contracts?: WorkContractRepository;
 }
 
@@ -23,23 +22,22 @@ export interface WorkLifecycleReconcilerOptions {
  * Inbox cancellation are both idempotent and current owner state is re-read.
  */
 export class WorkLifecycleReconciler {
-  private readonly inbox: AgentInbox;
+  private readonly collaboration: CollaborationKernel;
   private readonly contracts: WorkContractRepository;
 
   constructor(options: WorkLifecycleReconcilerOptions = {}) {
-    this.inbox = options.inbox ?? new AgentInbox();
+    this.collaboration = options.collaboration ?? new CollaborationKernel();
     this.contracts = options.contracts ?? new WorkContractRepository();
   }
 
   readonly handle: PlatformEventHandler = (event, { signal }) => {
     if (signal.aborted) throw signal.reason ?? new Error('work_lifecycle_reconcile_aborted');
     if (event.type === 'agent.work.enqueued') {
-      if (!event.inboxItemId) return;
-      const row = getDb().prepare(`
-        SELECT command_json FROM agent_inbox_item WHERE id=? AND project_id=?
-      `).get(event.inboxItemId, event.projectId) as { command_json: string } | undefined;
-      if (!row) return;
-      const command = JSON.parse(row.command_json) as AgentWorkCommand;
+      const command = event.payload as {
+        workId?: string;
+        taskId?: string;
+        deliveryRunId?: string;
+      };
       const delivery = command.deliveryRunId ? getDb().prepare(`
         SELECT status FROM autonomous_delivery_run WHERE id=? AND conversation_id=?
       `).get(command.deliveryRunId, event.projectId) as { status: string } | undefined : undefined;
@@ -124,12 +122,13 @@ export class WorkLifecycleReconciler {
     const closed = this.contracts.closeActiveTaskScoped({
       projectId, taskId, correlationId, causationId, now,
     });
-    this.inbox.cancelPendingForWorkIds(
+    this.collaboration.cancel({
+      kind: 'work',
       projectId,
-      [...new Set([...existing, ...closed.map((authority) => authority.work_id)])],
-      'task_owner_terminal',
-    );
-    this.inbox.cancelForTerminalTask(projectId, taskId);
+      workIds: [...new Set([...existing, ...closed.map((authority) => authority.work_id)])],
+      reasonCode: 'task_owner_terminal',
+    });
+    this.collaboration.cancel({ kind: 'task', projectId, taskId, includeClaimed: true });
   }
 
   private reconcileDelivery(
@@ -143,11 +142,12 @@ export class WorkLifecycleReconciler {
     const closed = this.contracts.closeActiveForDelivery({
       projectId, deliveryRunId, correlationId, causationId, now,
     });
-    this.inbox.cancelPendingForWorkIds(
+    this.collaboration.cancel({
+      kind: 'work',
       projectId,
-      [...new Set([...existing, ...closed.map((authority) => authority.work_id)])],
-      'delivery_owner_terminal',
-    );
-    this.inbox.cancelForTerminalDelivery(projectId, deliveryRunId);
+      workIds: [...new Set([...existing, ...closed.map((authority) => authority.work_id)])],
+      reasonCode: 'delivery_owner_terminal',
+    });
+    this.collaboration.cancel({ kind: 'delivery', projectId, deliveryRunId });
   }
 }

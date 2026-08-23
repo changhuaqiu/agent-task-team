@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { getDb } from '../db';
-import { AgentInbox } from '../platform-events/agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 import { qualityGateRepo } from '../quality-gate/repository';
 import { taskRepo } from '../repositories/task-repo';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
@@ -26,7 +26,7 @@ import { continueGateLite } from '../work-contract/continue-gate';
 
 interface ProductionControlCommandAdapterOptions {
   db?: Database.Database;
-  inbox?: AgentInbox;
+  collaboration?: CollaborationKernel;
   deliveries?: AutonomousDeliveryRepository;
   now?: () => Date;
   effects?: Pick<DurableEffectOutbox, 'enqueueBatch'>;
@@ -54,7 +54,7 @@ function humanEscalationDetail(reasonCode: string): string {
 
 export class ProductionControlCommandAdapter implements ControlCommandPort {
   private readonly database?: Database.Database;
-  private readonly inbox: AgentInbox;
+  private readonly collaboration: CollaborationKernel;
   private readonly deliveries: AutonomousDeliveryRepository;
   private readonly now: () => Date;
   private readonly snapshots: RepositoryControlSnapshotBuilder;
@@ -63,7 +63,8 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
   constructor(options: ProductionControlCommandAdapterOptions = {}) {
     this.database = options.db;
     this.now = options.now ?? (() => new Date());
-    this.inbox = options.inbox ?? new AgentInbox({ db: options.db, now: this.now });
+    this.collaboration = options.collaboration
+      ?? new CollaborationKernel({ db: options.db, now: this.now });
     this.deliveries = options.deliveries ?? autonomousDeliveryRepo;
     this.effects = options.effects ?? new DurableEffectOutbox({ db: options.db, now: this.now });
     this.snapshots = new RepositoryControlSnapshotBuilder({
@@ -316,57 +317,64 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
           to: 'in_progress',
         });
       }
-      this.inbox.enqueue({
+      this.collaboration.request({
         projectId: task.conversation_id,
-        projectAgentId: targetAgent,
+        targetAgentId: targetAgent,
+        source: review ? 'review_gate' : verification ? 'test_gate' : 'system',
+        requestedAction: review || verification
+          ? [
+              action.type === 'continue' && continuation?.accepted
+                ? continuation.prompt
+                : outcomeRecovery
+                  ? `结果收口恢复：不要重新执行评审或验收。只根据上一轮持久化回复和已有证据，立即提交一次结构化 Gate 结论。\n${recoveryReplyContext}`
+                  : review
+                    ? deliveryReview
+                      ? 'Review the completed delivery.'
+                      : `Review task ${task.id}「${task.title}」.`
+                    : 'Verify the delivery acceptance criteria.',
+              `Quality Gate: ${gate?.id ?? 'missing'}.`,
+              action.type === 'continue'
+                ? 'This is a continued Gate evaluation. Preserve the checkpoint progress and finish the same Gate; do not restart the review or verification.'
+                : '',
+              'Submit exactly one structured record_gate_decision AgentOutcome.',
+              'Its payload must contain the exact gateId above, decision as passed | changes_requested | rejected, evidenceType, and evidence.',
+              receiptInstruction,
+            ].join(' ')
+          : action.type === 'continue' && continuation?.accepted
+            ? continuation.prompt
+            : outcomeRecovery
+              ? [
+                  `结果收口恢复：任务 ${task.id}「${task.title}」的上一轮执行已经结束，但没有提交结构化结果。`,
+                  '不要重新实现、运行命令、修改文件、重新验证或输出进度说明。',
+                  recoveryReplyContext,
+                  '只根据上下文中的上一轮持久化回复与已有证据，立即调用一次 agent_submit_outcome：已完成则提交 submit_task_result/request_review；仍需工作则提交 continue_work；确有外部阻塞才提交 report_blocked/request_human_decision；确需其他角色执行具体动作才 handoff_to_agent。',
+                ].join('\n')
+              : action.type === 'retry'
+                ? `恢复任务 ${task.id}「${task.title}」。根据当前权威事实继续，不要复用旧 attempt 的结果。`
+                : `执行任务 ${task.id}「${task.title}」。完成后提交结构化 AgentOutcome 和证据。`,
         idempotencyKey: action.actionId,
-        command: {
-          source: review ? 'review_gate' : verification ? 'test_gate' : 'system',
+        cause: {
           correlationId: decision.correlationId,
           causationId: action.actionId,
+        },
+        scope: {
           workId: action.targetWorkId,
           executionMode: outcomeRecovery ? 'outcome_recovery' : 'standard',
           taskId: task.id,
           deliveryRunId: runId,
-          contextScenario: action.type === 'retry' || action.type === 'continue'
+        },
+        context: {
+          scenario: action.type === 'retry' || action.type === 'continue'
             ? 'recovery'
             : review
               ? 'code_review'
               : verification
                 ? 'verification'
                 : 'execution',
-          prompt: review || verification
-            ? [
-                action.type === 'continue' && continuation?.accepted
-                  ? continuation.prompt
-                  : outcomeRecovery
-                    ? `结果收口恢复：不要重新执行评审或验收。只根据上一轮持久化回复和已有证据，立即提交一次结构化 Gate 结论。\n${recoveryReplyContext}`
-                  : review
-                    ? deliveryReview
-                      ? 'Review the completed delivery.'
-                      : `Review task ${task.id}「${task.title}」.`
-                    : 'Verify the delivery acceptance criteria.',
-                `Quality Gate: ${gate?.id ?? 'missing'}.`,
-                action.type === 'continue'
-                  ? 'This is a continued Gate evaluation. Preserve the checkpoint progress and finish the same Gate; do not restart the review or verification.'
-                  : '',
-                'Submit exactly one structured record_gate_decision AgentOutcome.',
-                'Its payload must contain the exact gateId above, decision as passed | changes_requested | rejected, evidenceType, and evidence.',
-                receiptInstruction,
-              ].join(' ')
-            : action.type === 'continue' && continuation?.accepted
-            ? continuation.prompt
-            : outcomeRecovery
-            ? [
-                `结果收口恢复：任务 ${task.id}「${task.title}」的上一轮执行已经结束，但没有提交结构化结果。`,
-                '不要重新实现、运行命令、修改文件、重新验证或输出进度说明。',
-                recoveryReplyContext,
-                '只根据上下文中的上一轮持久化回复与已有证据，立即调用一次 agent_submit_outcome：已完成则提交 submit_task_result/request_review；仍需工作则提交 continue_work；确有外部阻塞才提交 report_blocked/request_human_decision；确需其他角色执行具体动作才 handoff_to_agent。',
-              ].join('\n')
-            : action.type === 'retry'
-            ? `恢复任务 ${task.id}「${task.title}」。根据当前权威事实继续，不要复用旧 attempt 的结果。`
-            : `执行任务 ${task.id}「${task.title}」。完成后提交结构化 AgentOutcome 和证据。`,
         },
+        replyTo: gate?.id
+          ? { type: 'quality_gate', id: gate.id }
+          : { type: 'task', id: task.id },
       });
     }).immediate();
     return { status: 'applied' };

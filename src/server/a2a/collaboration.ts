@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDb } from '../db';
-import { AgentInbox, type AgentInboxItem } from '../platform-events/agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 import { DomainEventPublisher } from '../platform-events/domain-events';
 import { PlatformEventLog } from '../platform-events/event-log';
 import { generateSortableId } from '../repositories/sortable-id';
@@ -75,7 +75,6 @@ export interface OfferedPassGroup {
   group: A2APassGroup;
   passes: A2AAggregatePass[];
   packets: A2AHandoffPacket[];
-  inboxItems: AgentInboxItem[];
   duplicate: boolean;
 }
 
@@ -394,20 +393,20 @@ function renderPacket(packet: Omit<
 
 interface A2ACollaborationRepositoryOptions {
   db?: Database.Database;
-  inbox?: AgentInbox;
+  collaboration?: CollaborationKernel;
   now?: () => Date;
   idFactory?: (prefix: 'a2a-chain' | 'a2a-possession' | 'a2a-group' | 'a2a-pass' | 'a2a-packet') => string;
 }
 
 export class A2ACollaborationRepository {
   private readonly database?: Database.Database;
-  private readonly inbox: AgentInbox;
+  private readonly collaboration: CollaborationKernel;
   private readonly now: () => Date;
   private readonly idFactory: NonNullable<A2ACollaborationRepositoryOptions['idFactory']>;
 
   constructor(options: A2ACollaborationRepositoryOptions = {}) {
     this.database = options.db;
-    this.inbox = options.inbox ?? new AgentInbox({ db: options.db });
+    this.collaboration = options.collaboration ?? new CollaborationKernel({ db: options.db });
     this.now = options.now ?? (() => new Date());
     this.idFactory = options.idFactory ?? ((prefix) => generateSortableId(prefix));
   }
@@ -537,24 +536,11 @@ export class A2ACollaborationRepository {
       if (!chain) return undefined;
       const now = this.now().toISOString();
       const abortReason = nonEmpty(reasonCode, 'reasonCode');
-      let cancelledInboxItems = 0;
-      const pendingItems = db.prepare(`
-        SELECT project_id,project_agent_id,idempotency_key
-        FROM agent_inbox_item
-        WHERE project_id=? AND status IN ('enqueued','released')
-          AND json_extract(command_json,'$.chainId')=?
-      `).all(conversationId, chain.id) as Array<{
-        project_id: string;
-        project_agent_id: string;
-        idempotency_key: string;
-      }>;
-      for (const item of pendingItems) {
-        cancelledInboxItems += this.inbox.cancelPending(
-          item.project_id,
-          item.project_agent_id,
-          item.idempotency_key,
-        );
-      }
+      const cancelledInboxItems = this.collaboration.cancel({
+        kind: 'a2a_chain',
+        projectId: conversationId,
+        chainId: chain.id,
+      });
       const callbackAuthorities = db.prepare(`
         SELECT DISTINCT authority.work_id,authority.current_epoch
         FROM work_authority authority
@@ -820,21 +806,29 @@ export class A2ACollaborationRepository {
         },
       });
       for (const [index, branch] of input.branches.entries()) {
-        const inboxItem = this.inbox.enqueue({
+        const workRequest = this.collaboration.request({
           projectId: chain.conversation_id,
-          projectAgentId: branch.toAgentId,
+          targetAgentId: branch.toAgentId,
+          source: 'a2a',
+          requestedAction: renderPacket(branch.packet),
           idempotencyKey: `a2a:${chain.id}:${passIds[index]}`,
-          sourceEvent: offeredEvent,
-          command: {
-            source: 'a2a',
-            prompt: renderPacket(branch.packet),
+          cause: {
+            correlationId: chainCorrelationId(chain),
+            causationId: offeredEvent.eventId,
+            event: offeredEvent,
+          },
+          scope: {
             workId: `a2a-pass:${passIds[index]}`,
             taskId: branch.taskId,
             deliveryRunId: input.deliveryRunId,
+          },
+          collaboration: {
             fromAgentId: source.holder_id,
             chainId: chain.id,
             passId: passIds[index],
-            a2aHandoff: {
+          },
+          context: {
+            handoff: {
               title: source.holder_id,
               requestedAction: branch.packet.requestedAction,
               possessionSummary: branch.packet.possessionSummary,
@@ -850,12 +844,13 @@ export class A2ACollaborationRepository {
               forbiddenBehaviors: branch.packet.forbiddenBehaviors,
               sourceMessageIds: branch.packet.sourceMessageIds,
             },
-            contextScenario: 'handoff',
+            scenario: 'handoff',
           },
+          replyTo: { type: 'a2a_pass_group', id: groupId },
         });
         db.prepare(`
           UPDATE a2a_pass SET inbox_item_id=?,updated_at=? WHERE id=?
-        `).run(inboxItem.id, now, passIds[index]);
+        `).run(workRequest.inboxItemId, now, passIds[index]);
       }
       const updated = db.prepare(`
         UPDATE a2a_possession
@@ -1351,24 +1346,31 @@ export class A2ACollaborationRepository {
         ORDER BY work_epoch DESC,created_at DESC
         LIMIT 1
       `).get(group.source_work_id) as { task_id: string | null } | undefined : undefined;
-      this.inbox.enqueue({
+      this.collaboration.request({
         projectId: chain.conversation_id,
-        projectAgentId: source.holder_id,
+        targetAgentId: source.holder_id,
+        source: 'a2a',
+        requestedAction: resultBundle.context.requestedAction,
         idempotencyKey: `a2a-reconcile:${group.id}:${recoveryId}`,
-        sourceEvent: recoveryEvent,
-        command: {
-          source: 'a2a',
+        cause: {
+          correlationId: chainCorrelationId(chain),
+          causationId: recoveryEvent.eventId,
+          event: recoveryEvent,
+        },
+        scope: {
           workId: group.source_work_id ?? `a2a-reconcile:${group.id}`,
-          prompt: resultBundle.context.requestedAction,
           taskId: contract?.task_id ?? undefined,
           deliveryRunId: group.delivery_run_id ?? undefined,
+        },
+        collaboration: {
           fromAgentId: 'a2a-collaboration',
           chainId: source.chain_id,
-          possessionId: recoveryId,
-          possessionRevision: 0,
-          a2aHandoff: resultBundle.context,
-          contextScenario: 'recovery',
+          possession: { id: recoveryId, revision: 0 },
         },
+        context: { handoff: resultBundle.context, scenario: 'recovery' },
+        replyTo: group.source_work_id
+          ? { type: 'work', id: group.source_work_id }
+          : { type: 'a2a_possession', id: recoveryId },
       });
     }
     this.completeParentReconciliation(source, chain, now);
@@ -1483,10 +1485,6 @@ export class A2ACollaborationRepository {
       group: groupFromRow(group),
       passes,
       packets,
-      inboxItems: passes.flatMap((pass) => {
-        const item = pass.inboxItemId ? this.inbox.get(pass.inboxItemId) : undefined;
-        return item ? [item] : [];
-      }),
       duplicate,
     };
   }

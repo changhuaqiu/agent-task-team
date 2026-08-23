@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { InvocationCoordinator } from '@/server/invocation-pipeline/coordinator';
 import type {
   AgentActivationCommand,
-  AgentRuntimePort,
   InvocationDispatchPlan,
   InvocationPlannerPort,
 } from '@/server/invocation-pipeline/types';
+import type { AgentRuntime } from '@/server/agent-runtime';
 
 const trigger: AgentActivationCommand = {
   id: 'trigger-1',
@@ -27,7 +27,7 @@ function planFor(input: AgentActivationCommand): InvocationDispatchPlan {
   };
 }
 
-function coordinator(input?: { busy?: boolean; planner?: InvocationPlannerPort; runtime?: AgentRuntimePort }) {
+function coordinator(input?: { busy?: boolean; planner?: InvocationPlannerPort; runtime?: AgentRuntime }) {
   const prepare = vi.fn(async (item: AgentActivationCommand) => ({ ok: true as const, plan: planFor(item) }));
   const execute = vi.fn(async () => ({ status: 'accepted' as const }));
   const recordProof = vi.fn();
@@ -40,6 +40,27 @@ function coordinator(input?: { busy?: boolean; planner?: InvocationPlannerPort; 
 }
 
 describe('InvocationCoordinator', () => {
+  it('releases the start lease at Runtime acknowledgement without waiting for completion', async () => {
+    let acknowledge!: (envelopeId: string) => void;
+    let complete!: (outcome: { status: 'accepted' }) => void;
+    const runtime: AgentRuntime = {
+      isBusy: () => false,
+      execute: (_plan, observer) => new Promise((resolve) => {
+        acknowledge = (envelopeId) => observer?.onAcknowledged(envelopeId);
+        complete = resolve;
+      }),
+    };
+    const { instance } = coordinator({ runtime });
+
+    const submission = instance.submit(trigger);
+    await Promise.resolve();
+    acknowledge('envelope-1');
+
+    await expect(submission.started).resolves.toEqual({ status: 'accepted', envelopeId: 'envelope-1' });
+    complete({ status: 'accepted' });
+    await expect(submission.completion).resolves.toEqual({ status: 'accepted' });
+  });
+
   it('prepares and executes an accepted trigger exactly once', async () => {
     const { instance, prepare, execute } = coordinator();
 
@@ -54,6 +75,79 @@ describe('InvocationCoordinator', () => {
     await duplicate.completion;
     expect(prepare).toHaveBeenCalledTimes(1);
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('scopes caller idempotency by project and Agent', async () => {
+    const { instance, prepare, execute } = coordinator();
+    const sameKey = 'shared-caller-key';
+
+    await Promise.all([
+      instance.submit({ ...trigger, idempotencyKey: sameKey }).completion,
+      instance.submit({
+        ...trigger,
+        id: 'trigger-2',
+        conversationId: 'conv-2',
+        idempotencyKey: sameKey,
+      }).completion,
+      instance.submit({
+        ...trigger,
+        id: 'trigger-3',
+        agentId: 'reviewer',
+        idempotencyKey: sameKey,
+      }).completion,
+    ]);
+
+    expect(prepare).toHaveBeenCalledTimes(3);
+    expect(execute).toHaveBeenCalledTimes(3);
+  });
+
+  it('forwards claim fencing to Runtime acknowledgement', async () => {
+    const canAcknowledge = vi.fn(() => false);
+    const signal = new AbortController().signal;
+    const runtime: AgentRuntime = {
+      isBusy: () => false,
+      execute: vi.fn(async (_plan, observer) => {
+        expect(observer).toMatchObject({ signal, canAcknowledge });
+        return { status: 'failed', reasonCode: 'runtime_start_failed' };
+      }),
+    };
+    const { instance } = coordinator({ runtime });
+
+    await expect(instance.submit(trigger, { signal, canAcknowledge }).completion)
+      .resolves.toMatchObject({ status: 'failed', reasonCode: 'runtime_start_failed' });
+  });
+
+  it('does not cache a Runtime startup failure as a completed activation', async () => {
+    const runtime: AgentRuntime = {
+      isBusy: () => false,
+      execute: vi.fn(async () => ({ status: 'failed', reasonCode: 'runtime_start_failed' })),
+    } as AgentRuntime;
+    const { instance } = coordinator({ runtime });
+
+    await instance.submit(trigger).completion;
+    await instance.submit(trigger).completion;
+
+    expect(runtime.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not cache an asynchronous reservation race as completed work', async () => {
+    let attempts = 0;
+    const runtime: AgentRuntime = {
+      isBusy: () => false,
+      execute: vi.fn(async () => {
+        attempts += 1;
+        return attempts === 1
+          ? { status: 'deferred', reasonCode: 'agent_busy' }
+          : { status: 'accepted' };
+      }),
+    } as AgentRuntime;
+    const { instance } = coordinator({ runtime });
+
+    await expect(instance.submit(trigger).completion)
+      .resolves.toEqual({ status: 'deferred', reasonCode: 'agent_busy' });
+    await expect(instance.submit(trigger).completion)
+      .resolves.toEqual({ status: 'accepted' });
+    expect(runtime.execute).toHaveBeenCalledTimes(2);
   });
 
   it('defers synchronously when the runtime is busy so the Inbox can queue it', async () => {

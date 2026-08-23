@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { generateSortableId } from '../repositories/sortable-id';
+import { EVENT_ENVELOPE_VERSION } from '../../shared/event-envelope';
 import {
   PLATFORM_EVENT_SCHEMA_VERSION,
   type AppendPlatformEvent,
@@ -73,6 +74,7 @@ function fromRow<TType extends string = string, TPayload = unknown>(
   return {
     eventId: row.id,
     type: row.type as TType,
+    envelopeVersion: EVENT_ENVELOPE_VERSION,
     category: row.category,
     schemaVersion: PLATFORM_EVENT_SCHEMA_VERSION,
     projectId: row.project_id,

@@ -544,9 +544,12 @@ describe('InvocationPlanner', () => {
     });
 
     await expect(submission.completion).resolves.toEqual({ status: 'accepted', envelopeId: 'env-proposal' });
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      trigger: expect.objectContaining({ legacyProposal: true }),
-    }));
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trigger: expect.objectContaining({ legacyProposal: true }),
+      }),
+      expect.objectContaining({ onAcknowledged: expect.any(Function) }),
+    );
   });
 
   it('observes an invalid legacy Skill file path as a bounded Skill failure', async () => {

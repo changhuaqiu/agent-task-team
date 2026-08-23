@@ -24,6 +24,13 @@ import type { Server as IOServer } from 'socket.io';
 let projectPath: string;
 let watcherCleanups: Array<() => void>;
 
+function expectProjectView(emit: ReturnType<typeof vi.fn>, type: string, payload: object): void {
+  expect(emit).toHaveBeenCalledWith('project:view', expect.objectContaining({
+    type,
+    payload: expect.objectContaining(payload),
+  }));
+}
+
 beforeEach(() => {
   setTestDb(createTestDb());
   resetSeq();
@@ -139,10 +146,10 @@ describe('syncTasksToDb', () => {
       status: 'ready',
       description: 'queued.md',
     });
-    expect(emit).toHaveBeenCalledWith('task.sync', expect.objectContaining({
+    expectProjectView(emit, 'task.sync', {
       conversationId: 'conv-1',
       tasks: [expect.objectContaining({ id: 'TASK-003', status: 'ready' })],
-    }));
+    });
   });
 
   it('adopts legacy unowned tasks before claiming the projection', () => {
@@ -231,9 +238,9 @@ describe('syncTasksToDb', () => {
     const archivedContent = readFileSync(join(projectPath, '.ath', legacyArchive!), 'utf-8');
     expect(archivedContent).toContain('TASK-003');
     expect(archivedContent).toContain('preserve legacy operator note');
-    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+    expectProjectView(emit, 'task.sync_error', {
       reasonCode: 'task_graph.legacy_projection_foreign_task_skipped',
-    }));
+    });
   });
 
   it('publishes task notifications when TASKS.md changes status or deliverable', () => {
@@ -265,10 +272,10 @@ describe('syncTasksToDb', () => {
       changedFields: ['status', 'description'],
     });
     expect(io.to).toHaveBeenCalledWith('conv-1');
-    expect(emit).toHaveBeenCalledWith('task.notification', expect.objectContaining({
+    expectProjectView(emit, 'task.notification', {
       taskId: 'TASK-003',
       recipients: ['toad'],
-    }));
+    });
   });
 
   it('transfers a shared runtime projection without importing the prior Conversation tasks', async () => {
@@ -322,10 +329,10 @@ describe('syncTasksToDb', () => {
     expect(readTasksMd(projectPath).tasks).toEqual([
       expect.objectContaining({ id: 'TASK-AUTH', status: 'ready' }),
     ]);
-    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+    expectProjectView(emit, 'task.sync_error', {
       taskId: 'TASK-003',
       reasonCode: 'task_graph.owned_projection_unknown_task',
-    }));
+    });
   });
 
   it('restores every authoritative row when an owned projection is emptied', () => {
@@ -427,13 +434,13 @@ describe('syncTasksToDb', () => {
       taskId: 'TASK-003',
       reasonCode: 'task_graph.file_projection_managed_work',
     })).toHaveLength(1);
-    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+    expectProjectView(emit, 'task.sync_error', {
       taskId: 'TASK-003',
       reasonCode: 'task_graph.file_projection_managed_work',
-    }));
-    expect(emit).toHaveBeenCalledWith('task.sync', expect.objectContaining({
+    });
+    expectProjectView(emit, 'task.sync', {
       tasks: [expect.objectContaining({ depends: ['TASK-AUTH'] })],
-    }));
+    });
   });
 
   it('rejects Git quality-gate transitions written directly to TASKS.md', () => {
@@ -462,10 +469,10 @@ describe('syncTasksToDb', () => {
       taskId: 'TASK-003',
       reasonCode: 'task_graph.file_projection_gate_bypass',
     })).toHaveLength(1);
-    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+    expectProjectView(emit, 'task.sync_error', {
       taskId: 'TASK-003',
       reasonCode: 'task_graph.file_projection_gate_bypass',
-    }));
+    });
   });
 
   it('does not let a stale file roll a Git receipt state backward', () => {
@@ -494,10 +501,10 @@ describe('syncTasksToDb', () => {
 
     expect(taskRepo.getById('TASK-003')?.status).toBe('in_review');
     expect(readTasksMd(projectPath).tasks[0].status).toBe('in_review');
-    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+    expectProjectView(emit, 'task.sync_error', {
       taskId: 'TASK-003',
       reasonCode: 'task_graph.file_projection_gate_bypass',
-    }));
+    });
   });
 
   it('does not let a stale todo file regress a task with an active invocation', () => {
@@ -521,11 +528,14 @@ describe('syncTasksToDb', () => {
     syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
 
     expect(taskRepo.getById('TASK-003')?.status).toBe('in_progress');
-    expect(emit).not.toHaveBeenCalledWith('task.notification', expect.objectContaining({
+    const notificationPayloads = emit.mock.calls
+      .filter(([channel, envelope]) => channel === 'project:view' && envelope?.type === 'task.notification')
+      .map(([, envelope]) => envelope.payload);
+    expect(notificationPayloads).not.toContainEqual(expect.objectContaining({
       taskId: 'TASK-003',
       previousStatus: 'in_progress',
     }));
-    expect(emit).toHaveBeenCalledWith('task.sync', expect.objectContaining({
+    expectProjectView(emit, 'task.sync', {
       conversationId: 'conv-1',
       tasks: [
         expect.objectContaining({
@@ -533,15 +543,15 @@ describe('syncTasksToDb', () => {
           status: 'in_progress',
         }),
       ],
-    }));
+    });
 
     invocationRepo.transition('inv-active', { to: 'terminated', outcome: 'completed' });
     syncTasksToDb(projectPath, 'conv-1', io as unknown as IOServer);
     expect(taskRepo.getById('TASK-003')?.status).toBe('in_progress');
-    expect(emit).toHaveBeenCalledWith('task.sync_error', expect.objectContaining({
+    expectProjectView(emit, 'task.sync_error', {
       taskId: 'TASK-003',
       reasonCode: 'task_state.invalid_projection_transition',
-    }));
+    });
   });
 
   it('scopes duplicate TASKS.md IDs without mutating another conversation', () => {

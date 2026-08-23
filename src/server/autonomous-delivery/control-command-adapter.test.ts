@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { AgentInbox } from '../platform-events/agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 import { DurableEffectOutbox } from '../platform-events/durable-effect-outbox';
 import { qualityGateRepo } from '../quality-gate/repository';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
@@ -61,7 +62,7 @@ describe('ProductionControlCommandAdapter', () => {
     });
     adapter = new ProductionControlCommandAdapter({
       db,
-      inbox,
+      collaboration: new CollaborationKernel({ inbox }),
       deliveries,
       now: () => now,
     });

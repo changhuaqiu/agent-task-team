@@ -6,13 +6,19 @@ function emitServerEvent(event: string, payload: unknown) {
   (socket as unknown as { emitEvent(args: unknown[]): void }).emitEvent([event, payload]);
 }
 
-function emitProjectView(kind: string, payload: Record<string, unknown>) {
+function emitProjectView(type: string, payload: Record<string, unknown>) {
   emitServerEvent('project:view', {
-    version: 1,
+    version: 2,
+    envelopeVersion: 1,
+    eventId: `event-${type}`,
     projectId: 'conv-bg',
     occurredAt: '2026-05-17T00:00:00.000Z',
-    kind,
-    agentId: 'mario',
+    type,
+    delivery: 'transient',
+    actor: { type: 'agent', id: 'mario' },
+    subject: { type: 'invocation', id: 'run-bg' },
+    correlationId: 'run-bg',
+    causationId: 'command-bg',
     payload,
   });
 }

@@ -5,7 +5,7 @@ import { DispatchGateway } from '@/server/control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from '@/server/repositories/runtime-node-repo';
 import { executionEnvelopeRepo } from '@/server/repositories/execution-envelope-repo';
 import { proofLogRepo } from '@/server/repositories/proof-log-repo';
-import { DaemonExecutionAdapter } from '@/server/daemon-execution-adapter';
+import { DirectedAgentRuntime } from '@/server/agent-runtime';
 import type { InvocationDispatchPlan } from '@/server/invocation-pipeline';
 
 beforeEach(() => {
@@ -125,17 +125,24 @@ describe('DispatchGateway', () => {
     });
   });
 
-  it('keeps an acknowledged envelope fenced while backend startup is delayed', async () => {
+  it('keeps a slow Runtime setup unacknowledged but inside its preparation TTL', async () => {
     const gateway = new DispatchGateway();
     gateway.ensureRuntimeNode({ id: 'daemon-1', kind: 'daemon', label: 'Daemon' });
     let releaseStartup!: () => void;
     const startupGate = new Promise<void>((resolve) => { releaseStartup = resolve; });
-    const execute = vi.fn(() => startupGate);
-    const adapter = new DaemonExecutionAdapter({
+    const execute = vi.fn(async (
+      _plan: InvocationDispatchPlan,
+      _dispatch: unknown,
+      lifecycle: { acknowledge(): boolean },
+    ) => {
+      await startupGate;
+      lifecycle.acknowledge();
+    });
+    const adapter = new DirectedAgentRuntime({
       nodeId: 'daemon-1',
       dispatch: gateway,
       resolveTargetNodeId: () => 'daemon-1',
-      backend: {
+      executor: {
         isBusy: () => false,
         reserve: () => true,
         release: vi.fn(),
@@ -157,12 +164,14 @@ describe('DispatchGateway', () => {
     const pending = adapter.execute(plan);
     await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
     const [created] = executionEnvelopeRepo.listByConversation('conv-1');
-    expect(created.status).toBe('acknowledged');
-    expect(gateway.expireUnacknowledged(new Date(Date.now() + 10 * 60_000))).toBe(0);
-    expect(executionEnvelopeRepo.getById(created.id)?.status).toBe('acknowledged');
+    expect(created.status).toBe('sent');
+    expect(created.ttl_ms).toBe(10 * 60_000);
+    expect(gateway.expireUnacknowledged(new Date(Date.now() + 3 * 60_000))).toBe(0);
+    expect(executionEnvelopeRepo.getById(created.id)?.status).toBe('sent');
 
     releaseStartup();
     await expect(pending).resolves.toMatchObject({ status: 'accepted', envelopeId: created.id });
+    expect(executionEnvelopeRepo.getById(created.id)?.status).toBe('acknowledged');
   });
 
   it('blocks secret-bearing envelopes and stores redacted payload', () => {

@@ -70,6 +70,10 @@ describe('AcpBackend hardening', () => {
       cwd: process.cwd(),
     }).execute('hello', {});
 
+    await expect(run.started).resolves.toMatchObject({
+      ok: false,
+      reasonCode: 'acp_startup_failed',
+    });
     const { events, result } = await drain(run);
     expect(events.some((event) => event.type === 'error')).toBe(true);
     expect(result).toMatchObject({ status: 'failed', reasonCode: 'acp_startup_failed' });
@@ -112,6 +116,10 @@ describe('AcpBackend hardening', () => {
     try {
       expect(getActiveAcpRunCount()).toBe(1);
       const second = backend('normal', { limits: { maxConcurrentRuns: 1 } }).execute('two', {});
+      await expect(second.started).resolves.toMatchObject({
+        ok: false,
+        reasonCode: 'acp_concurrency_limit',
+      });
       await expect(second.result).resolves.toMatchObject({
         status: 'failed',
         reasonCode: 'acp_concurrency_limit',

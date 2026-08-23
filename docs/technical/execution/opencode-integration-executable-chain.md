@@ -16,7 +16,7 @@ Adapter 启动优先解析项目已安装且由 lockfile 固定的 `node_modules
 服务端 Invocation Pipeline
   │  InvocationDispatchPlan
   ▼
-DaemonExecutionAdapter → daemon.ts
+DirectedAgentRuntime → ACP executor (`daemon.ts` composition root)
   │  loadCatalog().find(e => e.id === engine) → createAcpBackend(entry)
   ▼
 AgentBackend (interface, src/server/agent/types.ts)
@@ -245,21 +245,27 @@ Daemon 向项目 room 发布统一的 `project:view` 信封：
 
 ```typescript
 {
-  version: 1;
-  projectId: string;
-  occurredAt: string;
-  kind: 'runtime.text.delta' | 'runtime.thinking.delta' |
+  version: 2;
+  envelopeVersion: 1;
+  eventId: string;
+  type: 'runtime.text.delta' | 'runtime.thinking.delta' |
         'runtime.plan' | 'runtime.tool.started' |
         'runtime.tool.completed' | 'runtime.tool.failed' |
         'runtime.warning' | 'runtime.usage' |
         'runtime.completed' | 'terminal.output' | 'terminal.exited';
-  agentId?: string;
-  invocationId?: string;
+  projectId: string;
+  actor: { type: 'agent' | 'runtime' | 'system' | 'user'; id: string };
+  agent?: { type: 'agent'; id: string }; // 展示目标，不覆盖 canonical actor
+  subject?: { type: string; id: string };
+  correlationId: string;
+  causationId?: string;
+  occurredAt: string;
+  delivery: 'durable' | 'transient';
   payload: Record<string, unknown>;
 }
 ```
 
-前端先验证 `projectId === 当前项目`，再按 `kind` 更新聊天、工具、终端和活动态。
+前端先验证信封版本、身份和 `projectId === 当前项目`，再按 `type` 更新聊天、工具、终端和活动态。
 处理器只更新展示 Store，不回发派发、重试或执行 ACK。人的点击和输入通过独立
 Command adapter 进入服务端，不受这一限制。
 

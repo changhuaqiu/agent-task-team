@@ -27,9 +27,30 @@ import { hasCurrentVerifiedMerge } from './task-flow/task-gate-evidence';
 import { publishTaskChangeNotification } from './task-flow/task-notification-publisher';
 import { getDb } from './db';
 import type { Server as IOServer } from 'socket.io';
+import { publishProjectView } from './project-view/project-view-publisher';
 
 const watchers = new Map<string, { conversationId: string; watcher: FSWatcher }>();
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function publishTaskSyncError(
+  io: IOServer,
+  conversationId: string,
+  payload: Record<string, unknown>,
+): void {
+  publishProjectView(io, conversationId, {
+    type: 'task.sync_error',
+    delivery: 'durable',
+    actor: { type: 'system', id: 'task-file-projection' },
+    subject: typeof payload.taskId === 'string'
+      ? { type: 'task', id: payload.taskId }
+      : undefined,
+    correlationId: typeof payload.taskId === 'string' ? payload.taskId : conversationId,
+    causationId: typeof payload.taskId === 'string'
+      ? `task-file:${payload.taskId}`
+      : `task-file:${conversationId}`,
+    payload: { ...payload, conversationId },
+  });
+}
 
 function watcherKey(projectPath: string): string {
   return canonicalTasksProjectionPath(projectPath);
@@ -116,7 +137,7 @@ function rejectProjectionTransition(input: {
       source: 'TASKS.md',
     },
   });
-  input.io.to(input.conversationId).emit('task.sync_error', {
+  publishTaskSyncError(input.io, input.conversationId, {
     projectId: input.conversationId,
     projectPath: input.projectPath,
     conversationId: input.conversationId,
@@ -156,7 +177,7 @@ function rejectInvalidProjectionTransition(input: {
       source: 'TASKS.md',
     },
   });
-  input.io.to(input.conversationId).emit('task.sync_error', {
+  publishTaskSyncError(input.io, input.conversationId, {
     projectId: input.conversationId,
     projectPath: input.projectPath,
     conversationId: input.conversationId,
@@ -195,7 +216,7 @@ function rejectManagedProjectionTransition(input: {
       authority: 'work_contract',
     },
   });
-  input.io.to(input.conversationId).emit('task.sync_error', {
+  publishTaskSyncError(input.io, input.conversationId, {
     projectId: input.conversationId,
     projectPath: input.projectPath,
     conversationId: input.conversationId,
@@ -336,7 +357,7 @@ function syncTasksToDbWithinProjectionTransaction(
             legacyArchivePath,
           },
         });
-        io.to(conversationId).emit('task.sync_error', {
+        publishTaskSyncError(io, conversationId, {
           projectId: conversationId,
           projectPath,
           conversationId,
@@ -366,7 +387,7 @@ function syncTasksToDbWithinProjectionTransaction(
       reasonCode,
       metadata: { source: 'TASKS.md' },
     });
-    io.to(conversationId).emit('task.sync_error', {
+    publishTaskSyncError(io, conversationId, {
       projectId: conversationId,
       projectPath,
       conversationId,
@@ -390,7 +411,7 @@ function syncTasksToDbWithinProjectionTransaction(
       const nonEmptyLines = raw.split('\n').filter((l: string) => l.trim().length > 0);
       if (nonEmptyLines.length > 2) {
         console.warn(`[task-watcher] TASKS.md has ${nonEmptyLines.length} lines but parsed 0 tasks — possible format issue at ${tasksFile}`);
-        io.to(conversationId).emit('task.sync_error', {
+        publishTaskSyncError(io, conversationId, {
           projectId: conversationId,
           projectPath,
           conversationId,
@@ -681,11 +702,17 @@ function syncTasksToDbWithinProjectionTransaction(
     };
   });
 
-  io.to(conversationId).emit('task.sync', {
-    projectId: conversationId,
-    projectPath,
-    conversationId,
-    tasks: authoritativeTasks,
-    blockers,
+  publishProjectView(io, conversationId, {
+    type: 'task.sync',
+    delivery: 'durable',
+    actor: { type: 'system', id: 'task-file-projection' },
+    correlationId: conversationId,
+    causationId: `task-file:${conversationId}`,
+    payload: {
+      projectPath,
+      conversationId,
+      tasks: authoritativeTasks,
+      blockers,
+    },
   });
 }

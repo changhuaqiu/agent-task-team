@@ -1,10 +1,12 @@
 import { taskRepo } from '../repositories/task-repo';
-import { AgentInbox } from './agent-inbox';
-import { AgentInboxRouter } from './agent-inbox-router';
+import {
+  CollaborationEventRouter,
+  CollaborationKernel,
+} from '../collaboration-kernel';
 import type { PlatformEventHandler } from './dispatcher';
 
 export interface TaskWakeupRouterOptions {
-  inbox?: AgentInbox;
+  collaboration?: CollaborationKernel;
 }
 
 /**
@@ -13,13 +15,13 @@ export interface TaskWakeupRouterOptions {
  * has already advanced or reached a terminal state.
  */
 export class TaskWakeupRouter {
-  private readonly inbox: AgentInbox;
-  private readonly router: AgentInboxRouter;
+  private readonly collaboration: CollaborationKernel;
+  private readonly router: CollaborationEventRouter;
 
   constructor(options: TaskWakeupRouterOptions = {}) {
-    this.inbox = options.inbox ?? new AgentInbox();
-    this.router = new AgentInboxRouter({
-      inbox: this.inbox,
+    this.collaboration = options.collaboration ?? new CollaborationKernel();
+    this.router = new CollaborationEventRouter({
+      kernel: this.collaboration,
       resolve: (event) => {
         if (event.type !== 'task.changes_requested') return undefined;
         const payload = event.payload as {
@@ -35,12 +37,12 @@ export class TaskWakeupRouter {
           || task.agent_id !== payload.agentId
         ) return undefined;
         return {
-          projectAgentId: task.agent_id,
-          command: {
-            source: 'workflow',
-            taskId: task.id,
-            prompt: `Task ${task.id} requires changes. Address the review feedback: ${payload.reviewNote ?? 'Review the latest task evidence and correct the implementation.'}`,
-          },
+          targetAgentId: task.agent_id,
+          source: 'workflow',
+          requestedAction: `Task ${task.id} requires changes. Address the review feedback: ${payload.reviewNote ?? 'Review the latest task evidence and correct the implementation.'}`,
+          idempotencyKey: `task:${task.id}:changes:${event.aggregate.version ?? event.eventId}`,
+          scope: { taskId: task.id },
+          replyTo: { type: 'task', id: task.id },
         };
       },
     });
@@ -52,7 +54,11 @@ export class TaskWakeupRouter {
       throw context.signal.reason ?? new Error('task_wakeup_router_aborted');
     }
     if (event.type === 'task.done' || event.type === 'task.cancelled') {
-      this.inbox.cancelPendingForTask(event.projectId, event.aggregate.id);
+      this.collaboration.cancel({
+        kind: 'task',
+        projectId: event.projectId,
+        taskId: event.aggregate.id,
+      });
       return;
     }
     return this.router.handle(event, context);

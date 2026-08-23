@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDb } from '../db';
-import { AgentInbox } from '../platform-events/agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 import { generateSortableId } from '../repositories/sortable-id';
 import type { TaskWakeup } from './task-wakeup';
 
@@ -121,18 +121,19 @@ export class TaskEvidenceRecoveryCommand {
       }
 
       const recoveryInboxItem = input.wakeup
-        ? new AgentInbox({ db, now: this.now }).enqueue({
+        ? new CollaborationKernel({ db, now: this.now }).request({
             projectId: input.conversationId,
-            projectAgentId: input.wakeup.agentId,
+            targetAgentId: input.wakeup.agentId,
+            source: 'system',
+            requestedAction: input.wakeup.prompt,
             idempotencyKey: `task-evidence-recovery:${input.idempotencyKey}`,
-            command: {
-              source: 'system',
-              taskId: input.taskId,
-              prompt: input.wakeup.prompt,
+            cause: {
               correlationId: input.idempotencyKey,
               causationId: input.idempotencyKey,
-              contextScenario: 'recovery',
             },
+            scope: { taskId: input.taskId },
+            context: { scenario: 'recovery' },
+            replyTo: { type: 'task', id: input.taskId },
           })
         : undefined;
       const recordedAt = this.now().toISOString();
@@ -140,7 +141,7 @@ export class TaskEvidenceRecoveryCommand {
         idempotencyKey: input.idempotencyKey,
         response: { ok: false, error: input.error },
         ...(input.wakeup ? { wakeup: input.wakeup } : {}),
-        ...(recoveryInboxItem ? { recoveryInboxItemId: recoveryInboxItem.id } : {}),
+        ...(recoveryInboxItem ? { recoveryInboxItemId: recoveryInboxItem.inboxItemId } : {}),
         recordedAt,
       };
       db.prepare(`
@@ -157,7 +158,7 @@ export class TaskEvidenceRecoveryCommand {
         input.taskId,
         input.expectedTaskRevision,
         JSON.stringify(receipt),
-        recoveryInboxItem?.id ?? null,
+        recoveryInboxItem?.inboxItemId ?? null,
         recordedAt,
       );
       return { status: 'recorded' as const, receipt };

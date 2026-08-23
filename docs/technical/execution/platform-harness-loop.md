@@ -31,10 +31,10 @@ Task mutation / Autonomy Guard / A2A pass
      -> ContextManager
         -> resolve scenario + role archetype
         -> apply cluster injection policy
-  -> AgentRuntimePort
-     -> daemon terminal execution compatibility entry
+  -> AgentRuntime
+     -> directed routing + atomic reservation
      -> DispatchGateway / ExecutionEnvelope / Proof
-     -> backend or future ACP runtime
+     -> ACP executor
   -> normalized AgentEvent
   -> task tool / A2A response / invocation outcome
   -> next wakeup or terminal state
@@ -59,12 +59,12 @@ Task mutation / Autonomy Guard / A2A pass
 - 输出与具体 Runtime SDK 无关的 `InvocationDispatchPlan`。
 - 按 trigger source 区分 user turn、A2A handoff 与系统 resume，并把 wakeup reason 和已解析 scenario 透传到执行完成边界。
 
-### AgentRuntimePort
+### AgentRuntime
 
 - 判断当前角色在 conversation 内是否 busy；
 - 接收完整 plan 并提交执行；
-- 当前实现复用 daemon 已有执行入口；
-- ACP 分支只需实现相同端口，无需修改 Task、A2A 或 Context 层。
+- 当前 `DirectedAgentRuntime` 拥有定向 envelope、原子占位、ACK 与 ACP turn event normalization；
+- Invocation Pipeline 无需知道 ACP、Session、进程或 Socket 细节。
 - daemon 执行入口的参数解构、诊断日志和 preflight 校验不得引用浏览器环境全局变量；所有日志字段必须来自已解析 plan，且诊断代码不得位于可捕获错误边界之外而中断执行。
 - 用户消息必须先写入聊天事实源，再触发 dispatch；runtime 是否 busy 不能影响消息可见性和持久化。
 - 浏览器与 daemon 的 busy 快照可能短暂不一致。人工 Command 如果在服务端 admission
@@ -150,7 +150,7 @@ Task mutation / Autonomy Guard / A2A pass
 | Agent 角色和协作策略 | Conversation Team Runtime |
 | Context | ContextManager + repository providers |
 | Dispatch 生命周期 | ExecutionEnvelope / DispatchGateway |
-| 进程与会话 | Runtime Port / Session / Invocation |
+| 进程与会话 | AgentRuntime / Session / Invocation |
 | A2A 持有权 | A2A possession/pass |
 | UI busy、流式内容和 A2A 时间线 | 服务端状态投影；A2A 使用完整 `a2a.snapshot` |
 

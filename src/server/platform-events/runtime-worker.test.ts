@@ -37,7 +37,7 @@ describe('PlatformEventRuntimeWorker', () => {
     worker.start();
     worker.start();
     await vi.advanceTimersByTimeAsync(100);
-    expect(calls).toEqual({ register: 19, recover: 1, discover: 1, drain: 1 });
+    expect(calls).toEqual({ register: 20, recover: 1, discover: 1, drain: 1 });
 
     releaseDrain();
     await vi.advanceTimersByTimeAsync(10);
@@ -118,8 +118,11 @@ describe('PlatformEventRuntimeWorker', () => {
     }), expect.objectContaining({
       id: 'work-lifecycle-reconciler:late-inbox:v1',
       pattern: 'agent.work.enqueued',
+    }), expect.objectContaining({
+      id: 'evaluation-work-lifecycle-process-manager:v1',
+      pattern: 'agent.work.*',
     })]));
-    expect(registrations).toHaveLength(20);
+    expect(registrations).toHaveLength(21);
   });
 
   it('registers Phoenix projection only when the collector is explicitly configured', () => {

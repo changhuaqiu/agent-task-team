@@ -6,6 +6,7 @@ import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository'
 import type { GoalContract } from '../autonomous-delivery/types';
 import { A2ACollaborationRepository } from '../a2a/collaboration';
 import { AgentInbox } from './agent-inbox';
+import { CollaborationKernel } from '../collaboration-kernel';
 import { executionEnvelopeRepo } from '../repositories/execution-envelope-repo';
 import { invocationRepo } from '../repositories/invocation-repo';
 import { sessionRepo } from '../repositories/session-repo';
@@ -133,10 +134,10 @@ describe('domain event inline seam', () => {
     let sequence = 0;
     const collaboration = new A2ACollaborationRepository({
       db,
-      inbox: new AgentInbox({
+      collaboration: new CollaborationKernel({ inbox: new AgentInbox({
         db,
         idFactory: (prefix) => `${prefix}-${++sequence}`,
-      }),
+      }) }),
       idFactory: (prefix) => `${prefix}-${++sequence}`,
     });
     const first = collaboration.createChain({

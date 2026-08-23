@@ -329,7 +329,7 @@ describe('runtime ownership architecture', () => {
   it('keeps explicit human command adapters available', () => {
     const gateway = source('src/lib/human-command/WebHumanCommandGateway.ts');
     const commandApi = source('src/pages/api/human-commands.ts');
-    const executionAdapter = source('src/server/daemon-execution-adapter.ts');
+    const agentRuntime = source('src/server/agent-runtime/directed-agent-runtime.ts');
     expect(taskHubStore).toContain('humanCommandGateway.submit({');
     expect(taskHubStore).not.toContain(`type: 'a2a.human_handoff'`);
     expect(gateway).toContain("private readonly endpoint = '/api/human-commands'");
@@ -338,10 +338,113 @@ describe('runtime ownership architecture', () => {
     expect(daemon).not.toContain(`socket.on('a2a:user-turn-created'`);
     expect(daemon).not.toContain(`socket.on('terminal:start'`);
     expect(daemon).not.toContain(`socket.on('terminal:kill'`);
-    expect(daemon).toContain('runtime: executionAdapter');
-    expect(executionAdapter).toContain('implements AgentRuntimePort');
-    expect(executionAdapter).toContain('execute(plan: InvocationDispatchPlan)');
+    expect(daemon).toContain('runtime: agentRuntime');
+    expect(agentRuntime).toContain('implements AgentRuntime');
+    expect(agentRuntime).toMatch(/async execute\(\s*plan: InvocationDispatchPlan,/);
     expect(productionTypeScriptFiles('src').filter((path) => source(path).includes("emit('terminal:start'"))).toEqual([]);
+  });
+
+  it('routes every production domain trigger through CollaborationKernel', () => {
+    const producerRoots = [
+      'src/server/a2a',
+      'src/server/human-command',
+      'src/server/autonomous-delivery',
+      'src/server/task-flow',
+      'src/server/work-contract',
+    ];
+    const producers = producerRoots.flatMap(productionTypeScriptFiles);
+    expect(producers.filter((path) => /AgentInbox/.test(source(path)))).toEqual([]);
+    expect(producers.filter((path) => /\.enqueue\s*\(\s*\{/.test(source(path)))).toEqual([]);
+    expect(existsSync(resolve(
+      process.cwd(),
+      'src/server/platform-events/agent-inbox-router.ts',
+    ))).toBe(false);
+    expect(source('src/server/collaboration-kernel/collaboration-kernel.ts'))
+      .toContain('this.inbox.enqueue({');
+    const a2aCollaboration = source('src/server/a2a/collaboration.ts');
+    expect(a2aCollaboration).not.toContain('agent_inbox_item');
+    expect(a2aCollaboration).not.toContain('command_json');
+    const evaluationRunner = source('src/server/evaluation/case-runner.ts');
+    expect(evaluationRunner).toContain('this.collaboration.request({');
+    expect(evaluationRunner).not.toContain('InvocationCoordinator');
+    expect(evaluationRunner).not.toMatch(/\.submit\s*\(/);
+  });
+
+  it('acknowledges directed execution from the prepared Runtime lifecycle hook', () => {
+    const directedRuntime = source('src/server/agent-runtime/directed-agent-runtime.ts');
+    expect(directedRuntime).not.toMatch(/markSent\([\s\S]{0,300}acknowledge\([\s\S]{0,300}executor\.execute/);
+    expect(directedRuntime).toContain('acknowledge: (context) => {');
+    expect(daemon).toContain('const run = backend.execute');
+    expect(daemon).toContain('const runtimeStart = await run.started');
+    expect(daemon).toContain('if (!lifecycle.acknowledge(runtimeAdmission))');
+    expect(daemon.indexOf('projectEvaluationRuntimeAdmission({'))
+      .toBeGreaterThan(daemon.indexOf('if (!lifecycle.acknowledge(runtimeAdmission))'));
+    expect(source('src/server/evaluation/evaluation-work-lifecycle-process-manager.ts'))
+      .toContain("event.type === 'agent.work.admitted'");
+    expect(daemon).toMatch(
+      /onPermissionRequested:[\s\S]{0,160}commitOwnedRuntimeEffect/,
+    );
+    expect(daemon).toMatch(
+      /onPermissionResolved:[\s\S]{0,160}commitOwnedRuntimeEffect/,
+    );
+    const backendFailure = daemon.slice(
+      daemon.indexOf('backend error:'),
+      daemon.indexOf("publishTerminalExit({ code: 1, command, reasonCode: 'spawn_failed'"),
+    );
+    expect(backendFailure.indexOf("terminateInvocation('failed'"))
+      .toBeLessThan(backendFailure.indexOf("failSetup('spawn_failed'"));
+    expect(backendFailure.indexOf("failSetup('spawn_failed'"))
+      .toBeLessThan(backendFailure.indexOf("markExecutionOrEnvelopeFailed('spawn_failed'"));
+    expect(daemon).not.toMatch(
+      /transitionCaseExecution\(\{[\s\S]{0,400}errorCode: 'runtime_start_failed',/,
+    );
+  });
+
+  it('keeps ACP backend construction and permission policy inside Agent Runtime', () => {
+    const runtimeDriver = source('src/server/agent-runtime/acp-runtime-driver.ts');
+    const sessionLifecycle = source('src/server/agent-runtime/agent-session-lifecycle.ts');
+    const processRegistry = source('src/server/agent-runtime/agent-process-registry.ts');
+    for (const implementationImport of [
+      './agent/acp/catalog',
+      './agent/acp/runtimeSetup',
+      './agent/acp/sessionBudget',
+      './agent/acp/permissionPolicy',
+      './agent/acp/execOptions',
+    ]) {
+      expect(daemon).not.toContain(implementationImport);
+    }
+    expect(runtimeDriver).toContain("from '../agent/acp/catalog'");
+    expect(runtimeDriver).toContain('prepareTurn(input: PrepareAcpTurnInput)');
+    expect(runtimeDriver).toContain('createWorkContractPermissionPolicy');
+    expect(runtimeDriver).toContain('prepareAcpRuntime');
+    expect(daemon).not.toContain('sessionRepo.');
+    expect(daemon).not.toContain('activeProcesses');
+    expect(sessionLifecycle).toContain('acquireInvocation(input: AcquireAgentInvocationInput)');
+    expect(sessionLifecycle).toContain('sessionRepo.sealIfExecutionProfileChanged');
+    expect(processRegistry).toContain('shutdown(): void');
+  });
+
+  it('uses project:view as the only project runtime presentation channel', () => {
+    const forbidden = [
+      "emit('task.state'",
+      "emit('task.notification'",
+      "emit('task.wakeup'",
+      "emit('task.sync'",
+      "emit('task.sync_error'",
+      "emit('dispatch.receipt'",
+      "emit('command:error'",
+      "socket.on('task.state'",
+      "socket.on('task.notification'",
+      "socket.on('task.wakeup'",
+      "socket.on('task.sync'",
+      "socket.on('task.sync_error'",
+      "socket.on('dispatch.receipt'",
+      "socket.on('command:error'",
+    ];
+    const files = productionTypeScriptFiles('src');
+    for (const marker of forbidden) {
+      expect(files.filter((path) => source(path).includes(marker)), marker).toEqual([]);
+    }
   });
 
   it('keeps autonomy recovery policy outside daemon execution transport', () => {
@@ -349,7 +452,8 @@ describe('runtime ownership architecture', () => {
     expect(daemon).not.toContain('resolveAutonomyGuardWakeups');
     expect(daemon).not.toContain('chain_ready_for_closure');
     expect(autonomyOwner).toContain('resolveAutonomyGuardActions');
-    expect(autonomyOwner).toContain('submitTaskWakeupToInvocationPipeline');
+    expect(autonomyOwner).toContain('requestTaskWakeup(wakeup)');
+    expect(source('src/server/invocation-pipeline/registry.ts')).not.toContain('.submit(');
   });
 
   it('keeps the Project View consumer passive', () => {
@@ -393,8 +497,10 @@ describe('runtime ownership architecture', () => {
   });
 
   it('keeps agent execution on the ACP backend without a tmux CLI bypass', () => {
-    expect(daemon).toContain('loadCatalog().find');
-    expect(daemon).toContain('createAcpBackend');
+    const runtimeDriver = source('src/server/agent-runtime/acp-runtime-driver.ts');
+    expect(runtimeDriver).toContain('loadCatalog().find');
+    expect(runtimeDriver).toContain('createBackend(entry');
+    expect(daemon).toContain('acpRuntimeDriver.prepareTurn');
     expect(daemon).not.toContain('ATH_TMUX_ENABLED');
     expect(daemon).not.toContain("transport: 'tmux'");
     const forbiddenBypass = /ATH_TMUX|TmuxGateway|AgentPaneRegistry|agent-panes:list|transport:\s*['"]tmux['"]|opencode-prompt-delivery/;
@@ -414,7 +520,7 @@ describe('runtime ownership architecture', () => {
     const retiredDoneWrapper = /withDoneGuarantee|with-done-guarantee/;
     expect(productionFiles.filter((path) => retiredDoneWrapper.test(source(path)))).toEqual([]);
     const executeStart = daemon.indexOf(
-      'const { events, result, kill } = backend.execute(promptWithWorkdir, execOptions);',
+      'const run = backend.execute(promptWithWorkdir, execOptions);',
     );
     const resultBoundary = daemon.indexOf('// Wait for final result', executeStart);
     expect(executeStart).toBeGreaterThan(-1);
@@ -428,7 +534,7 @@ describe('runtime ownership architecture', () => {
 
   it('does not retain the bespoke CLI capability downgrade layer before ACP execution', () => {
     expect(daemon).not.toContain('checkCapabilities');
-    expect(daemon).toContain('buildAcpExecOptions');
+    expect(source('src/server/agent-runtime/acp-runtime-driver.ts')).toContain('buildAcpExecOptions');
     expect(daemon).toContain('backend.execute(promptWithWorkdir, execOptions)');
     const retiredCapabilityLayer = /CapabilitySet|capabilityRouter|backend\.capabilities/;
     expect(productionTypeScriptFiles('src/server').filter((path) => retiredCapabilityLayer.test(source(path)))).toEqual([]);

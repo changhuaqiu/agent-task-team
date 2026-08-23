@@ -7,6 +7,28 @@ function emitServerEvent(event: string, payload: unknown) {
   (socket as unknown as { emitEvent(args: unknown[]): void }).emitEvent([event, payload]);
 }
 
+let projectedEventSequence = 0;
+
+function emitProjectView(type: string, payload: Record<string, unknown>): void {
+  projectedEventSequence += 1;
+  const agentId = typeof payload.agentId === 'string' ? payload.agentId : undefined;
+  emitServerEvent('project:view', {
+    version: 2,
+    envelopeVersion: 1,
+    eventId: `review-event-${projectedEventSequence}`,
+    projectId: 'conv-review',
+    occurredAt: '2026-05-17T00:00:00.000Z',
+    type,
+    delivery: 'durable',
+    actor: agentId
+      ? { type: 'agent', id: agentId }
+      : { type: 'system', id: 'review-gate' },
+    correlationId: typeof payload.taskId === 'string' ? payload.taskId : 'conv-review',
+    causationId: typeof payload.taskId === 'string' ? payload.taskId : 'conv-review',
+    payload,
+  });
+}
+
 function account(id: string): Account {
   return {
     id,
@@ -78,7 +100,7 @@ describe('review gate wakeup', () => {
   it('renders coordinator review confirmation without browser dispatch', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
-    emitServerEvent('task.wakeup', {
+    emitProjectView('task.wakeup', {
       projectId: 'conv-review',
       id: 'msg-review-ready',
       conversationId: 'conv-review',
@@ -116,7 +138,7 @@ describe('review gate wakeup', () => {
     }));
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
-    emitServerEvent('task.wakeup', {
+    emitProjectView('task.wakeup', {
       projectId: 'conv-review',
       id: 'msg-test-ready',
       conversationId: 'conv-review',
@@ -137,7 +159,7 @@ describe('review gate wakeup', () => {
   });
 
   it('records dispatch receipts from the daemon', () => {
-    emitServerEvent('dispatch.receipt', {
+    emitProjectView('dispatch.receipt', {
       projectId: 'conv-review',
       receiptId: 'env-1:acknowledged',
       conversationId: 'conv-review',
@@ -158,7 +180,7 @@ describe('review gate wakeup', () => {
   it('renders a server-owned wakeup without dispatching it again in the browser', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
-    emitServerEvent('task.wakeup', {
+    emitProjectView('task.wakeup', {
       projectId: 'conv-review',
       id: 'msg-server-owned',
       conversationId: 'conv-review',
@@ -179,13 +201,8 @@ describe('review gate wakeup', () => {
   it('does not execute work when an A2A projection is received', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
-    emitServerEvent('project:view', {
-      version: 1,
-      projectId: 'conv-review',
-      occurredAt: '2026-07-28T00:00:00.000Z',
-      kind: 'a2a.snapshot',
-      payload: {
-        snapshot: {
+    emitProjectView('a2a.snapshot', {
+      snapshot: {
           conversationId: 'conv-review',
           chainId: 'chain-1',
           revision: 1,
@@ -193,7 +210,6 @@ describe('review gate wakeup', () => {
           status: 'active',
           updatedAt: '2026-07-28T00:00:00.000Z',
           handoffs: [],
-        },
       },
     });
 
@@ -219,17 +235,11 @@ describe('review gate wakeup', () => {
       tasks: state.tasks.map((task) => task.id === 'TASK-001' ? { ...task, status: 'in_progress', agentId: 'mario' } : task),
     }));
 
-    emitServerEvent('project:view', {
-      version: 1,
-      projectId: 'conv-review',
-      occurredAt: '2026-05-17T00:00:00.000Z',
-      kind: 'terminal.exited',
+    emitProjectView('terminal.exited', {
       agentId: 'mario',
-      payload: {
         code: 0,
         command: 'opencode',
         activity: 'idle',
-      },
     });
 
     await vi.advanceTimersByTimeAsync(350);
@@ -269,7 +279,7 @@ describe('dependency_resolved wakeup', () => {
   it('renders dependency_resolved without dispatching or changing domain state', async () => {
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
 
-    emitServerEvent('task.wakeup', {
+    emitProjectView('task.wakeup', {
       projectId: 'conv-review',
       id: 'msg-dep-resolved',
       conversationId: 'conv-review',

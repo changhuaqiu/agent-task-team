@@ -4,7 +4,7 @@ import { createTestDb, resetDb, setTestDb } from '../db';
 import { invocationRepo } from '../repositories/invocation-repo';
 import { messageRepo } from '../repositories/message-repo';
 import { sessionRepo } from '../repositories/session-repo';
-import { AcpRuntimeEventCoordinator } from './acp-runtime-event-coordinator';
+import { AcpRuntimeEventCoordinator } from '../agent-runtime';
 import { PlatformEventLog } from './event-log';
 import { RuntimeMessageProjection } from './runtime-message-projection';
 import { RuntimeObservabilityProjection } from './runtime-observability-projection';
@@ -138,18 +138,22 @@ describe('Runtime Event consumer projections', () => {
     for (const event of recordTrace(true)) projection.project(event);
 
     expect(publish).toHaveBeenCalledWith('project-1', expect.objectContaining({
-      kind: 'runtime.session',
-      agentId: 'implementer',
+      type: 'runtime.session',
+      delivery: 'durable',
+      actor: { type: 'runtime', id: 'local-daemon' },
+      agent: { type: 'agent', id: 'implementer' },
+      correlationId: 'envelope-1',
+      source: expect.objectContaining({ streamKey: 'invocation:inv-1' }),
     }));
     expect(publish).toHaveBeenCalledWith('project-1', expect.objectContaining({
-      kind: 'runtime.tool.started',
-      invocationId: 'inv-1',
+      type: 'runtime.tool.started',
+      subject: { type: 'invocation', id: 'inv-1' },
     }));
     expect(publish).toHaveBeenCalledWith('project-1', expect.objectContaining({
-      kind: 'runtime.completed',
+      type: 'runtime.completed',
     }));
     expect(publish.mock.calls.some(([, event]) => (
-      (event as { kind?: string }).kind === 'runtime.text.delta'
+      (event as { type?: string }).type === 'runtime.text.delta'
     ))).toBe(false);
   });
 });

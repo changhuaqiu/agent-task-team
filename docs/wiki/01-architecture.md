@@ -238,7 +238,7 @@ Agent Inbox 查询得到的项目展示投影，不负责出队或重试。
 2. `TaskFileWatcher`（chokidar）检测变更，防抖 500ms
 3. `TaskFileService.readTasksMd()` 解析文件
 4. DB 同步：不存在 → 创建，已存在 → 更新
-5. Socket.IO 广播 `task.sync`
+5. Project View Publisher 发布 `project:view(type=task.sync, delivery=durable)`
 6. Store 更新 → UI 刷新
 
 ## 1.4 UI 信息架构

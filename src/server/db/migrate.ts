@@ -3875,6 +3875,150 @@ CREATE INDEX IF NOT EXISTS idx_task_command_rejection_receipt_task
       }
     },
   },
+  {
+    version: 89,
+    foreignKeysOff: true,
+    run: (db) => {
+      const table = db.prepare(`
+        SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_inbox_item'
+      `).get();
+      if (!table) return;
+      db.pragma('legacy_alter_table = ON');
+      try {
+        db.exec(`
+          DROP TRIGGER IF EXISTS trg_agent_inbox_status_insert;
+          DROP TRIGGER IF EXISTS trg_agent_inbox_transition_update;
+          DROP TRIGGER IF EXISTS trg_agent_inbox_lease_insert;
+          DROP TRIGGER IF EXISTS trg_agent_inbox_lease_update;
+          ALTER TABLE agent_inbox_item RENAME TO agent_inbox_item_legacy_89;
+
+          CREATE TABLE agent_inbox_item (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+            project_agent_id TEXT NOT NULL,
+            source_event_id TEXT REFERENCES platform_event(id) ON DELETE SET NULL,
+            idempotency_key TEXT NOT NULL,
+            command_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'enqueued' CHECK(
+              status IN ('enqueued','claimed','admitted','released','expired','cancelled')
+            ),
+            attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+            available_at TEXT NOT NULL,
+            lease_token TEXT,
+            lease_expires_at TEXT,
+            last_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            claimed_at TEXT,
+            settled_at TEXT,
+            UNIQUE(project_id,project_agent_id,idempotency_key),
+            UNIQUE(source_event_id,project_agent_id)
+          );
+
+          INSERT INTO agent_inbox_item (
+            id,project_id,project_agent_id,source_event_id,idempotency_key,command_json,
+            status,attempt_count,available_at,lease_token,lease_expires_at,last_error,
+            created_at,updated_at,claimed_at,settled_at
+          )
+          SELECT
+            id,project_id,project_agent_id,source_event_id,idempotency_key,command_json,
+            status,attempt_count,available_at,lease_token,lease_expires_at,last_error,
+            created_at,updated_at,claimed_at,settled_at
+          FROM agent_inbox_item_legacy_89;
+
+          DROP TABLE agent_inbox_item_legacy_89;
+          CREATE INDEX idx_agent_inbox_claim
+            ON agent_inbox_item(status,available_at,project_id,project_agent_id,created_at);
+          CREATE INDEX idx_agent_inbox_agent
+            ON agent_inbox_item(project_id,project_agent_id,status,created_at);
+
+          CREATE TRIGGER trg_agent_inbox_status_insert
+          BEFORE INSERT ON agent_inbox_item
+          WHEN NEW.status NOT IN ('enqueued','claimed','admitted','released','expired','cancelled')
+          BEGIN
+            SELECT RAISE(ABORT,'invalid_agent_inbox_status');
+          END;
+
+          CREATE TRIGGER trg_agent_inbox_transition_update
+          BEFORE UPDATE OF status ON agent_inbox_item
+          WHEN NEW.status <> OLD.status AND NOT (
+            (OLD.status='enqueued' AND NEW.status IN ('claimed','expired','cancelled'))
+            OR (OLD.status='released' AND NEW.status IN ('claimed','expired','cancelled'))
+            OR (OLD.status='claimed' AND NEW.status IN ('admitted','released','expired','cancelled'))
+          )
+          BEGIN
+            SELECT RAISE(ABORT,'invalid_agent_inbox_transition');
+          END;
+
+          CREATE TRIGGER trg_agent_inbox_lease_insert
+          BEFORE INSERT ON agent_inbox_item
+          WHEN (NEW.status='claimed' AND (NEW.lease_token IS NULL OR NEW.lease_expires_at IS NULL))
+            OR (NEW.status<>'claimed' AND (NEW.lease_token IS NOT NULL OR NEW.lease_expires_at IS NOT NULL))
+            OR (NEW.status IN ('admitted','expired','cancelled') AND NEW.settled_at IS NULL)
+            OR (NEW.status NOT IN ('admitted','expired','cancelled') AND NEW.settled_at IS NOT NULL)
+          BEGIN
+            SELECT RAISE(ABORT,'invalid_agent_inbox_lease');
+          END;
+
+          CREATE TRIGGER trg_agent_inbox_lease_update
+          BEFORE UPDATE OF status,lease_token,lease_expires_at,settled_at ON agent_inbox_item
+          WHEN (NEW.status='claimed' AND (NEW.lease_token IS NULL OR NEW.lease_expires_at IS NULL))
+            OR (NEW.status<>'claimed' AND (NEW.lease_token IS NOT NULL OR NEW.lease_expires_at IS NOT NULL))
+            OR (NEW.status IN ('admitted','expired','cancelled') AND NEW.settled_at IS NULL)
+            OR (NEW.status NOT IN ('admitted','expired','cancelled') AND NEW.settled_at IS NOT NULL)
+          BEGIN
+            SELECT RAISE(ABORT,'invalid_agent_inbox_lease');
+          END;
+        `);
+      } finally {
+        db.pragma('legacy_alter_table = OFF');
+      }
+    },
+  },
+  {
+    version: 90,
+    run: (db) => {
+      const tables = new Set((db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table'",
+      ).all() as Array<{ name: string }>).map((row) => row.name));
+      if (tables.has('invocation')) {
+        const invocationColumns = db.prepare('PRAGMA table_info(invocation)')
+          .all() as Array<{ name: string }>;
+        if (!invocationColumns.some((column) => column.name === 'lease_expiry')) {
+          db.exec('ALTER TABLE invocation ADD COLUMN lease_expiry TEXT');
+        }
+        if (!invocationColumns.some((column) => column.name === 'runtime_owner_id')) {
+          db.exec('ALTER TABLE invocation ADD COLUMN runtime_owner_id TEXT');
+        }
+        if (!invocationColumns.some((column) => column.name === 'runtime_owner_token')) {
+          db.exec('ALTER TABLE invocation ADD COLUMN runtime_owner_token TEXT');
+        }
+        db.exec(`
+          UPDATE invocation
+          SET lease_expiry=COALESCE(lease_expiry,updated_at)
+          WHERE status<>'terminated';
+        `);
+        const repairedColumns = new Set((db.prepare('PRAGMA table_info(invocation)')
+          .all() as Array<{ name: string }>).map((column) => column.name));
+        if (['conversation_id', 'agent_id', 'status', 'lease_expiry']
+          .every((column) => repairedColumns.has(column))) {
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_invocation_runtime_lane
+            ON invocation(conversation_id,agent_id,status,lease_expiry)`);
+        }
+      }
+      if (tables.has('agent_inbox_item')) {
+        const inboxColumns = db.prepare('PRAGMA table_info(agent_inbox_item)')
+          .all() as Array<{ name: string }>;
+        if (!inboxColumns.some((column) => column.name === 'runtime_start_failure_count')) {
+          db.exec(`
+            ALTER TABLE agent_inbox_item
+            ADD COLUMN runtime_start_failure_count INTEGER NOT NULL DEFAULT 0
+              CHECK(runtime_start_failure_count >= 0)
+          `);
+        }
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

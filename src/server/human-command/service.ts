@@ -8,7 +8,7 @@ import { resolveConversationRuntime } from '@/server/invocation-pipeline/convers
 import { messageRepo } from '@/server/repositories/message-repo';
 import { generateSortableId } from '@/server/repositories/sortable-id';
 import { teamLogProjection } from '@/server/team-log/TeamLogProjection';
-import { AgentInbox } from '@/server/platform-events/agent-inbox';
+import { CollaborationKernel } from '@/server/collaboration-kernel';
 
 interface ReceiptRow {
   idempotency_key: string;
@@ -373,18 +373,19 @@ export class HumanCommandService {
       }
 
       const prompt = `请基于当前交付目标提出技术架构和业务方案，和用户确认后再拆分任务。\n\n交付：${conversation.title}\n目标：${conversation.goal ?? ''}${projectPath ? `\n项目路径：${projectPath}` : ''}`;
-      new AgentInbox({ db, now: this.now }).enqueue({
+      new CollaborationKernel({ db, now: this.now }).request({
         projectId: deliveryId,
-        projectAgentId: targetAgentId,
+        targetAgentId,
+        source: 'user',
+        requestedAction: prompt,
         idempotencyKey: `human-command:${idempotencyKey}`,
-        command: {
-          source: 'user',
-          prompt,
+        cause: {
           correlationId: idempotencyKey,
           causationId: idempotencyKey,
-          contextScenario: 'planning',
-          legacyProposal: true,
         },
+        context: { scenario: 'planning' },
+        policy: { rejectIfDeliveryOwned: true },
+        replyTo: { type: 'human_command', id: idempotencyKey },
       });
       return this.recordReceipt(db, digest, normalizedCommand, {
         status: 'accepted',
@@ -486,18 +487,19 @@ export class HumanCommandService {
         });
       }
 
-      new AgentInbox({ db, now: this.now }).enqueue({
+      new CollaborationKernel({ db, now: this.now }).request({
         projectId: deliveryId,
-        projectAgentId: task.agent_id,
+        targetAgentId: task.agent_id,
+        source: 'user',
+        requestedAction: `${request}\n\n任务：${task.id} ${task.title}\n${task.description ?? ''}`,
         idempotencyKey: `human-command:${idempotencyKey}`,
-        command: {
-          source: 'user',
-          taskId,
-          prompt: `${request}\n\n任务：${task.id} ${task.title}\n${task.description ?? ''}`,
+        cause: {
           correlationId: idempotencyKey,
           causationId: idempotencyKey,
-          contextScenario: 'execution',
         },
+        scope: { taskId },
+        context: { scenario: 'execution' },
+        replyTo: { type: 'task', id: taskId },
       });
       return this.recordReceipt(db, digest, normalizedCommand, {
         status: 'accepted',

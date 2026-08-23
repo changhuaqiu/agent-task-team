@@ -810,7 +810,7 @@ correlation/causation 传入 Task 与 Gate，provider receipt 链不会另起 tr
 
 当前实现中，这不是一个新的“错误管理模块”。Invocation preflight 的失败由
 `HarnessFailureEventPublisher` 在现有 Harness/Invocation 边界归一化；ACP 会话、传输与
-CLI trace 由 `AcpRuntimeEventCoordinator` 和 `RuntimeAgentEventBridge` 在现有 Runtime
+CLI trace 由 `AcpRuntimeEventCoordinator` 和 `AcpTurnEventNormalizer` 在现有 Agent Runtime
 Adapter 边界归一化。`runtime.invocation.blocked` 是一次尚未启动的 attempt 终态，投影不会
 伪造 `accepted / started / terminated`；`context.snapshot.rejected` 保留
 `missingRequired`，并作为 coordination event 连接 Context preflight 与 Invocation，
@@ -832,7 +832,7 @@ preflight 事实投影 `escalateToHuman`，并忽略显式 `manual_resume` 之�
 | --- | --- |
 | `HarnessCoordinator` | `InvocationCoordinator` |
 | `RepositoryHarnessPlanner` | `InvocationPlanner` |
-| `HarnessRuntimePort` | `AgentRuntimePort` |
+| `HarnessRuntimePort` | `AgentRuntime` |
 | `HarnessTrigger` | `AgentActivationCommand` |
 
 迁移已完成，旧目录、导出和兼容别名均已删除。
