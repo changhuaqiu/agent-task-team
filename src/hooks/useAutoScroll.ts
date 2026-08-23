@@ -1,26 +1,43 @@
 'use client';
 
-import { useEffect, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
 /**
  * Auto-scrolls a container to the bottom when new content arrives,
  * but respects the user's scroll position — if they've scrolled up
  * to read history, it won't yank them back down.
  */
-export function useAutoScroll(ref: RefObject<HTMLElement | null>) {
+export function useAutoScroll(
+  ref: RefObject<HTMLElement | null>,
+  options: { scopeKey?: string | null; onAtBottom?: () => void } = {},
+) {
   const stickRef = useRef(true);
+  const onAtBottomRef = useRef(options.onAtBottom);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+
+  useEffect(() => {
+    onAtBottomRef.current = options.onAtBottom;
+  }, [options.onAtBottom]);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const el = ref.current;
+    if (!el) return;
+    stickRef.current = true;
+    setIsAtBottom(true);
+    onAtBottomRef.current?.();
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }, [ref]);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
 
-    const scrollToBottom = () => {
-      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-    };
-
     const onScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = el;
-      stickRef.current = scrollHeight - scrollTop - clientHeight < 50;
+      const nextIsAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+      stickRef.current = nextIsAtBottom;
+      setIsAtBottom(nextIsAtBottom);
+      if (nextIsAtBottom) onAtBottomRef.current?.();
     };
 
     const onContentChange = () => {
@@ -43,12 +60,14 @@ export function useAutoScroll(ref: RefObject<HTMLElement | null>) {
     mo.observe(el, { childList: true, subtree: true });
 
     el.addEventListener('scroll', onScroll, { passive: true });
-    scrollToBottom();
+    scrollToBottom('auto');
 
     return () => {
       ro.disconnect();
       mo.disconnect();
       el.removeEventListener('scroll', onScroll);
     };
-  }, [ref]);
+  }, [options.scopeKey, ref, scrollToBottom]);
+
+  return { isAtBottom, scrollToBottom };
 }

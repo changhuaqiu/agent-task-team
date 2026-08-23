@@ -42,7 +42,7 @@ describe('ProjectChatPanel', () => {
     expect(screen.queryByTestId('global-chat-room')).toBeNull();
   });
 
-  it('keeps the chat viewport in the remaining bounded height below delivery status', () => {
+  it('gives activity a dedicated full-height surface while keeping overview mounted', () => {
     useTaskHubStore.setState({
       selectedConversationId: 'conv-layout',
       conversations: [{
@@ -59,14 +59,14 @@ describe('ProjectChatPanel', () => {
       tasks: [],
     });
 
-    render(<ProjectChatPanel view={workspaceView()} />);
+    render(<ProjectChatPanel view={workspaceView()} surface="activity" />);
 
     const chatViewport = screen.getByTestId('project-chat-viewport');
     const deliveryViewport = screen.getByTestId('autonomous-delivery-viewport');
     expect(chatViewport.className).toContain('min-h-0');
     expect(chatViewport.className).toContain('flex-1');
-    expect(deliveryViewport.className).toContain('max-h-[32%]');
-    expect(deliveryViewport.className).toContain('overflow-y-auto');
+    expect(screen.getByTestId('delivery-activity-surface').className).toContain('flex');
+    expect(screen.getByTestId('delivery-overview-surface').className).toContain('hidden');
     expect(chatViewport.contains(screen.getByTestId('global-chat-room'))).toBe(true);
     expect(deliveryViewport.contains(screen.getByTestId('autonomous-delivery-panel'))).toBe(true);
   });

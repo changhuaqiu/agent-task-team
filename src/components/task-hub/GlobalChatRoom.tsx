@@ -11,14 +11,26 @@ import { ChatFilterBar, type ChatFilter } from './ChatFilterBar';
 import { AgentMentionPopup } from './AgentMentionPopup';
 import { A2APossessionStrip } from './A2APossessionStrip';
 import { EmojiPickerButton } from '@/components/ui/EmojiPickerButton';
-import { Send, Hash, Shield } from 'lucide-react';
+import { ChevronDown, CornerUpLeft, Hash, Send, Shield, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { extractTaskReference } from '@/lib/taskReference';
 import { createWorkspaceCommandIdempotencyKey } from '@/lib/workspace-command';
+import { useDeliveryRequirementDraft } from '@/hooks/useDeliveryRequirementDraft';
 
 export const INITIAL_TIMELINE_ITEM_LIMIT = 120;
+
+type ChatQuoteTarget = {
+  id: string;
+  author: string;
+  content: string;
+};
+
+function quoteExcerpt(value: string): string {
+  const compact = value.replace(/\s+/g, ' ').trim();
+  return compact.length > 160 ? `${compact.slice(0, 157)}…` : compact;
+}
 
 function formatDateSeparator(dateStr: string): string {
   const date = new Date(dateStr);
@@ -40,11 +52,15 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
     ? s.messageHistoryByConversation[selectedConversationId]
     : undefined);
   const loadOlderConversationMessages = useTaskHubStore((s) => s.loadOlderConversationMessages);
-  const [inputValue, setInputValue] = useState('');
-  const [sendError, setSendError] = useState<string | null>(null);
+  const { value: inputValue, setValue: setInputValue, clear: clearInputValue } = useDeliveryRequirementDraft(selectedConversationId);
+  const [sendErrorState, setSendErrorState] = useState<{ conversationId: string; message: string }>();
   const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
   const [sendInProgress, setSendInProgress] = useState(false);
-  const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
+  const [quoteTargets, setQuoteTargets] = useState<Record<string, ChatQuoteTarget>>({});
+  const [readTimeline, setReadTimeline] = useState({
+    conversationId: selectedConversationId,
+    count: chatMessages.length,
+  });
   const [filter, setFilter] = useState<ChatFilter>({ intent: null, agentId: null, userOnly: false, search: '' });
   const [mentionOpen, setMentionOpen] = useState(false);
   const ime = useIMEGuard();
@@ -58,47 +74,73 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mentionOpenRef = useRef(false);
-  const pendingCommandRef = useRef<{ idempotencyKey: string; issuedAt: string } | null>(null);
+  const pendingCommandsRef = useRef(new Map<string, { idempotencyKey: string; issuedAt: string }>());
+  const quoteTarget = selectedConversationId ? quoteTargets[selectedConversationId] : undefined;
+  const sendError = sendErrorState?.conversationId === selectedConversationId
+    ? sendErrorState.message
+    : undefined;
 
   useEffect(() => {
     mentionOpenRef.current = mentionOpen;
   }, [mentionOpen]);
 
   // Auto-scroll: follows new content when at bottom, ignores when user scrolled up
-  useAutoScroll(scrollRef);
+  const markTimelineRead = useCallback(() => {
+    setReadTimeline((current) => {
+      if (current.conversationId === selectedConversationId && current.count === chatMessages.length) return current;
+      return { conversationId: selectedConversationId, count: chatMessages.length };
+    });
+  }, [chatMessages.length, selectedConversationId]);
+  const { isAtBottom, scrollToBottom } = useAutoScroll(scrollRef, {
+    scopeKey: selectedConversationId,
+    onAtBottom: markTimelineRead,
+  });
+  const newActivityCount = readTimeline.conversationId === selectedConversationId
+    ? Math.max(0, chatMessages.length - readTimeline.count)
+    : 0;
 
   // Quote event listener
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      pendingCommandRef.current = null;
-      setInputValue(`> ${detail}\n\n`);
-      setDraftConversationId(selectedConversationId);
+      if (!selectedConversationId) return;
+      const detail: unknown = (e as CustomEvent).detail;
+      if (!detail || typeof detail !== 'object') return;
+      const candidate = detail as Partial<ChatQuoteTarget>;
+      if (typeof candidate.id !== 'string' || typeof candidate.content !== 'string') return;
+      pendingCommandsRef.current.delete(selectedConversationId);
+      setQuoteTargets((current) => ({
+        ...current,
+        [selectedConversationId]: {
+          id: candidate.id!,
+          author: typeof candidate.author === 'string' && candidate.author ? candidate.author : '团队成员',
+          content: candidate.content!,
+        },
+      }));
+      setSendErrorState(undefined);
+      requestAnimationFrame(() => textareaRef.current?.focus());
     };
     window.addEventListener('chat:quote', handler);
     return () => window.removeEventListener('chat:quote', handler);
   }, [selectedConversationId]);
-
-  const draftTargetMismatch = Boolean(inputValue.trim())
-    && draftConversationId !== selectedConversationId;
 
   const handleSend = async () => {
     if (
       !selectedConversationId
       || !inputValue.trim()
       || runtimeRefreshInProgress
-      || draftTargetMismatch
       || sendInProgress
     ) return;
 
-    const referencedTaskId = extractTaskReference(inputValue);
-    const content = inputValue;
-    const pendingCommand = pendingCommandRef.current ?? {
+    const content = quoteTarget
+      ? `> 引用 ${quoteTarget.author}：${quoteExcerpt(quoteTarget.content)}\n\n${inputValue.trim()}`
+      : inputValue;
+    const referencedTaskId = extractTaskReference(content);
+    const pendingCommand = pendingCommandsRef.current.get(selectedConversationId) ?? {
       idempotencyKey: createWorkspaceCommandIdempotencyKey(selectedConversationId),
       issuedAt: new Date().toISOString(),
     };
-    pendingCommandRef.current = pendingCommand;
-    setSendError(null);
+    pendingCommandsRef.current.set(selectedConversationId, pendingCommand);
+    setSendErrorState(undefined);
     setSendInProgress(true);
 
     try {
@@ -111,14 +153,22 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
         commandIssuedAt: pendingCommand.issuedAt,
       });
       if (!result.ok) {
-        setSendError(result.error);
+        setSendErrorState({ conversationId: selectedConversationId, message: result.error });
         return;
       }
-      pendingCommandRef.current = null;
-      setInputValue('');
-      setDraftConversationId(null);
+      pendingCommandsRef.current.delete(selectedConversationId);
+      clearInputValue();
+      setQuoteTargets((current) => {
+        const remaining = { ...current };
+        delete remaining[selectedConversationId];
+        return remaining;
+      });
+      scrollToBottom();
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : '命令提交失败，请稍后重试');
+      setSendErrorState({
+        conversationId: selectedConversationId,
+        message: error instanceof Error ? error.message : '命令提交失败，请稍后重试',
+      });
     } finally {
       setSendInProgress(false);
     }
@@ -132,7 +182,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
     const before = inputValue.slice(0, atStart);
     const after = inputValue.slice(cursorPos);
     const newValue = `${before}@${agentId} ${after}`;
-    pendingCommandRef.current = null;
+    if (selectedConversationId) pendingCommandsRef.current.delete(selectedConversationId);
     setInputValue(newValue);
     setMentionOpen(false);
     // Focus back to textarea
@@ -144,8 +194,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
   };
 
   const handleEmojiInsert = useCallback((emoji: string) => {
-    pendingCommandRef.current = null;
-    if (!inputValue.trim()) setDraftConversationId(selectedConversationId);
+    if (selectedConversationId) pendingCommandsRef.current.delete(selectedConversationId);
     const textarea = textareaRef.current;
     if (!textarea) {
       setInputValue((prev) => prev + emoji);
@@ -212,11 +261,11 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
         </div>
       )}
 
-      {/* Message List */}
+      {/* Stable activity timeline */}
+      <div className="relative min-h-0 flex-1">
       <div
         ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto p-5 flex flex-col gap-6 scrollbar-thin scroll-smooth"
-        style={{ backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 0)', backgroundSize: '16px 16px' }}
+        className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto bg-[hsl(var(--bg-muted))] px-4 py-3 scrollbar-thin scroll-smooth sm:px-6"
       >
         <ChatFilterBar
           onFilterChange={setFilter}
@@ -240,10 +289,9 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               { label: '调整验收标准…', value: '调整验收标准：' },
             ]}
             onAction={(value) => {
-              pendingCommandRef.current = null;
+              if (selectedConversationId) pendingCommandsRef.current.delete(selectedConversationId);
               setInputValue(value);
-              setDraftConversationId(selectedConversationId);
-              setSendError(null);
+              setSendErrorState(undefined);
               requestAnimationFrame(() => textareaRef.current?.focus());
             }}
           />
@@ -317,13 +365,25 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           });
         })()}
       </div>
+      {!isAtBottom && (
+        <button
+          type="button"
+          onClick={() => scrollToBottom()}
+          className="absolute bottom-4 right-5 inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] px-3 py-2 text-[11px] font-semibold text-[hsl(var(--text-secondary))] shadow-lg transition-colors hover:text-[hsl(var(--accent))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent))]"
+          aria-label={newActivityCount > 0 ? `回到最新，${newActivityCount} 条新活动` : '回到最新'}
+        >
+          <ChevronDown className="size-3.5" />
+          {newActivityCount > 0 ? `${newActivityCount} 条新活动` : '回到最新'}
+        </button>
+      )}
+      </div>
 
-      {/* Input Area */}
+      {/* Delivery-scoped composer */}
       <div className={cn(
-        'shrink-0 p-4 bg-[hsl(var(--bg-card))]',
-        variant === 'standalone' ? 'border-t-[2px] border-[hsl(var(--border))] shadow-[0_-4px_12px_rgba(0,0,0,0.02)]' : 'border-t border-[hsl(var(--border-subtle))]',
+        'shrink-0 border-t border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] px-4 py-3 sm:px-6',
+        variant === 'standalone' && 'shadow-[0_-4px_12px_rgba(0,0,0,0.02)]',
       )}>
-        <div className="relative flex items-end gap-2">
+        <div className="relative mx-auto max-w-4xl rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] shadow-sm focus-within:border-[hsl(var(--accent))] focus-within:ring-1 focus-within:ring-[hsl(var(--accent))]">
           {mentionOpen && (
             <AgentMentionPopup
               inputValue={inputValue}
@@ -333,19 +393,41 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
               onClose={() => setMentionOpen(false)}
             />
           )}
+          {quoteTarget && (
+            <div className="flex items-center gap-2 border-b border-[hsl(var(--border-subtle))] px-3 py-2" data-testid="chat-quote-preview">
+              <CornerUpLeft className="size-3.5 shrink-0 text-[hsl(var(--accent))]" />
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-semibold text-[hsl(var(--accent))]">引用回复 {quoteTarget.author}</div>
+                <div className="truncate text-[10px] text-[hsl(var(--text-tertiary))]">{quoteExcerpt(quoteTarget.content)}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!selectedConversationId) return;
+                  setQuoteTargets((current) => {
+                    const remaining = { ...current };
+                    delete remaining[selectedConversationId];
+                    return remaining;
+                  });
+                }}
+                className="rounded-full p-1 text-[hsl(var(--text-tertiary))] hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--text-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent))]"
+                aria-label="取消引用回复"
+                title="取消引用回复"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-1.5 px-2 py-1.5">
           <label htmlFor="chat-input" className="sr-only">向团队补充要求</label>
           <textarea
             id="chat-input"
             ref={textareaRef}
             value={inputValue}
             onChange={(e) => {
-              const wasEmpty = !inputValue.trim();
-              const isEmpty = !e.target.value.trim();
-              pendingCommandRef.current = null;
-              setSendError(null);
+              if (selectedConversationId) pendingCommandsRef.current.delete(selectedConversationId);
+              setSendErrorState(undefined);
               setInputValue(e.target.value);
-              if (isEmpty) setDraftConversationId(null);
-              else if (wasEmpty) setDraftConversationId(selectedConversationId);
               setCursorPos(e.target.selectionStart ?? e.target.value.length);
               const textBefore = e.target.value.slice(0, e.target.selectionStart ?? e.target.value.length);
               const atMatch = textBefore.match(/@([\w\u4e00-\u9fff-]*)$/);
@@ -395,9 +477,8 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
             rows={1}
 
             className={cn(
-              'w-full bg-[hsl(var(--bg-app))] text-[hsl(var(--text-primary))] text-[13px] placeholder:text-[hsl(var(--text-tertiary))]',
-              'rounded-[4px] border-[2px] border-[hsl(var(--border))] px-3 py-2.5',
-              'focus:outline-none focus:border-[hsl(var(--accent))] focus:ring-0',
+              'w-full border-0 bg-transparent px-2 py-2.5 text-[13px] text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-tertiary))]',
+              'focus:outline-none focus:ring-0',
               'resize-none scrollbar-thin overflow-y-auto min-h-[44px] max-h-[120px]'
             )}
             style={{
@@ -408,42 +489,36 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
           <EmojiPickerButton onEmojiSelect={handleEmojiInsert} placement="top-end" />
           <button
             onClick={() => void handleSend()}
-            disabled={!selectedConversationId || !inputValue.trim() || runtimeRefreshInProgress || draftTargetMismatch || sendInProgress}
+            disabled={!selectedConversationId || !inputValue.trim() || runtimeRefreshInProgress || sendInProgress}
             title={
               !selectedConversationId
                 ? '请先选择或新建一个交付'
                 : sendInProgress
                 ? '正在提交要求…'
-                : draftTargetMismatch
-                ? '草稿属于先前项目，请切回原项目或清空后重写'
                 : runtimeRefreshInProgress
                   ? '运行配置刷新完成后即可发送'
                   : '发送消息'
             }
             className={cn(
-              'shrink-0 flex items-center justify-center w-11 h-11 rounded-[4px] transition-all',
-              'bg-[hsl(var(--accent))] text-[hsl(var(--bg-app))]',
-              'border-[2px] border-[hsl(var(--accent-border, var(--accent)))]',
-              'shadow-[2px_2px_0px_hsl(var(--text-primary))]',
-              'hover:brightness-110 active:translate-y-[2px] active:translate-x-[2px] active:shadow-none',
-              'disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:translate-y-[2px] disabled:translate-x-[2px]'
+              'mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--accent))] text-[hsl(var(--bg-app))] transition-colors',
+              'hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent))] focus-visible:ring-offset-2',
+              'disabled:cursor-not-allowed disabled:opacity-40'
             )}
           >
             <Send className="w-5 h-5 ml-1" />
           </button>
+          </div>
         </div>
-        <p className="text-[9px] font-medium text-[hsl(var(--text-tertiary))] mt-2 ml-1">
+        <p className="mx-auto mt-1.5 max-w-4xl px-2 text-[9px] font-medium text-[hsl(var(--text-tertiary))]">
           {!selectedConversationId
             ? '请先选择或新建一个交付，再向团队补充要求'
-            : draftTargetMismatch
-            ? '草稿属于先前项目，请切回原项目或清空后重写'
             : sendInProgress
               ? '正在提交要求，服务端确认后会显示在活动流中'
             : runtimeRefreshInProgress
               ? '正在刷新运行配置，草稿会保留，刷新完成后即可发送'
               : '使用 #TASK-000 引用任务 · 未指定负责人时由团队自动接手'}
         </p>
-        {sendError && <p role="alert" className="mt-2 ml-1 text-[10px] text-red-600">{sendError}</p>}
+        {sendError && <p role="alert" className="mx-auto mt-2 max-w-4xl px-2 text-[10px] text-red-600">{sendError}</p>}
       </div>
     </div>
   );

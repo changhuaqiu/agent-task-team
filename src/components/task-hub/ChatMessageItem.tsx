@@ -6,7 +6,7 @@ import { PixelAvatar } from './PixelAvatar';
 import { CliOutputBlock } from './CliOutputBlock';
 import { cn } from '@/lib/utils';
 import { parsePhaseBreakdown } from '@/lib/breakdownParser';
-import { User, Lightbulb, Play, Eye, Link2, Copy, ExternalLink, Activity } from 'lucide-react';
+import { User, Lightbulb, Play, Eye, Link2, Copy, ExternalLink, Activity, CornerUpLeft } from 'lucide-react';
 import { openAgentObservabilityDrawer } from '@/components/project/agent-observability-controller';
 import { MarkdownContent } from './MarkdownContent';
 import { TokenBadge } from './TokenSummary';
@@ -105,6 +105,23 @@ const formatContentWithMentions = (content: string) => {
   });
 };
 
+function HumanMessageContent({ content }: { content: string }) {
+  const quotedReply = content.match(/^> 引用 ([^：\n]+)：([^\n]+)\n\n([\s\S]*)$/);
+  if (!quotedReply) {
+    return <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(content)}</div>;
+  }
+
+  return (
+    <div>
+      <div className="mb-2 border-l-2 border-[hsl(var(--accent))] pl-2 text-[11px] text-[hsl(var(--text-secondary))]">
+        <div className="font-semibold text-[hsl(var(--accent))]">{quotedReply[1]}</div>
+        <div className="line-clamp-2">{quotedReply[2]}</div>
+      </div>
+      <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(quotedReply[3])}</div>
+    </div>
+  );
+}
+
 const LONG_NARRATIVE_CHARACTER_LIMIT = 900;
 const LONG_NARRATIVE_LINE_LIMIT = 18;
 
@@ -183,33 +200,30 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
   const intermediateNarrativeIds = new Set(intermediateNarrativeSegments.map((segment) => segment.id));
 
   const timeString = new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-  const [isHovered, setIsHovered] = useState(false);
-
   return (
     <div
       data-testid={message.invocationId ? `agent-response-${message.invocationId}` : undefined}
+      data-message-id={responseMessage.id}
       className={cn(
-        'flex gap-3 w-full animate-fade-in',
+        'group flex w-full gap-3 animate-fade-in',
         isHuman ? 'flex-row-reverse' : 'flex-row'
       )}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
     >
       {/* Avatar */}
       <div className="shrink-0 pt-1">
         {isHuman ? (
-          <div className="w-8 h-8 bg-[hsl(var(--agent-owner))] rounded-[4px] flex items-center justify-center text-[hsl(var(--bg-app))] shadow-[var(--shadow-sm)] border border-[hsl(var(--agent-owner-border))]">
+          <div className="flex size-8 items-center justify-center rounded-full border border-[hsl(var(--agent-owner-border))] bg-[hsl(var(--agent-owner))] text-[hsl(var(--bg-app))] shadow-[var(--shadow-sm)]">
             <User className="w-4 h-4" />
           </div>
         ) : agent ? (
           <div className={cn(
-            'w-8 h-8 rounded-[4px] flex items-center justify-center shadow-[var(--shadow-sm)] border overflow-hidden',
+            'flex size-8 items-center justify-center overflow-hidden rounded-full border shadow-[var(--shadow-sm)]',
             AVATAR_THEME_CLASSES[agent.theme]
           )}>
             <PixelAvatar theme={agent.theme} size={32} />
           </div>
         ) : (
-          <div className="w-8 h-8 bg-gray-500 rounded-[4px]" />
+          <div className="size-8 rounded-full bg-gray-500" />
         )}
       </div>
 
@@ -242,12 +256,12 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
         {/* Bubble */}
         <div
           className={cn(
-            'relative px-3 py-2 text-[12px] leading-relaxed break-words shadow-[var(--shadow-sm)] border',
+            'relative break-words border px-3.5 py-2.5 text-[12px] leading-relaxed shadow-sm',
             'bg-[hsl(var(--bg-card))] text-[hsl(var(--text-primary))]',
-            'rounded-[4px]',
+            'rounded-2xl',
             isHuman
-              ? 'border-[hsl(var(--agent-owner-border))] rounded-tr-none'
-              : 'border-[hsl(var(--border))] rounded-tl-none'
+              ? 'border-[hsl(var(--agent-owner-border))] rounded-tr-md'
+              : 'border-[hsl(var(--border))] rounded-tl-md'
           )}
         >
           {intermediateNarrativeSegments.length > 0 && (
@@ -277,7 +291,7 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
                   <span className="inline-block w-1.5 h-4 bg-current animate-pulse rounded-full opacity-50" />
                 ) : segment.content && !hideSegmentNarrative ? (
                   isHuman ? (
-                    <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(segment.content)}</div>
+                    <HumanMessageContent content={segment.content} />
                   ) : (
                     <AgentNarrative content={segment.content} />
                   )
@@ -338,9 +352,8 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
             </div>
           )}
 
-          {/* Hover Action Bar */}
-          {isHovered && (
-            <div className="absolute -top-2 right-2 flex gap-0.5 bg-[hsl(var(--bg-card))] border border-[hsl(var(--border))] rounded-[var(--radius-sm)] p-0.5 shadow-sm z-10">
+          {/* Message actions stay keyboard/touch discoverable. */}
+            <div className="absolute -top-2 right-2 z-10 flex gap-0.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-0.5 opacity-100 shadow-sm transition-opacity sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100">
               {!isHuman && (message.conversationId || selectedConversationId) && (
                 <button
                   type="button"
@@ -350,7 +363,7 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
                     agentId: message.agentId,
                     timestamp: message.timestamp,
                   })}
-                  className="p-1 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--accent))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+                  className="rounded-[2px] p-1 text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--accent))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent))]"
                   title="查看这次 Agent 调用"
                   aria-label="查看这次 Agent 调用"
                 >
@@ -360,18 +373,24 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
               <button
                 type="button"
                 onClick={() => {
-                  window.dispatchEvent(new CustomEvent('chat:quote', { detail: responseText }));
+                  window.dispatchEvent(new CustomEvent('chat:quote', {
+                    detail: {
+                      id: responseMessage.id,
+                      author: isHuman ? '用户' : agent?.name ?? responseMessage.agentId,
+                      content: responseText,
+                    },
+                  }));
                 }}
-                className="p-1 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
-                title="引用此消息"
-                aria-label="引用此消息"
+                className="rounded-[2px] p-1 text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--text-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent))]"
+                title="引用回复"
+                aria-label="引用回复"
               >
-                <Link2 className="w-3.5 h-3.5" />
+                <CornerUpLeft className="w-3.5 h-3.5" />
               </button>
               <button
                 type="button"
                 onClick={() => navigator.clipboard.writeText(responseText)}
-                className="p-1 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+                className="rounded-[2px] p-1 text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--text-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent))]"
                 title="复制内容"
                 aria-label="复制内容"
               >
@@ -381,7 +400,7 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
                 <button
                   type="button"
                   onClick={() => setSelectedTaskId(message.referencedTaskId!)}
-                  className="p-1 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] rounded-[2px] hover:bg-[hsl(var(--bg-muted))] transition-colors"
+                  className="rounded-[2px] p-1 text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--text-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent))]"
                   title="跳转到任务"
                   aria-label="跳转到任务"
                 >
@@ -389,7 +408,6 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
                 </button>
               )}
             </div>
-          )}
         </div>
       </div>
     </div>

@@ -29,6 +29,8 @@
 13. 工作区侧栏提供一个跨 Project 的交付总览入口，并以命名 Project 分组其 Delivery；不得把 Buzz 的 CommunityRail 映射成 Project，也不得把 Delivery 退化为 Conversation 导航。Project 与 Delivery 均来自统一只读投影，选择行为不产生业务命令。
 14. 未选择 Delivery 时只展示一个空态和一个创建入口，不挂载团队、活动输入或工作检查器；选中后 Agent 请求必须显式绑定 Project path 与 Delivery identity，Task 仅在用户显式引用时进入请求上下文。当前页面视图仍是 UI 状态，不得伪装成已实现的 Agent 上下文契约。
 15. 有数据的交付总览必须提供组合指标、继续工作和命名 Project 进度，而不是退化为薄卡片墙；总览展示“开放阻塞”，详情“需要关注”仍只接受人工 blocker 与 `waiting_human`，两者不得混用。
+16. Delivery 详情固定提供概览、活动、评估三个页面 surface；活动使用连续时间线和常驻输入，但不得把 Delivery 退化为频道或把聊天提升为业务主对象。
+17. 活动草稿按 Delivery identity 本地隔离；上翻阅读时不自动抢回底部，并提供瞬时新增活动提示。引用回复在 reply relation 尚未进入 Command 契约前只提交可见引用文本，不伪造线程事实。
 
 ## 3. 范围
 

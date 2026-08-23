@@ -30,7 +30,7 @@
 1. 调用 `loadFromServer()` 从 API rehydrate
 2. 完成后调用 `connectDaemon()`
 3. 首次数据尚未 settled 时展示“初始化中”状态
-4. 页面进入可交互态后，后续 `loadFromServer()` 作为后台刷新运行，不得让 `hasHydrated` 回退或卸载 `ProjectWorkspace`，以保留聊天草稿和焦点；刷新期间 `runtimeRefreshInProgress=true`，输入仍可编辑但暂缓发送；草稿绑定开始输入时的项目，后台刷新不得把它重定向到其他项目
+4. 页面进入可交互态后，后续 `loadFromServer()` 作为后台刷新运行，不得让 `hasHydrated` 回退或卸载 `ProjectWorkspace`；刷新期间 `runtimeRefreshInProgress=true`，输入仍可编辑但暂缓发送；草稿由 Renderer 按 Delivery ID 隔离并本地持久化，切换、刷新和短暂离开活动 surface 后可恢复
 
 主界面结构：
 
@@ -60,9 +60,9 @@
   - “继续工作”按最近更新时间回到可继续 Delivery；命名 Project 区使用同一口径展示目录上下文、整体进度及具体 Delivery
   - 总览只称“开放阻塞”；只有详情投影可以把人工 blocker 与 `waiting_human` 称为用户“需要关注”
 - 中栏：[`ProjectChatPanel.tsx`](../../src/components/project/ProjectChatPanel.tsx)
-  - `DeliveryWorkspaceOverview` 通过统一投影展示阶段、验收进度、当前工作和需要关注
-  - 自主交付详情继续展示验收证据摘要
-  - 次级“团队活动”区，包含关键消息和补充要求输入
+  - Delivery 详情固定提供“概览 / 活动 / 评估”三个 surface，切换不改变当前 Delivery
+  - 概览由 `DeliveryWorkspaceOverview` 与自主交付详情展示阶段、验收、当前工作和证据摘要
+  - 活动使用完整纵向空间承载连续时间线、Agent 在场状态和补充要求输入；从概览或评估返回时保持同一个组件现场
 - 空态：没有任何 Delivery 时由总览独占一个解释性引导，侧栏不重复提示；团队成员、活动时间线、输入区和右侧检查器均不挂载
 - 右栏：[`ProjectRightPanel.tsx`](../../src/components/project/ProjectRightPanel.tsx)
   - 一级入口只有“任务”和“调试”
@@ -115,8 +115,10 @@ WebUI 有两个明确分离的入口：
 
 - [`ProjectChatPanel.tsx`](../../src/components/project/ProjectChatPanel.tsx)
   - 通过父级传入的 `DeliveryWorkspaceView` 展示目标、进度、当前工作和需要关注
-  - 内嵌 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)
-  - 自主交付状态最多占剩余高度 32%；团队活动占剩余空间，Human Command 输入区始终留在视口内
+  - 概览与活动为内部稳定 surface；内嵌 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx) 在页面模式切换时保持挂载
+  - 活动时间线独占剩余高度，底部 composer 始终留在视口内；上翻阅读历史时不自动抢回滚动位置
+  - 草稿由 [`useDeliveryRequirementDraft.ts`](../../src/hooks/useDeliveryRequirementDraft.ts) 按 Delivery 隔离并持久化；引用回复先显示可取消预览，当前持久结果只保存可见引用文本，不伪造 reply relation
+  - “回到最新/新活动”只表示当前打开时间线的瞬态阅读位置，不作为服务端未读事实
   - 未选交付时不挂载活动和输入；已选后要求必须显式带当前交付 ID，不能由 Store 自动选中或创建 Conversation
 - [`AgentBar.tsx`](../../src/components/task-hub/AgentBar.tsx)
   - 展示当前参与 Agent 与绑定状态
@@ -180,6 +182,7 @@ Skill 加载流程：`loadFromServer()` → `loadSkills()` → `GET /api/skills`
 - UI-only 的面板、视图模式和创建弹窗状态保持在所属组件；
 - 手工“新建任务”全局入口及其 Store 状态已删除，顶栏只保留“新建交付”。
 - 交付补充要求、规划请求、交付生命周期操作和全部 Task/Task Graph 用户操作已迁入 Workspace Command，并通过持久 receipt 对账。
+- Delivery 详情已拆为概览、活动、评估三个稳定 surface；活动采用连续时间线、按 Delivery 草稿、可取消引用、锚定滚动和键盘/触屏可发现的消息操作。
 - Task 创建、改派和状态命令仍由 Task Command Service 持有事实；需要执行时由服务端 Task Wakeup 推进，浏览器不再
   把任务变化解释为 Agent 启动。浏览器也不再先乐观改 Task：命令携带预期 revision，只有服务端返回权威 Task 后才
   更新投影；rehydrate 与 `task.state` 都携带 revision 并推进投影 epoch，迟到 HTTP 响应不能覆盖更高 revision 的 Socket 事实。

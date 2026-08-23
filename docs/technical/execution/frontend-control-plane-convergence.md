@@ -328,7 +328,19 @@ Web 与桌面不得形成两套前端应用。`ClientHome` 是应用级 Renderer
 - 总览投影、Project 分组、跨 Project/外部创建选择、详情和零数据空态回归：6 个测试文件、23/23 通过；仓库全量回归：237 个测试文件通过、2 个跳过，1769 个用例通过、2 个跳过；
 - `pnpm exec tsc --noEmit`、受影响文件 ESLint 与 `pnpm build` 通过；构建只保留主线既有的 `worktree-manager` NFT 动态路径告警；
 - 真实生产页面在 1280×720 和 800×600 下均无文档级横向/纵向溢出，全局创建入口唯一；工作区侧栏可从 260px 收至 56px 后恢复；
-- 桌面 Renderer 已由同一前端产物重新准备，构建标识为 `desktop-build-bc849405691a4266f077421dbd2db881`。
+- 桌面 Renderer 已由同一前端产物重新准备；本轮活动交互更新后的构建标识为 `desktop-build-99e062c8844600c0c1fc9e0e16215584`。
+
+## 8.2 Delivery Activity Surface（2026-08-23）
+
+Delivery 详情中的 overview / activity / evaluation 是页面局部 surface，不新增领域对象。`ProjectWorkspace` 持有 surface selection；`ProjectChatPanel` 同时承载概览与活动实现，活动时间线只消费当前 Delivery 的 `ChatMessage` 投影，用户发送继续通过 `WorkspaceCommandGateway`。
+
+活动交互的 Module / Interface 固定为：
+
+- `GlobalChatRoom`：给定 Store 中的当前 Delivery selection，提供连续时间线、引用回复、常驻 Composer、历史加载和回到最新；不解释 Task/Delivery 生命周期。
+- `useDeliveryRequirementDraft`：以 `deliveryId` 为唯一 Interface，隐藏本地持久化格式和读写异常；返回当前草稿、更新和清除能力，不成为消息事实源。
+- `useAutoScroll`：隐藏 ResizeObserver / MutationObserver 与底部阈值，返回 `isAtBottom` 和显式 `scrollToBottom`；只有用户仍在底部时自动跟随内容增长。
+
+引用回复在当前阶段只生成明确可见的引用文本；Command、Message repository 和 Agent Context 尚无 reply relation，因此 UI 不得展示线程计数、跳转锚点或“已建立回复关系”等语义。未读/已读也尚无服务端 Projection，本轮只提供当前已打开时间线内的瞬时“新增活动”提示，不写入 Store 或数据库。
 
 ## 9. 当前实施状态（2026-08-16）
 

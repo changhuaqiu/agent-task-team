@@ -28,7 +28,7 @@ vi.mock('@/components/ui/EmojiPickerButton', () => ({
   EmojiPickerButton: () => <button type="button">表情</button>,
 }));
 vi.mock('@/hooks/useAutoScroll', () => ({
-  useAutoScroll: () => undefined,
+  useAutoScroll: () => ({ isAtBottom: true, scrollToBottom: vi.fn() }),
 }));
 
 afterEach(cleanup);

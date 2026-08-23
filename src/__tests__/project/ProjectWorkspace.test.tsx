@@ -32,7 +32,7 @@ vi.mock('@/components/project/ProjectsOverview', () => ({
   ),
 }));
 vi.mock('@/components/project/ProjectChatPanel', () => ({
-  ProjectChatPanel: () => <section data-testid="collaboration-workspace"/>,
+  ProjectChatPanel: ({ surface }: { surface: string }) => <section data-testid="collaboration-workspace" data-surface={surface}/>,
 }));
 vi.mock('@/components/project/ProjectRightPanel', () => ({
   ProjectRightPanel: () => <aside data-testid="project-right-panel"/>,
@@ -48,7 +48,7 @@ vi.mock('@/components/project/AgentObservabilityDrawerHost', () => ({
 afterEach(cleanup);
 
 describe('ProjectWorkspace', () => {
-  it('switches the same selected delivery between delivery and evaluation modes', async () => {
+  it('switches the same selected delivery across overview, activity, and evaluation surfaces', async () => {
     useTaskHubStore.setState({
       selectedConversationId: 'conv-platform',
       conversations: [{
@@ -62,9 +62,12 @@ describe('ProjectWorkspace', () => {
     expect(screen.getByTestId('projects-overview')).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: '平台内建评估' }));
     expect(screen.getByTestId('collaboration-workspace')).toBeDefined();
+    expect(screen.getByTestId('collaboration-workspace').getAttribute('data-surface')).toBe('overview');
     expect(screen.queryByTestId('evaluation-workspace')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '活动' }));
+    expect(screen.getByTestId('collaboration-workspace').getAttribute('data-surface')).toBe('activity');
     fireEvent.click(screen.getByRole('button', { name: '评估' }));
-    expect(screen.queryByTestId('collaboration-workspace')).toBeNull();
+    expect(screen.getByTestId('collaboration-workspace').parentElement?.className).toContain('hidden');
     expect((await screen.findByTestId('evaluation-workspace')).textContent).toBe('conv-platform');
     expect(screen.getByTestId('project-sidebar')).toBeDefined();
     expect(screen.getByTestId('observability-drawer-host')).toBeDefined();

@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GlobalChatRoom } from '@/components/task-hub/GlobalChatRoom';
 import { useTaskHubStore } from '@/store/taskHubStore';
 
-vi.mock('@/hooks/useAutoScroll', () => ({ useAutoScroll: () => {} }));
+vi.mock('@/hooks/useAutoScroll', () => ({
+  useAutoScroll: () => ({ isAtBottom: true, scrollToBottom: vi.fn() }),
+}));
 vi.mock('@/components/task-hub/ChatFilterBar', () => ({ ChatFilterBar: () => null }));
 vi.mock('@/components/task-hub/AgentMentionPopup', () => ({ AgentMentionPopup: () => null }));
 vi.mock('@/components/task-hub/A2APossessionStrip', () => ({ A2APossessionStrip: () => null }));
@@ -39,6 +41,7 @@ const conversations = [
 
 describe('GlobalChatRoom draft scope', () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useTaskHubStore.setState({
       conversations,
       selectedConversationId: 'project-a',
@@ -54,7 +57,7 @@ describe('GlobalChatRoom draft scope', () => {
     vi.unstubAllGlobals();
   });
 
-  it('keeps an A draft visible but cannot submit it after selection changes to B or empty', () => {
+  it('keeps independent drafts for each delivery and restores them after switching', () => {
     render(<GlobalChatRoom />);
     const input = screen.getByRole('textbox', { name: '向团队补充要求' }) as HTMLTextAreaElement;
     input.focus();
@@ -67,12 +70,9 @@ describe('GlobalChatRoom draft scope', () => {
       });
     });
 
-    expect(input.value).toBe('command for project A');
+    expect(input.value).toBe('');
     expect(document.activeElement).toBe(input);
-    expect((screen.getByTitle('草稿属于先前项目，请切回原项目或清空后重写') as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(useTaskHubStore.getState().chatMessagesByConversation['project-b']).toBeUndefined();
+    fireEvent.change(input, { target: { value: 'command for project B', selectionStart: 21 } });
 
     act(() => {
       useTaskHubStore.setState({
@@ -80,7 +80,7 @@ describe('GlobalChatRoom draft scope', () => {
         selectedProjectId: 'default',
       });
     });
-    expect(input.value).toBe('command for project A');
+    expect(input.value).toBe('');
     expect((screen.getByTitle('请先选择或新建一个交付') as HTMLButtonElement).disabled).toBe(true);
 
     act(() => {
@@ -89,7 +89,13 @@ describe('GlobalChatRoom draft scope', () => {
         selectedProjectId: 'project-a',
       });
     });
+    expect(input.value).toBe('command for project A');
     expect((screen.getByTitle('发送消息') as HTMLButtonElement).disabled).toBe(false);
+
+    act(() => {
+      useTaskHubStore.setState({ selectedConversationId: 'project-b', selectedProjectId: 'project-b' });
+    });
+    expect(input.value).toBe('command for project B');
   });
 
   it('cannot submit to an arbitrary existing delivery when none is selected', async () => {
@@ -159,6 +165,49 @@ describe('GlobalChatRoom draft scope', () => {
         content: '继续处理',
         agentId: 'human',
       }));
+  });
+
+  it('shows a cancellable quote preview and sends visible quoted context', async () => {
+    const fetchSpy = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const command = JSON.parse(String(init?.body));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          receipt: {
+            idempotencyKey: command.idempotencyKey,
+            commandType: command.type,
+            projectPath: command.projectPath,
+            deliveryId: command.deliveryId,
+            status: 'accepted',
+            duplicate: false,
+            messageId: 'message-quote-1',
+            targetAgentIds: ['mario'],
+            recordedAt: stamp,
+          },
+        }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    render(<GlobalChatRoom />);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('chat:quote', {
+        detail: { id: 'source-1', author: 'Mario', content: '先完成事件投影' },
+      }));
+    });
+    expect(screen.getByTestId('chat-quote-preview').textContent).toContain('引用回复 Mario');
+
+    const input = screen.getByRole('textbox', { name: '向团队补充要求' });
+    fireEvent.change(input, { target: { value: '同意，继续', selectionStart: 5 } });
+    fireEvent.click(screen.getByTitle('发送消息'));
+
+    await act(async () => { await Promise.resolve(); });
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a'])
+      .toContainEqual(expect.objectContaining({
+        content: '> 引用 Mario：先完成事件投影\n\n同意，继续',
+      }));
+    expect(screen.queryByTestId('chat-quote-preview')).toBeNull();
   });
 
   it('surfaces a server-owned no-recipient receipt and retains the draft', async () => {
