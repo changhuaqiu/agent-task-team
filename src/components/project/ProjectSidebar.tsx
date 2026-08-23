@@ -1,234 +1,228 @@
-// src/components/project/ProjectSidebar.tsx
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
-import { Search } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, LayoutDashboard, Search } from 'lucide-react';
 import { useTaskHubStore } from '@/store/taskHubStore';
-import { WorkspaceSection } from './WorkspaceSection';
 import { ProjectTreeItem } from './ProjectTreeItem';
+import { WorkspaceSection } from './WorkspaceSection';
 import { getProjectStatus } from './getProjectStatus';
 import { cn } from '@/lib/utils';
 import { createWorkspaceCommandIdempotencyKey, workspaceCommandGateway } from '@/lib/workspace-command';
 import type { DeliveryNavigationItem, ProjectNavigationGroup } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
 
-export function ProjectSidebar({ navigation }: { navigation: ProjectNavigationGroup[] }) {
-  const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
-  const setSelectedConversationId = useTaskHubStore((s) => s.setSelectedConversationId);
-  const deleteConversation = useTaskHubStore((s) => s.deleteConversation);
+export type WorkspaceSurface = 'overview' | 'delivery';
 
+export function ProjectSidebar({
+  navigation,
+  activeSurface,
+  selectedDeliveryId,
+  onOpenOverview,
+  onSelectDelivery,
+}: {
+  navigation: ProjectNavigationGroup[];
+  activeSurface: WorkspaceSurface;
+  selectedDeliveryId: string | null;
+  onOpenOverview: () => void;
+  onSelectDelivery: (deliveryId: string) => void;
+}) {
+  const deleteConversation = useTaskHubStore((state) => state.deleteConversation);
   const [isExpanded, setIsExpanded] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
   const [deletedNotice, setDeletedNotice] = useState<DeliveryNavigationItem | null>(null);
   const deleteNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const deliveryCount = navigation.reduce((count, project) => count + project.deliveries.length, 0);
 
-  const deliveries = useMemo(() => navigation.flatMap((group) => group.deliveries), [navigation]);
-  const workspaceGroups = navigation;
+  useEffect(() => () => {
+    if (deleteNoticeTimerRef.current) clearTimeout(deleteNoticeTimerRef.current);
+  }, []);
 
-  const filteredGroups = useMemo(() => {
-    if (!searchQuery.trim()) return workspaceGroups;
-    const q = searchQuery.trim().toLowerCase();
-    return workspaceGroups
-      .map((group) => {
-        const groupMatches = group.name.toLowerCase().includes(q)
-          || group.fullPath?.toLowerCase().includes(q);
-        return {
-          ...group,
-          deliveries: groupMatches
-            ? group.deliveries
-            : group.deliveries.filter(
-              (c) => c.title.toLowerCase().includes(q) || (c.goal && c.goal.toLowerCase().includes(q)),
-            ),
-        };
-      })
-      .filter((group) => group.deliveries.length > 0);
-  }, [workspaceGroups, searchQuery]);
+  const filteredNavigation = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return navigation;
+    return navigation.flatMap((project) => {
+      const projectMatch = project.name.toLowerCase().includes(query)
+        || project.fullPath?.toLowerCase().includes(query);
+      const deliveries = projectMatch
+        ? project.deliveries
+        : project.deliveries.filter((delivery) => (
+          delivery.title.toLowerCase().includes(query)
+          || delivery.goal.toLowerCase().includes(query)
+        ));
+      return deliveries.length > 0 ? [{ ...project, deliveries }] : [];
+    });
+  }, [navigation, searchQuery]);
 
-  const showSearch = deliveries.length >= 5;
-
-  async function handleDelete(id: string) {
-    const conv = deliveries.find((item) => item.id === id);
-    if (!conv) return;
+  async function handleDelete(delivery: DeliveryNavigationItem) {
     const receipt = await workspaceCommandGateway.submit({
       type: 'delivery.delete',
-      idempotencyKey: createWorkspaceCommandIdempotencyKey(`delivery.delete:${id}`),
-      deliveryId: id,
-      projectPath: conv.projectPath,
+      idempotencyKey: createWorkspaceCommandIdempotencyKey(`delivery.delete:${delivery.id}`),
+      deliveryId: delivery.id,
+      projectPath: delivery.projectPath,
       actor: { type: 'user', id: 'webui:local-user' },
       issuedAt: new Date().toISOString(),
     }).catch(() => undefined);
     const deleted = receipt?.status === 'accepted'
-      ? await deleteConversation(id, { persist: false })
+      ? await deleteConversation(delivery.id, { persist: false })
       : false;
     if (!deleted) {
       setDeletedNotice(null);
       return;
     }
-    setDeletedNotice(conv);
+    setDeletedNotice(delivery);
     if (deleteNoticeTimerRef.current) clearTimeout(deleteNoticeTimerRef.current);
     deleteNoticeTimerRef.current = setTimeout(() => setDeletedNotice(null), 5000);
   }
 
-  function toggleGroup(key: string) {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
-  function handleCollapsedSelect(id: string) {
-    setSelectedConversationId(id);
-    setIsExpanded(true);
-  }
-
   return (
-    <>
-      <aside
-        className={cn(
-          'shrink-0 h-full border-r border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] flex flex-col transition-all duration-200',
-          isExpanded ? 'w-[248px]' : 'w-[56px]'
+    <aside
+      className={cn(
+        'flex h-full shrink-0 flex-col border-r border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] transition-[width] duration-200',
+        isExpanded ? 'w-[260px]' : 'w-14',
+      )}
+      data-testid="delivery-sidebar"
+    >
+      <div className="flex h-14 shrink-0 items-center border-b border-[hsl(var(--border-subtle))] px-3">
+        {isExpanded ? (
+          <>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-[hsl(var(--text-primary))]">工作区</div>
+              <div className="mt-0.5 truncate text-xs text-[hsl(var(--text-tertiary))]">
+                {navigation.length} 个项目 · {deliveryCount} 个交付
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsExpanded(false)}
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--text-primary))]"
+              aria-label="收起工作区侧栏"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsExpanded(true)}
+            className="mx-auto flex size-8 items-center justify-center rounded-md text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--text-primary))]"
+            aria-label="展开工作区侧栏"
+          >
+            <ChevronRight className="size-4" />
+          </button>
         )}
-      >
-        {/* Global header */}
-        <div className="px-3 py-3 border-b border-[hsl(var(--border-subtle))]">
-          {isExpanded ? (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setIsExpanded(false)}
-                className="shrink-0 p-1 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))] transition-colors"
-                title="收起侧栏"
-              >
-                <span className="text-[10px] font-bold tracking-wider uppercase">◂</span>
-              </button>
-              <span className="text-[13px] font-medium text-[hsl(var(--text-primary))] truncate min-w-0">
-                项目与交付
-              </span>
-              <span className="text-[11px] text-[hsl(var(--text-tertiary))] tabular-nums">
-                {deliveries.length}
-              </span>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsExpanded(true)}
-                className="w-8 h-8 rounded-[var(--radius-md)] flex items-center justify-center text-[hsl(var(--text-tertiary))] hover:bg-[hsl(var(--bg-card-hover))] transition-colors"
-                title="展开侧栏"
-              >
-                <span className="text-[10px]">▸</span>
-              </button>
-            </div>
-          )}
-        </div>
+      </div>
 
-        {/* Search box */}
-        {isExpanded && showSearch && (
-          <div className="px-3 py-2 border-b border-[hsl(var(--border-subtle))]">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[hsl(var(--text-tertiary))]" />
-              <input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索项目或交付..."
-                className="w-full pl-7 pr-2 py-1.5 text-[12px] bg-[hsl(var(--bg-app))] border border-[hsl(var(--border-subtle))] rounded-[var(--radius-md)] text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-tertiary))] focus:outline-none focus:border-[hsl(var(--accent))] transition-colors"
-              />
-            </div>
+      {isExpanded ? (
+        <>
+          <div className="shrink-0 px-2 py-2">
+            <button
+              type="button"
+              onClick={onOpenOverview}
+              className={cn(
+                'flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs transition-colors',
+                activeSurface === 'overview'
+                  ? 'bg-[hsl(var(--accent-soft))] font-medium text-[hsl(var(--text-primary))]'
+                  : 'text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-card-hover))]',
+              )}
+              aria-current={activeSurface === 'overview' ? 'page' : undefined}
+            >
+              <LayoutDashboard className="size-4 shrink-0" />
+              <span>交付总览</span>
+            </button>
           </div>
-        )}
 
-        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-          {isExpanded ? (
-            <>
-              {deletedNotice && (
-                <div className="mx-3 my-1 px-3 py-2 rounded-[var(--radius-md)] bg-[hsl(var(--status-pending-bg))] border border-[hsl(var(--status-pending-border))] flex items-center gap-2 text-[11px]">
-                  <span className="text-[hsl(var(--text-secondary))] truncate min-w-0">
-                    已删除「{deletedNotice.title}」
-                  </span>
-                </div>
-              )}
-
-              {filteredGroups.map((group) => (
-                <WorkspaceSection
-                  key={group.key}
-                  name={group.name}
-                  fullPath={group.fullPath}
-                  count={group.deliveries.length}
-                  collapsed={collapsedGroups.has(group.key)}
-                  onToggle={() => toggleGroup(group.key)}
-                >
-                  {group.deliveries.map((c) => {
-                    const stats = c.work;
-                    const openBlockerCount = c.openAttentionCount;
-                    const health = getProjectStatus(stats);
-                    const isSelected = c.id === selectedConversationId;
-
-                    return (
-                      <ProjectTreeItem
-                        key={c.id}
-                        title={c.title}
-                        goal={c.goal}
-                        health={health}
-                        isSelected={isSelected}
-                        taskCount={stats.total}
-                        doneCount={stats.done}
-                        blockerCount={openBlockerCount}
-                        onSelect={() => setSelectedConversationId(c.id)}
-                        onDelete={() => handleDelete(c.id)}
-                      />
-                    );
-                  })}
-                </WorkspaceSection>
-              ))}
-
-              {filteredGroups.length === 0 && searchQuery && (
-                <div className="px-6 py-4 text-[11px] text-[hsl(var(--text-tertiary))] text-center">
-                  未找到匹配「{searchQuery}」的项目
-                </div>
-              )}
-
-              {deliveries.length === 0 && (
-                <div className="px-6 py-4 text-[11px] text-[hsl(var(--text-tertiary))]">
-                  还没有交付
-                </div>
-              )}
-            </>
-          ) : (
-            /* Collapsed icon mode — group by workspace with visual separator */
-            <div className="flex flex-col gap-1 py-2">
-              {workspaceGroups.map((group) => (
-                <div key={group.key} className="flex flex-col items-center gap-1">
-                  {workspaceGroups.length > 1 && (
-                    <div className="w-6 h-px bg-[hsl(var(--border-subtle))] my-0.5" title={group.name} />
-                  )}
-                  {group.deliveries.map((c) => {
-                    const isSelected = c.id === selectedConversationId;
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        title={`${group.name} / ${c.title}`}
-                        onClick={() => handleCollapsedSelect(c.id)}
-                        className={cn(
-                          'w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center text-[12px] font-bold transition-colors',
-                          isSelected
-                            ? 'bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]'
-                            : 'hover:bg-[hsl(var(--bg-card-hover))] text-[hsl(var(--text-secondary))]'
-                        )}
-                      >
-                        {c.title.charAt(0).toUpperCase()}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+          {(deliveryCount >= 5 || navigation.length >= 4) && (
+            <div className="shrink-0 px-3 pb-2">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[hsl(var(--text-tertiary))]" />
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="搜索项目或交付…"
+                  aria-label="搜索项目或交付"
+                  className="h-8 w-full rounded-md border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] pl-8 pr-2 text-xs text-[hsl(var(--text-primary))] outline-none placeholder:text-[hsl(var(--text-tertiary))] focus:border-[hsl(var(--accent))]"
+                />
+              </div>
             </div>
           )}
-        </div>
-      </aside>
 
-    </>
+          <div className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-tertiary))]">项目</div>
+          <div className="min-h-0 flex-1 overflow-y-auto pb-3 scrollbar-thin">
+            {deletedNotice && (
+              <div className="mx-3 mb-2 rounded-md bg-[hsl(var(--status-pending-bg))] px-3 py-2 text-xs text-[hsl(var(--text-secondary))]">
+                已删除交付「{deletedNotice.title}」
+              </div>
+            )}
+            {filteredNavigation.map((project) => (
+              <WorkspaceSection
+                key={project.key}
+                name={project.name}
+                fullPath={project.fullPath}
+                count={project.deliveries.length}
+                collapsed={collapsedProjects[project.key] === true && !(
+                  activeSurface === 'delivery'
+                  && project.deliveries.some((delivery) => delivery.id === selectedDeliveryId)
+                )}
+                onToggle={() => setCollapsedProjects((current) => ({
+                  ...current,
+                  [project.key]: !current[project.key],
+                }))}
+              >
+                {project.deliveries.map((delivery) => (
+                  <ProjectTreeItem
+                    key={delivery.id}
+                    title={delivery.title}
+                    goal={delivery.goal}
+                    health={getProjectStatus(delivery.work)}
+                    isSelected={activeSurface === 'delivery' && delivery.id === selectedDeliveryId}
+                    taskCount={delivery.work.total}
+                    doneCount={delivery.work.done}
+                    blockerCount={delivery.openBlockerCount}
+                    onSelect={() => onSelectDelivery(delivery.id)}
+                    onDelete={() => void handleDelete(delivery)}
+                  />
+                ))}
+              </WorkspaceSection>
+            ))}
+            {filteredNavigation.length === 0 && searchQuery && (
+              <div className="px-4 py-6 text-center text-xs text-[hsl(var(--text-tertiary))]">没有匹配的项目或交付</div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col items-center gap-2 py-2">
+          <button
+            type="button"
+            onClick={onOpenOverview}
+            title="交付总览"
+            aria-label="交付总览"
+            className={cn(
+              'flex size-10 items-center justify-center rounded-lg transition-colors',
+              activeSurface === 'overview'
+                ? 'bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]'
+                : 'text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-card-hover))]',
+            )}
+          >
+            <LayoutDashboard className="size-4" />
+          </button>
+          {selectedDeliveryId && (
+            <button
+              type="button"
+              onClick={() => onSelectDelivery(selectedDeliveryId)}
+              title="当前交付"
+              aria-label="当前交付"
+              className={cn(
+                'flex size-10 items-center justify-center rounded-lg text-xs font-medium transition-colors',
+                activeSurface === 'delivery'
+                  ? 'bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]'
+                  : 'text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-card-hover))]',
+              )}
+            >
+              {Array.from(navigation.flatMap((project) => project.deliveries).find((delivery) => delivery.id === selectedDeliveryId)?.title ?? '交')[0]}
+            </button>
+          )}
+        </div>
+      )}
+    </aside>
   );
 }

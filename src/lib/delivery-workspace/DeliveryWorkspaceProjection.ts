@@ -74,11 +74,13 @@ export interface DeliveryNavigationItem {
   id: string;
   title: string;
   goal: string;
+  status: Conversation['status'];
+  autonomous: boolean;
   projectPath: string;
   projectName: string;
   updatedAt: string;
   work: { total: number; blocked: number; inProgress: number; done: number };
-  openAttentionCount: number;
+  openBlockerCount: number;
 }
 
 export interface ProjectNavigationGroup {
@@ -237,6 +239,8 @@ export function projectDeliveryNavigation(
       id: conversation.id,
       title: conversation.title,
       goal: conversation.goal,
+      status: conversation.status,
+      autonomous: conversation.autonomous === true,
       projectPath: conversation.projectPath,
       projectName: projectName(conversation.projectPath),
       updatedAt: conversation.updatedAt,
@@ -246,7 +250,7 @@ export function projectDeliveryNavigation(
         inProgress: tasks.filter((task) => task.status === 'in_progress').length,
         done: tasks.filter((task) => task.status === 'done').length,
       },
-      openAttentionCount: (source.blockersByConversation[conversation.id] ?? [])
+      openBlockerCount: (source.blockersByConversation[conversation.id] ?? [])
         .filter((blocker) => blocker.status === 'open').length,
     };
     const key = conversation.projectPath || '__ungrouped__';

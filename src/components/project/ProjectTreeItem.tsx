@@ -38,9 +38,9 @@ export function ProjectTreeItem({
   const progressColor = HEALTH_PROGRESS_COLOR[health];
 
   return (
-    <div className="group relative pl-4">
+    <div className="group relative px-1">
       {isSelected && (
-        <div className="absolute left-0 top-1 bottom-1 w-[3px] rounded-full bg-[hsl(var(--accent))]" />
+        <div className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-[hsl(var(--accent))]" />
       )}
       <button
         type="button"

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Blocker, Conversation } from '@/store/taskHubStore';
 import type { Task } from '@/store/taskStore';
-import { projectDeliveryWorkspace } from './DeliveryWorkspaceProjection';
+import { projectDeliveryNavigation, projectDeliveryWorkspace } from './DeliveryWorkspaceProjection';
 
 const delivery: Conversation = {
   id: 'delivery-1',
@@ -266,5 +266,29 @@ describe('DeliveryWorkspaceProjection', () => {
     expect(projectDeliveryWorkspace({
       conversations: [delivery], tasks: [], blockersByConversation: {}, chatMessagesByConversation: {},
     }, 'missing')).toBeNull();
+  });
+
+  it('labels navigation counts as open blockers instead of user attention', () => {
+    const baseBlocker: Blocker = {
+      id: 'manual-open', conversationId: delivery.id, taskId: 'TASK-1', type: 'manual',
+      reasonSummary: '需要用户决定', status: 'open', createdAt: '2026-08-16T00:02:00.000Z',
+    };
+    const navigation = projectDeliveryNavigation({
+      conversations: [delivery],
+      tasks: [],
+      blockersByConversation: {
+        [delivery.id]: [
+          baseBlocker,
+          { ...baseBlocker, id: 'gate-open', type: 'gate_fail' },
+          { ...baseBlocker, id: 'timeout-fixed', type: 'timeout', status: 'fixed' },
+        ],
+      },
+    });
+
+    expect(navigation[0]?.deliveries[0]).toMatchObject({
+      openBlockerCount: 2,
+      status: 'active',
+      autonomous: true,
+    });
   });
 });

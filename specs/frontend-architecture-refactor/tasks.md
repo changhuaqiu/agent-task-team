@@ -68,3 +68,16 @@
 - [x] 删除失效 UI、事件、类型、测试和文档；不保留无退出条件的兼容层。
 - [x] 执行 typecheck、相关测试、全量测试、build 和浏览器回归。
 - [x] 按迭代知识规范完成当前事实沉淀并更新 STORY（仅记录已验证效果）；因仍有显式后续项，规格保持 active，不提前归档。
+
+## Phase 5：Web / 桌面统一工作台体验
+
+- [x] 对照 Buzz `desktop/` 的真实 AppShell、TopChrome、CommunityRail、Sidebar、Projects 总览/详情、Project read model、Agent 页面上下文和 per-channel Runtime queue，区分可复用原则与不可复制实现。
+- [x] 明确定位差异：Buzz 是通用 relay workspace；本产品是跨 Project 的 Agent 交付系统。Community 不映射 Project，Buzz 的交付链也不压扁成单一 UI 实体。
+- [x] 冻结窗口 Chrome、工作区侧栏、交付总览、Delivery 详情和按需上下文面板的模块边界。
+- [x] 将首页重构为 Web / 桌面共享 Renderer 壳层，并为桌面拖拽区域保留同一 DOM 契约。
+- [x] 侧栏提供交付总览，并以命名 Project 分组其 Delivery；总览和详情共享同一投影。
+- [x] 未选 Delivery 时不挂载团队活动、输入区和工作检查器，只展示单一创建空态。
+- [x] 将有数据总览补齐为组合指标、继续工作和命名 Project 进度；区分开放阻塞与用户 Attention。
+- [x] 修复创建完成后权威选择与页面 surface 漂移，并覆盖外部选择和零数据整页回归。
+- [x] 补充组件测试、生产构建和真实浏览器宽屏/窄屏回归。
+- [x] 更新当前前端事实、STORY 和验证证据。

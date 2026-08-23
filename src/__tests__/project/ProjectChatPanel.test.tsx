@@ -33,6 +33,15 @@ function workspaceView(deliveryRunSnapshot?: DeliveryRunSnapshot) {
 }
 
 describe('ProjectChatPanel', () => {
+  it('renders one delivery empty state without mounting team activity', () => {
+    render(<ProjectChatPanel view={null} />);
+
+    expect(screen.getByTestId('delivery-empty-state')).toBeDefined();
+    expect(screen.getByText('从一个交付开始')).toBeDefined();
+    expect(screen.queryByTestId('agent-bar')).toBeNull();
+    expect(screen.queryByTestId('global-chat-room')).toBeNull();
+  });
+
   it('keeps the chat viewport in the remaining bounded height below delivery status', () => {
     useTaskHubStore.setState({
       selectedConversationId: 'conv-layout',

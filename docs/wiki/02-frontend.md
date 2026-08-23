@@ -8,6 +8,8 @@
   - `globals.css`：全局设计系统与 Tailwind v4
 - `src/components/project/`
   - 新的项目工作台主 UI
+- `src/components/shell/`
+  - Web / 桌面共用的窗口级 Renderer Chrome
 - `src/components/task-hub/`
   - 聊天、任务详情、设置、终端、agent 相关组件
 - `src/components/role-card/`
@@ -32,9 +34,10 @@
 
 主界面结构：
 
-- Header
-  - 左侧：交付中心产品标题
+- `WorkspaceAppChrome`
+  - 左侧：紧凑的交付中心身份
   - 右侧：唯一主创建动作“新建交付”、设置
+  - 同一个 DOM 同时服务 Web 与 Tauri Renderer，并声明桌面窗口拖拽区域
 - Body
   - `ProjectWorkspace`
 - Overlay
@@ -45,17 +48,22 @@
 
 ## 2.3 当前工作台信息架构
 
-[`ProjectWorkspace.tsx`](../../src/components/project/ProjectWorkspace.tsx) 是当前页面主框架，采用三栏布局。当前
+[`ProjectWorkspace.tsx`](../../src/components/project/ProjectWorkspace.tsx) 是当前页面主框架，采用“工作区侧栏 + 交付总览/详情 + 按需检查器”布局。当前
 兼容数据仍使用 `Conversation`，但用户界面已明确区分 Project（真实目录）与 Delivery（一次交付）：
 
-- 左栏：[`ProjectSidebar.tsx`](../../src/components/project/ProjectSidebar.tsx)
-  - 按 `projectPath` 分组真实项目
-  - 项目下展示交付、进度和需要处理数量
-  - 交付切换；不重复放置创建动作
+- 工作区侧栏：[`ProjectSidebar.tsx`](../../src/components/project/ProjectSidebar.tsx)
+  - 一个跨 Project 的“交付总览”入口
+  - 按真实 `projectPath` 展示命名 Project，展开后展示其 Delivery、任务进度和开放阻塞数量
+  - 支持跨 Project/Delivery 搜索和收放；不重复放置创建动作
+- 交付总览：[`ProjectsOverview.tsx`](../../src/components/project/ProjectsOverview.tsx)
+  - 复用 `ProjectNavigationGroup[]`，给出 Project、可继续 Delivery（进行中 + 已暂停）、任务完成与开放阻塞组合指标
+  - “继续工作”按最近更新时间回到可继续 Delivery；命名 Project 区使用同一口径展示目录上下文、整体进度及具体 Delivery
+  - 总览只称“开放阻塞”；只有详情投影可以把人工 blocker 与 `waiting_human` 称为用户“需要关注”
 - 中栏：[`ProjectChatPanel.tsx`](../../src/components/project/ProjectChatPanel.tsx)
   - `DeliveryWorkspaceOverview` 通过统一投影展示阶段、验收进度、当前工作和需要关注
   - 自主交付详情继续展示验收证据摘要
   - 次级“团队活动”区，包含关键消息和补充要求输入
+- 空态：没有任何 Delivery 时由总览独占一个解释性引导，侧栏不重复提示；团队成员、活动时间线、输入区和右侧检查器均不挂载
 - 右栏：[`ProjectRightPanel.tsx`](../../src/components/project/ProjectRightPanel.tsx)
   - 一级入口只有“任务”和“调试”
   - “需要关注”只投影人工 blocker 和自主交付 `waiting_human`；普通评审、ready 和自动 gate 故障不冒充用户待办
@@ -93,10 +101,13 @@ WebUI 有两个明确分离的入口：
 ### 项目与交付导航
 
 - [`ProjectSidebar.tsx`](../../src/components/project/ProjectSidebar.tsx)
-  - 只消费 `ProjectNavigationGroup[]`，按统一投影展示项目与交付
-  - 同时兼容 Windows 与 POSIX 路径；搜索项目名命中时保留该项目的全部交付
+  - 消费完整 `ProjectNavigationGroup[]`，保持 Project / Delivery 层级，不把租户轨道误用为 Project 导航
+  - 搜索 Project 名、目录、Delivery 标题和目标
   - 根据任务和 blocker 计算交付摘要
-  - 通过兼容键 `selectedConversationId` 切换当前交付
+  - 选择行为回调 `ProjectWorkspace`，再通过兼容键 `selectedConversationId` 切换当前交付
+- [`ProjectsOverview.tsx`](../../src/components/project/ProjectsOverview.tsx)
+  - 与侧栏共享导航投影，不直接读 Store
+  - Project 表达长期上下文，Delivery 表达一次目标到验收的工作闭环
 - [`ProjectCreateDialog.tsx`](../../src/components/project/ProjectCreateDialog.tsx)
   - 负责新建交付，收集标题、目标、项目目录、验收标准和授权
 
@@ -106,7 +117,7 @@ WebUI 有两个明确分离的入口：
   - 通过父级传入的 `DeliveryWorkspaceView` 展示目标、进度、当前工作和需要关注
   - 内嵌 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)
   - 自主交付状态最多占剩余高度 32%；团队活动占剩余空间，Human Command 输入区始终留在视口内
-  - 未选交付时输入禁用；要求必须显式带当前交付 ID，不能由 Store 自动选中或创建 Conversation
+  - 未选交付时不挂载活动和输入；已选后要求必须显式带当前交付 ID，不能由 Store 自动选中或创建 Conversation
 - [`AgentBar.tsx`](../../src/components/task-hub/AgentBar.tsx)
   - 展示当前参与 Agent 与绑定状态
   - Agent 成员配置面板中保留调试用 CLI session id 展示与复制入口，便于排查 session 续接问题

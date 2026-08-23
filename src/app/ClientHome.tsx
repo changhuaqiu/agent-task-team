@@ -3,9 +3,10 @@
 import dynamic from 'next/dynamic';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { ProjectWorkspace } from '@/components/project/ProjectWorkspace';
+import { WorkspaceAppChrome } from '@/components/shell/WorkspaceAppChrome';
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton';
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Plus, RefreshCw, Settings } from 'lucide-react';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 const TaskDetailPanel = dynamic(() => import('@/components/task-hub/TaskDetailPanel').then((mod) => mod.TaskDetailPanel));
@@ -45,44 +46,10 @@ export default function ClientHome() {
 
   return (
     <main className="h-dvh overflow-hidden bg-[hsl(var(--bg-app))] text-[hsl(var(--text-primary))] flex flex-col">
-      {/* ── Header ── */}
-      <header className="h-[64px] px-6 flex items-center justify-between border-b border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--accent-soft))] flex items-center justify-center shadow-[2px_2px_0px_hsl(var(--text-primary))]">
-            <span className="text-[12px] font-black tracking-tight text-[hsl(var(--accent))]">
-              HUB
-            </span>
-          </div>
-          <div>
-            <h1 className="text-[16px] font-bold tracking-tight text-[hsl(var(--text-primary))] uppercase">
-              交付中心
-            </h1>
-            <p className="text-[11px] text-[hsl(var(--text-tertiary))] font-bold tracking-widest uppercase">
-              软件交付 Agent OS
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setCreateDeliveryOpen(true)}
-            className="inline-flex items-center gap-1.5 bg-[hsl(var(--text-primary))] text-[hsl(var(--text-inverse))] px-3.5 py-2 rounded-[var(--radius-md)] text-[12px] font-semibold hover:opacity-90 active:scale-[0.97] transition-all duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            新建交付
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSettingsOpen(true)}
-            className="inline-flex items-center justify-center w-10 h-10 rounded-[var(--radius-md)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-card))]"
-            aria-label="设置"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
+      <WorkspaceAppChrome
+        onCreateDelivery={() => setCreateDeliveryOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
 
       {runtimeHydrationError && (
         <div

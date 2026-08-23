@@ -25,6 +25,40 @@ updated: 2026-08-23
 
 ---
 
+## 2026-08-23：Project 和 Delivery 终于各归其位
+
+### 原来的处境
+
+用户管理多个项目时，旧页面把 `Conversation` 当“项目”，真实 `projectPath` 只是一段隐藏字段；Project、Delivery、聊天和 Agent 运行状态互相争抢首页。第一版桌面重排又把 Buzz 的 CommunityRail 误映射为 Project 图标轨道，虽然层次变多，却没有理解 Project 与一次交付的关系。
+
+### 优化后的变化
+
+- Web 与桌面共用一个 Renderer：顶部收敛为轻量窗口 Chrome，Tauri 只增强拖拽和 Host 能力；
+- 工作区侧栏提供一个“交付总览”入口，并以真实目录命名 Project；Project 展开后才显示它的 Delivery；
+- 交付总览和侧栏共享同一投影：顶部组合指标回答整体情况，“继续工作”直接回到最近交付，Project 区展示长期目录上下文、任务进度和开放阻塞，不引入第二套事实 Store；
+- 选择 Delivery 后进入稳定详情，目标、验收、任务、活动和 Agent 协作仍属于同一个交付闭环；
+- 没有交付时只保留一个创建入口和一个解释 Project / Delivery / Agent 协作关系的中心空态，不再挂载团队、空时间线、禁用输入框或无意义模式切换；
+- 工作区侧栏可收放，窄窗口仍保留清楚的主动作和当前交付入口。
+
+### 已验证的效果
+
+- 组件定向回归覆盖总览投影、Project 分组、跨 Project/外部创建选择、交付详情和零数据空态：6 个测试文件、23 个用例全部通过；
+- 仓库全量回归：237 个测试文件通过、2 个跳过，1769 个用例通过、2 个跳过；类型检查、受影响文件 ESLint 和生产构建全部通过；
+- 真实生产页面在 1280×720 与 800×600 两档窗口下均无横向或纵向溢出；全局只出现一个“新建交付”主入口，工作区侧栏可从 260px 收至 56px 并恢复，空态没有挂载聊天输入和工作检查器；
+- 桌面 Renderer 产物已重新生成并写入构建标识 `desktop-build-bc849405691a4266f077421dbd2db881`。
+
+### 仍然保留的边界
+
+Project 当前仍由 `projectPath` 投影，尚未引入独立 Project 数据表；因此没有 Delivery 的空 Project 还不能单独存在。桌面发行中的 Rust toolchain、Node runtime 打包、签名、自动更新、托盘和深链继续按桌面 Host 规格推进。
+
+### 设计与实现依据
+
+- [交付工作区前端决策](ux/2026-08-16-delivery-workspace-refactor.md)
+- [前端与控制面收敛架构](../technical/execution/frontend-control-plane-convergence.md)
+- [活动实现规格](../../specs/frontend-architecture-refactor/spec.md)
+
+---
+
 ## 2026-08-23：多个项目里的 Agent 工作不再各走一套触发逻辑
 
 ### 原来的处境

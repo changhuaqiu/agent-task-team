@@ -306,6 +306,30 @@ Agent Runtime 内执行；daemon transport 只启动/停止该服务端 owner，
   无生产价值的旧 owner。
 - **外部参考风险**：禁止复制源码和品牌资产；评审增加命名、视觉和依赖来源检查。
 
+## 8.1 统一 Renderer 壳层边界（2026-08-23）
+
+Web 与桌面不得形成两套前端应用。`ClientHome` 是应用级 Renderer 入口，`ProjectWorkspace` 是交付工作台入口；Tauri Host 加载同一个生产构建，并仅通过 Host Adapter 提供平台能力。
+
+页面模块边界固定为：
+
+- `WorkspaceAppChrome`：窗口级轻量 Chrome，持有全局创建与设置入口，可声明 Tauri drag region；不消费交付事实。
+- `ProjectSidebar`：消费完整 `ProjectNavigationGroup[]`，提供跨项目交付总览入口，并按命名 Project 分组 Delivery；选择只回调页面 owner，删除交付必须继续通过 `WorkspaceCommandGateway`。
+- `ProjectsOverview`：只消费同一导航投影，提供组合指标、最近可继续 Delivery（进行中 + 已暂停）与命名 Project 进度，并从具体 Delivery 进入详情；顶部、继续工作与 Project 卡片必须使用同一可继续口径。`openBlockerCount` 明确表示所有开放阻塞，不冒充只属于用户的 Attention。不直接读取 Store，不建立第二套统计事实。
+- `ProjectWorkspace`：一次计算导航与 `DeliveryWorkspaceView`，持有 overview / delivery / evaluation 等局部页面状态，并把统一 View 下发给总览、详情与检查器。
+- `ProjectChatPanel`：未选 Delivery 时只渲染空态；已选时才挂载交付摘要、自主交付投影、团队活动和输入。
+- `ProjectRightPanel`：仅在已选 Delivery 时可用；关系图与调试继续按用户意图加载。
+
+本边界借鉴 Buzz 的不是 CommunityRail，而是它的三项深层约束：Project 一级总览和侧栏快捷列表共用同一 read model；Project 只组织长期上下文，不吞并成员对象的业务权威；Agent 上下文必须由明确选择形成，而不是靠页面猜测。对应到本系统，Project 由 `projectPath` 投影，Delivery 是拥有目标、验收和工作闭环的聚合；当前 Agent 请求已显式绑定 Project path 与 Delivery identity，Task 只在用户显式引用时进入请求，页面 surface / mode 尚未扩展为 Command 上下文字段。统一事件包络只统一 identity / scope / cause / reply / idempotency，不把这些领域对象合并为万能 Event 实体。
+
+交付总览选择和 Project 展开是纯 UI 状态，不新增 Project 事实 Store，也不经 Command Gateway。Delivery selection 继续复用现有选择状态以保持草稿隔离和历史兼容；外部创建流程改变权威 selection 后，页面 owner 必须同步打开该 Delivery，避免 Store 已选择而页面仍停留在总览。Renderer 组件不得根据 `window.__TAURI__` 分叉业务 IA；平台能力只能由 Host Adapter 或无害的 DOM 属性增强。
+
+本轮验证证据：
+
+- 总览投影、Project 分组、跨 Project/外部创建选择、详情和零数据空态回归：6 个测试文件、23/23 通过；仓库全量回归：237 个测试文件通过、2 个跳过，1769 个用例通过、2 个跳过；
+- `pnpm exec tsc --noEmit`、受影响文件 ESLint 与 `pnpm build` 通过；构建只保留主线既有的 `worktree-manager` NFT 动态路径告警；
+- 真实生产页面在 1280×720 和 800×600 下均无文档级横向/纵向溢出，全局创建入口唯一；工作区侧栏可从 260px 收至 56px 后恢复；
+- 桌面 Renderer 已由同一前端产物重新准备，构建标识为 `desktop-build-bc849405691a4266f077421dbd2db881`。
+
 ## 9. 当前实施状态（2026-08-16）
 
 - Phase 1 已建立 `DeliveryWorkspaceProjection`，首批消费者为交付主视图和右侧工作面板；投影统一给出阶段、验收进度、

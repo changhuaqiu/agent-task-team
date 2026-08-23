@@ -1,12 +1,13 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { FlaskConical, MessagesSquare } from 'lucide-react';
-import { ProjectSidebar } from './ProjectSidebar';
+import { ProjectSidebar, type WorkspaceSurface } from './ProjectSidebar';
 import { ProjectChatPanel } from './ProjectChatPanel';
 import { ProjectRightPanel } from './ProjectRightPanel';
+import { ProjectsOverview } from './ProjectsOverview';
 import { AgentObservabilityDrawerHost } from './AgentObservabilityDrawerHost';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
@@ -18,18 +19,22 @@ const ProjectEvaluationWorkspace = dynamic(() => import('./ProjectEvaluationWork
 export function ProjectWorkspace() {
   const {
     selectedDeliveryId,
+    setSelectedDeliveryId,
     conversations,
     tasks,
     blockersByConversation,
     chatMessagesByConversation,
   } = useTaskHubStore(useShallow((state) => ({
     selectedDeliveryId: state.selectedConversationId,
+    setSelectedDeliveryId: state.setSelectedConversationId,
     conversations: state.conversations,
     tasks: state.tasks,
     blockersByConversation: state.blockersByConversation,
     chatMessagesByConversation: state.chatMessagesByConversation,
   })));
   const selectedConversation = conversations.find((item) => item.id === selectedDeliveryId);
+  const [surface, setSurface] = useState<WorkspaceSurface>('overview');
+  const previousSelectedDeliveryId = useRef(selectedDeliveryId);
   const [mode, setMode] = useState<'collaboration' | 'evaluation'>('collaboration');
   const [deliveryRunState, setDeliveryRunState] = useState<{
     deliveryId: string;
@@ -62,47 +67,76 @@ export function ProjectWorkspace() {
     tasks,
     blockersByConversation,
   }), [blockersByConversation, conversations, tasks]);
+  const activeProject = navigation.find((project) => (
+    project.deliveries.some((item) => item.id === selectedDeliveryId)
+  )) ?? null;
+
+  useEffect(() => {
+    if (previousSelectedDeliveryId.current === selectedDeliveryId) return;
+    previousSelectedDeliveryId.current = selectedDeliveryId;
+    setMode('collaboration');
+    setSurface(selectedDeliveryId ? 'delivery' : 'overview');
+  }, [selectedDeliveryId]);
+
+  function handleSelectDelivery(deliveryId: string) {
+    setSelectedDeliveryId(deliveryId);
+    setMode('collaboration');
+    setSurface('delivery');
+  }
 
   return (
     <div className="flex-1 min-h-0 flex overflow-hidden">
-      <ProjectSidebar navigation={navigation} />
+      <ProjectSidebar
+        navigation={navigation}
+        activeSurface={surface}
+        selectedDeliveryId={selectedDeliveryId}
+        onOpenOverview={() => setSurface('overview')}
+        onSelectDelivery={handleSelectDelivery}
+      />
       <div className="min-w-0 flex-1 flex flex-col">
-        <div className="shrink-0 h-11 border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] px-4 flex items-center justify-between">
-          <div className="min-w-0">
-            <div className="truncate text-xs font-semibold text-[hsl(var(--text-primary))]">
-              {selectedConversation?.title ?? '选择一个交付'}
-            </div>
-          </div>
-          <div className="flex rounded-lg bg-[hsl(var(--bg-muted))] p-0.5 text-[10px]">
-            <button type="button" onClick={() => setMode('collaboration')} className={cn(
-              'inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 transition-colors',
-              mode === 'collaboration' && 'bg-[hsl(var(--bg-card))] font-semibold shadow-sm',
-            )}>
-              <MessagesSquare className="size-3"/>交付
-            </button>
-            <button type="button" onClick={() => setMode('evaluation')} disabled={!selectedConversation}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40',
-                mode === 'evaluation' && 'bg-[hsl(var(--bg-card))] font-semibold shadow-sm',
-              )}>
-              <FlaskConical className="size-3"/>评估
-            </button>
-          </div>
-        </div>
-        {mode === 'collaboration' ? (
-          <div className="min-h-0 flex-1 flex overflow-hidden">
-            <ProjectChatPanel
-              view={delivery}
-              onDeliveryRunSnapshotChange={handleDeliveryRunSnapshotChange}
-            />
-            <ProjectRightPanel view={delivery} />
-          </div>
+        {surface === 'overview' ? (
+          <ProjectsOverview navigation={navigation} onOpenDelivery={handleSelectDelivery} />
         ) : (
-          <main className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-muted))] p-4 lg:p-6">
-            <div className="mx-auto max-w-6xl">
-              <ProjectEvaluationWorkspace conversationId={selectedConversation?.id} />
-            </div>
-          </main>
+          <>
+            {selectedConversation && (
+              <div className="shrink-0 h-12 border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] px-4 flex items-center justify-between">
+                <div className="min-w-0">
+                  <div className="truncate text-xs text-[hsl(var(--text-tertiary))]">{activeProject?.name ?? '未分类项目'}</div>
+                  <div className="mt-0.5 truncate text-sm font-medium text-[hsl(var(--text-primary))]">{selectedConversation.title}</div>
+                </div>
+                <div className="flex rounded-lg bg-[hsl(var(--bg-muted))] p-0.5 text-xs">
+                  <button type="button" onClick={() => setMode('collaboration')} className={cn(
+                    'inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 transition-colors',
+                    mode === 'collaboration' && 'bg-[hsl(var(--bg-card))] font-medium shadow-sm',
+                  )}>
+                    <MessagesSquare className="size-3" />交付
+                  </button>
+                  <button type="button" onClick={() => setMode('evaluation')}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 transition-colors',
+                      mode === 'evaluation' && 'bg-[hsl(var(--bg-card))] font-medium shadow-sm',
+                    )}>
+                    <FlaskConical className="size-3" />评估
+                  </button>
+                </div>
+              </div>
+            )}
+            {mode === 'collaboration' || !selectedConversation ? (
+              <div className="min-h-0 flex-1 flex overflow-hidden">
+                <ProjectChatPanel
+                  view={delivery}
+                  onDeliveryRunSnapshotChange={handleDeliveryRunSnapshotChange}
+                />
+                {delivery && <ProjectRightPanel view={delivery} />}
+              </div>
+            ) : (
+              <main className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-muted))] p-4 lg:p-6">
+                <div className="mx-auto max-w-6xl">
+                  <ProjectEvaluationWorkspace conversationId={selectedConversation.id} />
+                </div>
+              </main>
+            )}
+          </>
         )}
       </div>
       <AgentObservabilityDrawerHost />
