@@ -2,7 +2,7 @@
 
 > Status: active
 > Date: 2026-08-16
-> Branch: `codex/frontend-architecture-refactor`
+> Branch: `codex/unified-event-agent-runtime`
 
 ## 1. 目标
 
@@ -18,7 +18,7 @@
 2. 主视图展示交付阶段、验收、当前工作和需要处理；团队聊天和运行细节下沉。
 3. 右侧一级入口为任务和调试；看板、列表、关系图是同一 Task 集合的视图模式。
 4. WebUI 自动消费者只更新展示投影；所有自动执行和恢复由服务端 owner 完成。
-5. 建立 `DeliveryWorkspaceProjection` 和 `HumanCommandGateway` 两个深 Module；不新增第二个全局事实 Store。
+5. 建立 `DeliveryWorkspaceProjection` 和 `WorkspaceCommandGateway` 两个深 Module；不新增第二个全局事实 Store。历史 `HumanCommandGateway` 名称只保留为过渡导出，页面和 Store 不再使用。
 6. 浏览器最终不得发出 `terminal:start`，任务 mutation 不得自动调用 `dispatchToAgent`。
 7. 外部项目只作为研究参考，Implementation、视觉和文案独立完成；不得去除复制代码本应保留的许可声明。
 8. 团队活动以 Invocation 回复为单位：同一次调用不裂泡，不同调用不按 Agent 合并；系统活动与 Agent 正文分面渲染。工具名称与目标始终可见，长回复正文可渐进展开，结构化证据和阻塞不随正文折叠。
@@ -34,7 +34,7 @@
 - 交付只读投影及其 selector/测试；
 - 冻结 `DeliveryBundle` 的逐条验收证据投影与渐进展开界面；
 - 首屏状态载荷、客户端代码边界、活动时间线与次级请求的性能收敛；
-- Human Command Interface、Web API Adapter 和测试 Adapter；
+- Workspace Command Interface、Web API Adapter 和测试 Adapter；命令覆盖交付创建/删除/推进、任务创建/更新/流转/图操作和用户对团队的要求；
 - `taskHubStore` / `taskStore` / `daemonStore` 的责任收缩；
 - Daemon executor-only 收敛所需的接口迁移和架构门禁；
 - 对应产品文档、技术文档、wiki、架构图、测试和迁移记录。
@@ -75,4 +75,4 @@
 - 所有重构在独立 worktree 和命名分支进行；只显式 stage 本规格相关路径。
 - Conversation -> Delivery 兼容层只能存在于投影边界，必须记录 producer、consumer 和退出条件。
 - 每个 Phase 保持可构建、可测试、可人工验收；不得用长期 feature flag 保存旧 owner。
-- 若当前服务端缺少某个 Human Command，先补服务端 owner 和 receipt，再删除浏览器写路径。
+- 若当前服务端缺少某个 Workspace Command，先补服务端 owner 和 receipt，再删除浏览器写路径。

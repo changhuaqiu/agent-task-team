@@ -1,22 +1,22 @@
 import { getDb } from './index';
 import type { Phase } from '@/types/phase';
 
-export function listPhasesByConversation(conversationId: string): Phase[] {
-  const db = getDb();
+export function listPhasesByConversation(
+  conversationId: string,
+  db = getDb(),
+): Phase[] {
   const rows = db
     .prepare('SELECT * FROM phase WHERE conversation_id = ? ORDER BY "order" ASC')
     .all(conversationId) as PhaseRow[];
   return rows.map(rowToPhase);
 }
 
-function getPhaseById(id: string): Phase | undefined {
-  const db = getDb();
+export function getPhaseById(id: string, db = getDb()): Phase | undefined {
   const row = db.prepare('SELECT * FROM phase WHERE id = ?').get(id) as PhaseRow | undefined;
   return row ? rowToPhase(row) : undefined;
 }
 
-export function upsertPhase(phase: Phase): Phase {
-  const db = getDb();
+export function upsertPhase(phase: Phase, db = getDb()): Phase {
   const now = new Date().toISOString();
 
   db.prepare(
@@ -39,11 +39,10 @@ export function upsertPhase(phase: Phase): Phase {
     now,
   );
 
-  return getPhaseById(phase.id)!;
+  return getPhaseById(phase.id, db)!;
 }
 
-export function deletePhase(id: string): void {
-  const db = getDb();
+export function deletePhase(id: string, db = getDb()): void {
   db.prepare('DELETE FROM phase WHERE id = ?').run(id);
 }
 

@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
 import { Check } from 'lucide-react';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { Agent } from '@/store/agentStore';
+import { createWorkspaceCommandIdempotencyKey } from '@/lib/workspace-command';
 
 interface ChatPhaseProposalsProps {
   proposals: PhaseProposal[];
@@ -13,6 +14,9 @@ interface ChatPhaseProposalsProps {
 }
 
 export function ChatPhaseProposals({ proposals, allAgents }: ChatPhaseProposalsProps) {
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string>();
+  const confirmIntent = useRef<{ idempotencyKey: string; issuedAt: string } | undefined>(undefined);
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(() => {
     const keys = new Set<string>();
     proposals.forEach((phase, pi) => {
@@ -118,15 +122,32 @@ export function ChatPhaseProposals({ proposals, allAgents }: ChatPhaseProposalsP
       <div className="flex gap-2 mt-1">
         <button
           type="button"
-          disabled={totalChecked === 0}
-          onClick={() => {
+          disabled={totalChecked === 0 || confirming}
+          onClick={async () => {
             const convId = useTaskHubStore.getState().selectedConversationId;
             if (!convId) return;
-            useTaskHubStore.getState().confirmBreakdown(convId, filteredProposals);
+            confirmIntent.current ??= {
+              idempotencyKey: createWorkspaceCommandIdempotencyKey(`${convId}:breakdown.confirm`),
+              issuedAt: new Date().toISOString(),
+            };
+            setConfirming(true);
+            setConfirmError(undefined);
+            try {
+              await useTaskHubStore.getState().confirmBreakdown(
+                convId,
+                filteredProposals,
+                confirmIntent.current,
+              );
+              confirmIntent.current = undefined;
+            } catch (error) {
+              setConfirmError(error instanceof Error ? error.message : '工作拆解确认失败');
+            } finally {
+              setConfirming(false);
+            }
           }}
           className="flex-1 py-1.5 text-[10px] font-bold bg-[hsl(var(--accent))] text-white border-2 border-[hsl(var(--accent))] rounded-[2px] shadow-[2px_2px_0px_hsl(var(--accent)/0.4)] hover:shadow-[1px_1px_0px_hsl(var(--accent)/0.4)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          ✓ 确认选中 ({totalChecked} 个任务)
+          {confirming ? '正在确认…' : `✓ 确认选中 (${totalChecked} 个任务)`}
         </button>
         <button
           type="button"
@@ -140,6 +161,9 @@ export function ChatPhaseProposals({ proposals, allAgents }: ChatPhaseProposalsP
           重新出方案
         </button>
       </div>
+      {confirmError && (
+        <p role="alert" className="text-[10px] text-red-600">{confirmError}</p>
+      )}
     </div>
   );
 }

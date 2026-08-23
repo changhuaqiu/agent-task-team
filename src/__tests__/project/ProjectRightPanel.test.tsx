@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ProjectRightPanel } from '@/components/project/ProjectRightPanel';
 import { useTaskHubStore } from '@/store/taskHubStore';
+import { projectDeliveryWorkspace } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
 
 afterEach(() => {
   cleanup();
@@ -79,7 +80,14 @@ describe('ProjectRightPanel', () => {
       chatMessagesByConversation: {},
     });
 
-    render(<ProjectRightPanel />);
+    const state = useTaskHubStore.getState();
+    const view = projectDeliveryWorkspace({
+      conversations: state.conversations,
+      tasks: state.tasks,
+      blockersByConversation: state.blockersByConversation,
+      chatMessagesByConversation: state.chatMessagesByConversation,
+    }, state.selectedConversationId);
+    render(<ProjectRightPanel view={view} />);
 
     expect(screen.getByRole('tab', { name: /任务/ })).toBeDefined();
     expect(screen.getByRole('tab', { name: '调试' })).toBeDefined();

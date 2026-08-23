@@ -1,6 +1,6 @@
 # 桌面 Host 目标架构
 
-> 状态：Target（桌面壳尚未实现；本轮已落地其前置依赖：统一事件、Collaboration Kernel 与 Agent Runtime）
+> 状态：Current + Target（桌面开发 Host、Service handshake 与 standalone 打包入口已实现；发布门禁仍为 Target）
 > 日期：2026-08-23
 > 参考：Buzz `desktop-v0.5.18` 的 `desktop/src-tauri` 实现
 
@@ -77,8 +77,15 @@ Host 必须按固定顺序启动：
 orphan Invocation recovery 正是桌面 Host 的前置条件。它们使窗口、Socket 和 Runtime process 都不再是
 协作事实源，因此未来增加 Tauri Host 不需要再改写领域触发协议。
 
-当前尚未落地：Tauri crate、Node sidecar 打包、Host/Service handshake、tray/deep link/updater 和安装签名。
-这些必须作为独立 active spec 实现，不能在没有 dirty-shutdown 与升级恢复测试时宣称“桌面版完成”。
+当前已落地：最小 Tauri crate、单实例、隐藏启动窗口、关闭隐藏、release 随机 loopback 端口、standalone Node Service
+启动代码、Host/Service secret + protocol/不可变 artifact build revision/PID handshake、带 bootstrap secret 的 shutdown drain、
+WAL checkpoint、Agent 进程清理、最小 capability/CSP 和协议测试。Workspace Command 在桌面模式下还会校验 Host 派生的
+renderer session，且 actor 由服务端生成。真实 standalone Service 已完成 401/成功握手 smoke。
+
+当前尚未完成：本机缺少 Rust toolchain，Rust Host 尚未执行 `cargo check` 和真实窗口 smoke；renderer session 还未成为
+所有兼容 HTTP/WebSocket 接口的统一鉴权，强制退出/Host crash 尚未用 Windows Job Object（或等价 process group）保证
+kill-on-close，Node runtime 仍需随安装包绑定而不是依赖系统 node；tray/deep link/updater、dirty-shutdown 恢复、安装签名
+和跨平台升级矩阵也未通过。因此当前只能称为“桌面开发版”，不能宣称可发布桌面版完成。
 
 ## 6. 桌面验收门禁
 

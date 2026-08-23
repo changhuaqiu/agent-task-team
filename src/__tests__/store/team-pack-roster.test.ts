@@ -404,7 +404,9 @@ describe('Team Pack Dynamic Roster', () => {
         type: 'delivery.plan.request',
         deliveryId: 'conv-team',
       }));
-      expect(useTaskHubStore.getState().conversations[0]?.breakdownStatus).toBe('proposal');
+      await vi.waitFor(() => {
+        expect(useTaskHubStore.getState().conversations[0]?.breakdownStatus).toBe('proposal');
+      });
     });
 
     it('waits for the team pack before auto-starting project analysis', async () => {
@@ -422,7 +424,7 @@ describe('Team Pack Dynamic Roster', () => {
         if (href.includes('/api/team-packs/pack-auto')) {
           return Promise.resolve({ ok: true, json: () => Promise.resolve(teamPack) } as any);
         }
-        if (href === '/api/human-commands') {
+        if (href === '/api/workspace-commands') {
           const command = JSON.parse(String(init?.body));
           return Promise.resolve({
             ok: true,
@@ -439,7 +441,7 @@ describe('Team Pack Dynamic Roster', () => {
             } }),
           } as Response);
         }
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) } as any);
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) } as any);
       });
 
       useTaskHubStore.setState({
@@ -455,7 +457,9 @@ describe('Team Pack Dynamic Roster', () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(useTaskHubStore.getState().conversations[0]?.breakdownStatus).toBe('proposal');
+      await vi.waitFor(() => {
+        expect(useTaskHubStore.getState().conversations[0]?.breakdownStatus).toBe('proposal');
+      });
     });
 
     it('does not start a legacy proposal for autonomous Team Pack projects', async () => {
@@ -483,7 +487,7 @@ describe('Team Pack Dynamic Roster', () => {
         accounts: [makeAccount('acc-planner')],
       });
 
-      await useTaskHubStore.getState().createConversation({
+      const created = await useTaskHubStore.getState().createConversation({
         title: 'Autonomous Project',
         goal: 'Let the delivery supervisor plan the work',
         teamPackId: 'pack-autonomous',
@@ -493,8 +497,8 @@ describe('Team Pack Dynamic Roster', () => {
       await Promise.resolve();
       await vi.advanceTimersByTimeAsync(500);
 
-      expect(useTaskHubStore.getState().currentTeamPack?.id).toBe('pack-autonomous');
-      expect(useTaskHubStore.getState().conversations[0]?.autonomous).toBe(true);
+      expect(created).toBe('');
+      expect(useTaskHubStore.getState().conversations).toEqual([]);
       vi.useRealTimers();
     });
 
@@ -571,7 +575,7 @@ describe('Team Pack Dynamic Roster', () => {
       expect(useTaskHubStore.getState().chatMessagesByConversation['conv-busy-mentions'])
         .toContainEqual(expect.objectContaining({ agentId: 'human', content: '@coder 请排队执行' }));
       expect(fetchSpy).toHaveBeenCalledTimes(1);
-      expect(fetchSpy.mock.calls[0]?.[0]).toBe('/api/human-commands');
+      expect(fetchSpy.mock.calls[0]?.[0]).toBe('/api/workspace-commands');
       expect(JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body))).toEqual(expect.objectContaining({
         type: 'delivery.requirement.submit',
         deliveryId: 'conv-busy-mentions',

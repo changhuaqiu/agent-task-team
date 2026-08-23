@@ -7,6 +7,10 @@ import { useTeamPackStore } from '@/store/teamPackStore';
 import { cn } from '@/lib/utils';
 import { FolderPicker } from '@/components/ui/FolderPicker';
 import type { TeamPack } from '@/types/teamPack';
+import {
+  createWorkspaceCommandIdempotencyKey,
+  workspaceCommandGateway,
+} from '@/lib/workspace-command';
 
 type ProjectContextClassification =
   | 'codebase'
@@ -38,8 +42,8 @@ export function ProjectCreateDialog({
   open: boolean;
   onClose: () => void;
 }) {
-  const createConversation = useTaskHubStore((s) => s.createConversation);
-  const deleteConversation = useTaskHubStore((s) => s.deleteConversation);
+  const loadFromServer = useTaskHubStore((s) => s.loadFromServer);
+  const setSelectedConversationId = useTaskHubStore((s) => s.setSelectedConversationId);
   const { teamPacks, fetchTeamPacks } = useTeamPackStore();
   const titleRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState('');
@@ -57,6 +61,12 @@ export function ProjectCreateDialog({
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const [teamChoiceTouched, setTeamChoiceTouched] = useState(false);
+  const createIntent = useRef<{
+    signature: string;
+    conversationId: string;
+    idempotencyKey: string;
+    issuedAt: string;
+  } | undefined>(undefined);
 
   useEffect(() => {
     if (!open) return;
@@ -176,28 +186,44 @@ export function ProjectCreateDialog({
     }
     setCreating(true);
     setCreateError('');
-    let createdConversationId: string | undefined;
     try {
-      const conversationId = await createConversation({
+      const signature = JSON.stringify({
         title: trimmedTitle,
         goal: trimmedGoal,
-        projectPath: projectPath || undefined,
+        projectPath,
+        criteria,
+        teamPackId: effectiveTeamPackId,
+        gitDetected,
+        gitRepoRoot,
+        autonomous,
+        allowAutoMerge,
+      });
+      if (createIntent.current?.signature !== signature) {
+        const conversationId = `conv-${globalThis.crypto.randomUUID()}`;
+        createIntent.current = {
+          signature,
+          conversationId,
+          idempotencyKey: createWorkspaceCommandIdempotencyKey(`delivery.create:${conversationId}`),
+          issuedAt: new Date().toISOString(),
+        };
+      }
+      const { conversationId, idempotencyKey, issuedAt } = createIntent.current;
+      const receipt = await workspaceCommandGateway.submit({
+        type: 'delivery.create',
+        idempotencyKey,
+        deliveryId: conversationId,
+        actor: { type: 'user', id: 'webui:local-user' },
+        issuedAt,
+        title: trimmedTitle,
+        goal: trimmedGoal,
+        projectPath,
+        priority: 'p1',
         teamPackId: effectiveTeamPackId ?? undefined,
         useWorktree: gitDetected || undefined,
         gitRepoRoot: gitRepoRoot ?? undefined,
         autonomous,
-      });
-      if (!conversationId) {
-        throw new Error('创建交付失败，请稍后重试');
-      }
-      createdConversationId = conversationId;
-      if (autonomous) {
-        const response = await fetch('/api/autonomous-delivery', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            action: 'start',
-            contract: {
+        ...(autonomous ? {
+          contract: {
               idempotencyKey: `project-create:${conversationId}`,
               correlationId: `project-create:${conversationId}`,
               goal: trimmedGoal,
@@ -225,13 +251,12 @@ export function ProjectCreateDialog({
                 requireMerge: gitDetected && allowAutoMerge,
               },
             },
-          }),
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
-          throw new Error(body.error ?? '启动自主交付失败');
-        }
-      }
+        } : {}),
+      });
+      if (receipt.status !== 'accepted') throw new Error(receipt.userMessage ?? '创建交付失败');
+      createIntent.current = undefined;
+      await loadFromServer();
+      setSelectedConversationId(conversationId);
       setTitle('');
       setGoal('');
       setProjectPath('');
@@ -246,21 +271,7 @@ export function ProjectCreateDialog({
       setTeamChoiceTouched(false);
       onClose();
     } catch (error) {
-      let createFailure = error instanceof Error ? error.message : String(error);
-      if (createdConversationId) {
-        const runCheck = await fetch(
-          `/api/autonomous-delivery?conversationId=${encodeURIComponent(createdConversationId)}`,
-        ).catch(() => undefined);
-        if (runCheck?.ok) {
-          onClose();
-          return;
-        }
-        const rolledBack = await deleteConversation(createdConversationId);
-        if (!rolledBack) {
-          createFailure = `${createFailure}；自动回滚失败，交付记录已保留，请稍后重试或手动删除`;
-        }
-      }
-      setCreateError(createFailure);
+      setCreateError(error instanceof Error ? error.message : String(error));
     } finally {
       setCreating(false);
     }

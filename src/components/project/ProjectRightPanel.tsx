@@ -5,14 +5,13 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, Network, PanelRightClose, PanelRightOpen, Rows3 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useTaskHubStore } from '@/store/taskHubStore';
-import { projectDeliveryWorkspace } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
+import type { DeliveryWorkspaceView } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
 import type { TaskGraphMapView } from '@/components/task-hub/TaskGraphMap';
 import { useTaskGraph } from '@/components/task-hub/useTaskGraph';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { cn } from '@/lib/utils';
 import { DeliveryAttentionSection } from './DeliveryAttentionSection';
 import { MiniKanban } from './MiniKanban';
-import type { DeliveryRunSnapshot } from '@/server/autonomous-delivery/types';
 
 const ProjectObservabilityPanel = dynamic(() => import('./ProjectObservabilityPanel').then((mod) => mod.ProjectObservabilityPanel));
 const TaskGraphMap = dynamic(() => import('@/components/task-hub/TaskGraphMap').then((mod) => mod.TaskGraphMap));
@@ -40,37 +39,9 @@ function SyncStatusBar() {
   return <div className="text-[10px] text-[hsl(var(--text-tertiary))]">最近同步 {time}</div>;
 }
 
-export function ProjectRightPanel({ deliveryRunSnapshot }: { deliveryRunSnapshot?: DeliveryRunSnapshot } = {}) {
-  const {
-    selectedDeliveryId,
-    conversations,
-    tasks,
-    blockersByConversation,
-    chatMessagesByConversation,
-    setSelectedTaskId,
-  } = useTaskHubStore(useShallow((state) => ({
-    selectedDeliveryId: state.selectedConversationId,
-    conversations: state.conversations,
-    tasks: state.tasks,
-    blockersByConversation: state.blockersByConversation,
-    chatMessagesByConversation: state.chatMessagesByConversation,
-    setSelectedTaskId: state.setSelectedTaskId,
-  })));
-
-  const delivery = useMemo(() => projectDeliveryWorkspace({
-    conversations,
-    tasks,
-    deliveryRunSnapshot,
-    blockersByConversation,
-    chatMessagesByConversation,
-  }, selectedDeliveryId), [
-    blockersByConversation,
-    chatMessagesByConversation,
-    conversations,
-    deliveryRunSnapshot,
-    selectedDeliveryId,
-    tasks,
-  ]);
+export function ProjectRightPanel({ view: delivery = null }: { view?: DeliveryWorkspaceView | null } = {}) {
+  const setSelectedTaskId = useTaskHubStore((state) => state.setSelectedTaskId);
+  const selectedDeliveryId = delivery?.delivery.id ?? null;
 
   const [open, setOpen] = useState(() => (delivery?.work.total ?? 0) > 0 || (delivery?.attention.length ?? 0) > 0);
   const [activeTab, setActiveTab] = useState<'tasks' | 'debug'>('tasks');

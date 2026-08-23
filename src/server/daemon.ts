@@ -30,6 +30,7 @@ import { isSkillTool } from './skill-tool-router';
 import { registerAcpSkillMcpGrant, resolveAcpMcpLoopbackOrigin } from './acp-skill-mcp';
 import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
 import { getDb } from './db';
+import { registerDesktopServiceDrain } from './desktop-service-lifecycle';
 import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
 import { isRuntimeNodeKind } from './repositories/control-plane-types';
@@ -1722,6 +1723,7 @@ export default function registerDaemon(io: IOServer) {
     deliveryTaskTruthReconciler.stop();
     agentProcesses.shutdown();
   };
+  registerDesktopServiceDrain(shutdown);
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 }

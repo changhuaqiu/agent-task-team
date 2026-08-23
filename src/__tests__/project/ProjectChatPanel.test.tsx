@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { ProjectChatPanel } from '@/components/project/ProjectChatPanel';
 import { useTaskHubStore } from '@/store/taskHubStore';
+import { projectDeliveryWorkspace } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
+import type { DeliveryRunSnapshot } from '@/server/autonomous-delivery/types';
 
 vi.mock('@/components/task-hub/GlobalChatRoom', () => ({
   GlobalChatRoom: () => <div data-testid="global-chat-room" />,
@@ -18,6 +20,17 @@ vi.mock('@/components/project/AutonomousDeliveryPanel', () => ({
 }));
 
 afterEach(cleanup);
+
+function workspaceView(deliveryRunSnapshot?: DeliveryRunSnapshot) {
+  const state = useTaskHubStore.getState();
+  return projectDeliveryWorkspace({
+    conversations: state.conversations,
+    tasks: state.tasks,
+    blockersByConversation: state.blockersByConversation,
+    chatMessagesByConversation: state.chatMessagesByConversation,
+    deliveryRunSnapshot,
+  }, state.selectedConversationId);
+}
 
 describe('ProjectChatPanel', () => {
   it('keeps the chat viewport in the remaining bounded height below delivery status', () => {
@@ -37,7 +50,7 @@ describe('ProjectChatPanel', () => {
       tasks: [],
     });
 
-    render(<ProjectChatPanel />);
+    render(<ProjectChatPanel view={workspaceView()} />);
 
     const chatViewport = screen.getByTestId('project-chat-viewport');
     const deliveryViewport = screen.getByTestId('autonomous-delivery-viewport');
@@ -82,7 +95,7 @@ describe('ProjectChatPanel', () => {
       chatMessagesByConversation: { 'conv-overview': [] },
     });
 
-    render(<ProjectChatPanel deliveryRunSnapshot={{
+    const snapshot = {
       run: {
         id: 'run-overview',
         conversation_id: 'conv-overview',
@@ -97,7 +110,8 @@ describe('ProjectChatPanel', () => {
           evidenceRefs: ['test:unit'],
         }],
       },
-    } as never} />);
+    } as unknown as DeliveryRunSnapshot;
+    render(<ProjectChatPanel view={workspaceView(snapshot)} />);
 
     expect(screen.getByText('验收中')).toBeTruthy();
     expect(screen.getByText('0/2')).toBeTruthy();
@@ -140,7 +154,7 @@ describe('ProjectChatPanel', () => {
       chatMessagesByConversation: { 'conv-terminal-conflict': [] },
     });
 
-    render(<ProjectChatPanel deliveryRunSnapshot={{
+    const snapshot = {
       run: {
         id: 'run-completed',
         conversation_id: 'conv-terminal-conflict',
@@ -155,7 +169,8 @@ describe('ProjectChatPanel', () => {
           evidenceRefs: ['review:task-stale'],
         }],
       },
-    } as never} />);
+    } as unknown as DeliveryRunSnapshot;
+    render(<ProjectChatPanel view={workspaceView(snapshot)} />);
 
     expect(screen.getByText('已完成')).toBeTruthy();
     expect(screen.getByText('1/1')).toBeTruthy();

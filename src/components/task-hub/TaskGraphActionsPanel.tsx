@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { GitMerge, PauseCircle, PlayCircle, Send, Split, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { workspaceCommandGateway } from '@/lib/workspace-command';
 
 export interface TaskGraphActionTask {
   id: string;
   conversationId: string;
+  projectPath: string;
   title: string;
   status: string;
   agentId: string;
@@ -17,17 +19,6 @@ interface TaskGraphActionsPanelProps {
   revision: number;
   onChanged?: () => void | Promise<void>;
   className?: string;
-}
-
-async function postTaskGraph(body: Record<string, unknown>) {
-  const response = await fetch('/api/task-graph', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(json.error ?? `任务操作失败：${response.status}`);
-  return json;
 }
 
 function newIdempotencyKey(): string {
@@ -47,21 +38,32 @@ export function TaskGraphActionsPanel({
   const [mergeTargetTitle, setMergeTargetTitle] = useState(`${task.title} 集成`);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const commandIntents = useRef(new Map<string, { idempotencyKey: string; issuedAt: string }>());
 
   async function run(body: Record<string, unknown>) {
     setIsSubmitting(true);
     try {
-      const idempotencyKey = newIdempotencyKey();
-      await postTaskGraph({
-        conversationId: task.conversationId,
-        actorId: 'user',
-        actorType: 'user',
+      const intentSignature = JSON.stringify({ body, revision, deliveryId: task.conversationId });
+      const intent = commandIntents.current.get(intentSignature) ?? {
+        idempotencyKey: newIdempotencyKey(),
+        issuedAt: new Date().toISOString(),
+      };
+      commandIntents.current.set(intentSignature, intent);
+      const { action, ...input } = body;
+      if (typeof action !== 'string') throw new Error('缺少任务操作类型');
+      const receipt = await workspaceCommandGateway.submit({
+        type: 'task.graph.apply',
+        deliveryId: task.conversationId,
+        projectPath: task.projectPath,
+        actor: { type: 'user', id: 'webui:local-user' },
+        issuedAt: intent.issuedAt,
         expectedRevision: revision,
-        idempotencyKey,
-        correlationId: `task-graph:${idempotencyKey}`,
-        causationId: idempotencyKey,
-        ...body,
+        idempotencyKey: intent.idempotencyKey,
+        action: action as 'createRootTask' | 'splitTask' | 'mergeTasks' | 'reopenTask' | 'blockTask' | 'resumeTask' | 'assignTask' | 'cancelTask',
+        input,
       });
+      if (receipt.status !== 'accepted') throw new Error(receipt.userMessage ?? '任务操作被拒绝');
+      commandIntents.current.delete(intentSignature);
       setError(null);
       await onChanged?.();
     } catch (err) {

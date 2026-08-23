@@ -70,6 +70,24 @@ export interface DeliveryWorkspaceView {
   recentActivity: ChatMessage[];
 }
 
+export interface DeliveryNavigationItem {
+  id: string;
+  title: string;
+  goal: string;
+  projectPath: string;
+  projectName: string;
+  updatedAt: string;
+  work: { total: number; blocked: number; inProgress: number; done: number };
+  openAttentionCount: number;
+}
+
+export interface ProjectNavigationGroup {
+  key: string;
+  name: string;
+  fullPath: string | null;
+  deliveries: DeliveryNavigationItem[];
+}
+
 const ATTENTION_ORDER: Record<DeliveryAttentionKind, number> = {
   escalation: 0,
   manual: 1,
@@ -207,4 +225,43 @@ export function projectDeliveryWorkspace(
     attention,
     recentActivity: messages.slice(-20),
   };
+}
+
+export function projectDeliveryNavigation(
+  source: Pick<DeliveryWorkspaceSource, 'conversations' | 'tasks' | 'blockersByConversation'>,
+): ProjectNavigationGroup[] {
+  const groups = new Map<string, DeliveryNavigationItem[]>();
+  for (const conversation of source.conversations) {
+    const tasks = source.tasks.filter((task) => task.conversationId === conversation.id);
+    const item: DeliveryNavigationItem = {
+      id: conversation.id,
+      title: conversation.title,
+      goal: conversation.goal,
+      projectPath: conversation.projectPath,
+      projectName: projectName(conversation.projectPath),
+      updatedAt: conversation.updatedAt,
+      work: {
+        total: tasks.length,
+        blocked: tasks.filter((task) => task.status === 'blocked').length,
+        inProgress: tasks.filter((task) => task.status === 'in_progress').length,
+        done: tasks.filter((task) => task.status === 'done').length,
+      },
+      openAttentionCount: (source.blockersByConversation[conversation.id] ?? [])
+        .filter((blocker) => blocker.status === 'open').length,
+    };
+    const key = conversation.projectPath || '__ungrouped__';
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups.entries()]
+    .map(([key, deliveries]) => ({
+      key,
+      name: key === '__ungrouped__' ? '未分类' : projectName(key),
+      fullPath: key === '__ungrouped__' ? null : key,
+      deliveries: [...deliveries].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+    }))
+    .sort((left, right) => {
+      if (left.key === '__ungrouped__') return 1;
+      if (right.key === '__ungrouped__') return -1;
+      return (right.deliveries[0]?.updatedAt ?? '').localeCompare(left.deliveries[0]?.updatedAt ?? '');
+    });
 }

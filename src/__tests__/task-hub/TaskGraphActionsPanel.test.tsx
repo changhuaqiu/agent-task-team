@@ -6,16 +6,30 @@ import { TaskGraphActionsPanel } from '@/components/task-hub/TaskGraphActionsPan
 const task = {
   id: 'task-1',
   conversationId: 'conv-1',
+  projectPath: '',
   title: '群聊 UI',
   status: 'blocked',
   agentId: 'frontend',
 };
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn(async () => ({
-    ok: true,
-    json: async () => ({ ok: true }),
-  })));
+  vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const command = JSON.parse(String(init?.body));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ receipt: {
+        idempotencyKey: command.idempotencyKey,
+        commandType: command.type,
+        projectPath: command.projectPath,
+        deliveryId: command.deliveryId,
+        status: 'accepted',
+        duplicate: false,
+        targetAgentIds: [],
+        recordedAt: command.issuedAt,
+      } }),
+    };
+  }));
   vi.stubGlobal('confirm', vi.fn(() => true));
 });
 
@@ -37,13 +51,13 @@ describe('TaskGraphActionsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '恢复任务' }));
 
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/task-graph', expect.objectContaining({
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/workspace-commands', expect.objectContaining({
       method: 'POST',
     })));
     expect(submittedBody()).toMatchObject({
       action: 'resumeTask',
-      taskId: 'task-1',
       expectedRevision: 7,
+      input: { taskId: 'task-1' },
     });
     expect(submittedBody().idempotencyKey).toEqual(expect.any(String));
     expect(onChanged).toHaveBeenCalled();
@@ -57,7 +71,7 @@ describe('TaskGraphActionsPanel', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalled());
     expect(submittedBody()).toMatchObject({
       action: 'cancelTask',
-      confirmed: true,
+      input: expect.objectContaining({ confirmed: true }),
     });
   });
 
@@ -70,8 +84,10 @@ describe('TaskGraphActionsPanel', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalled());
     expect(submittedBody()).toMatchObject({
       action: 'splitTask',
-      parentTaskId: 'task-1',
-      children: [{ title: 'API 合约', ownerAgentId: 'frontend' }, { title: '群聊组件', ownerAgentId: 'frontend' }],
+      input: {
+        parentTaskId: 'task-1',
+        children: [{ title: 'API 合约', ownerAgentId: 'frontend' }, { title: '群聊组件', ownerAgentId: 'frontend' }],
+      },
     });
   });
 
@@ -84,9 +100,11 @@ describe('TaskGraphActionsPanel', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalled());
     expect(submittedBody()).toMatchObject({
       action: 'assignTask',
-      taskId: 'task-1',
-      ownerAgentId: 'reviewer',
-      confirmed: true,
+      input: {
+        taskId: 'task-1',
+        ownerAgentId: 'reviewer',
+        confirmed: true,
+      },
     });
   });
 });

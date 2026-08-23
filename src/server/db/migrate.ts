@@ -4019,6 +4019,29 @@ CREATE INDEX IF NOT EXISTS idx_task_command_rejection_receipt_task
       }
     },
   },
+  {
+    version: 91,
+    sql: `
+CREATE TABLE IF NOT EXISTS workspace_command_journal (
+  id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  request_digest TEXT NOT NULL,
+  command_type TEXT NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('processing','final')),
+  owner_token TEXT,
+  lease_expires_at TEXT,
+  receipt_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK(
+    (state='processing' AND owner_token IS NOT NULL AND lease_expires_at IS NOT NULL AND receipt_json IS NULL)
+    OR (state='final' AND owner_token IS NULL AND lease_expires_at IS NULL AND receipt_json IS NOT NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_workspace_command_journal_state
+  ON workspace_command_journal(state,lease_expires_at,updated_at);
+`,
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

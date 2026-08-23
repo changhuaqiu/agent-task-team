@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, LoaderCircle } from 'lucide-react';
 import type { DeliveryRunSnapshot } from '@/server/autonomous-delivery/types';
 import type { DeliveryWorkspaceView } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
+import { workspaceCommandGateway } from '@/lib/workspace-command';
 
 const STAGE_LABELS: Record<string, string> = {
   planning: '正在规划',
@@ -80,22 +81,17 @@ export function AutonomousDeliveryPanel({
     try {
       const idempotencyKey = resumeCommandId.current ?? globalThis.crypto.randomUUID();
       resumeCommandId.current = idempotencyKey;
-      const response = await fetch('/api/autonomous-delivery', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'advance',
-          runId: run.id,
-          idempotencyKey,
-        }),
+      const receipt = await workspaceCommandGateway.submit({
+        type: 'delivery.advance',
+        deliveryId: conversationId,
+        projectPath: snapshot.contract.scope.projectPath ?? '',
+        actor: { type: 'user', id: 'webui:local-user' },
+        issuedAt: new Date().toISOString(),
+        runId: run.id,
+        idempotencyKey,
       });
-      const payload = await response.json() as {
-        snapshot?: DeliveryRunSnapshot;
-        error?: string;
-      };
-      if (!response.ok || !payload.snapshot) {
-        throw new Error(payload.error ?? '无法继续运行');
-      }
+      const payload = receipt.result as { snapshot?: DeliveryRunSnapshot } | undefined;
+      if (receipt.status !== 'accepted' || !payload?.snapshot) throw new Error(receipt.userMessage ?? '无法继续运行');
       setSnapshot(payload.snapshot);
       onSnapshotChange?.(payload.snapshot);
       resumeCommandId.current = undefined;

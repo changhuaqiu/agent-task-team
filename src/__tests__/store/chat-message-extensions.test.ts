@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { selectUserEntryAgentIds, useTaskHubStore } from '@/store/taskHubStore';
 
 describe('ChatMessage extensions', () => {
@@ -182,7 +182,7 @@ describe('ChatMessage extensions', () => {
   });
 
   describe('confirmBreakdown system feedback', () => {
-    it('sends a system message after confirming breakdown', () => {
+    it('sends a system message after confirming breakdown', async () => {
       const convId = 'conv-1';
       useTaskHubStore.setState({
         conversations: [{ id: convId, title: 'Test', goal: 'Build X', status: 'active', priority: 'p1', projectPath: '', breakdownStatus: 'reviewed', createdAt: '', updatedAt: '' }],
@@ -193,7 +193,39 @@ describe('ChatMessage extensions', () => {
         activeAgentIds: ['mario', 'luigi'],
       });
 
-      useTaskHubStore.getState().confirmBreakdown(convId, [
+      vi.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+        if (String(input) === '/api/workspace-commands') {
+          const command = JSON.parse(String(init?.body));
+          const phases = command.phases.map((phase: Record<string, unknown>) => ({
+            id: phase.id,
+            conversationId: convId,
+            title: phase.title,
+            description: phase.description,
+            order: phase.order,
+            status: phase.status,
+            createdAt: command.issuedAt,
+            updatedAt: command.issuedAt,
+          }));
+          const tasks = command.phases.flatMap((phase: { id: string; tasks: Array<Record<string, unknown>> }) =>
+            phase.tasks.map((task) => ({
+              phaseId: phase.id,
+              task: {
+                id: task.id, conversation_id: convId, title: task.title,
+                description: task.description, status: 'ready', agent_id: task.agentId,
+                dependencies: '[]', artifacts: '[]', revision: 0, created_at: '', updated_at: '',
+              },
+            })),
+          );
+          return { ok: true, status: 200, json: async () => ({ receipt: {
+            idempotencyKey: command.idempotencyKey, commandType: command.type,
+            projectPath: command.projectPath, deliveryId: command.deliveryId,
+            status: 'accepted', duplicate: false, targetAgentIds: [], recordedAt: new Date().toISOString(),
+            result: { phases, tasks },
+          } }) } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({ ok: true }) } as Response;
+      });
+      await useTaskHubStore.getState().confirmBreakdown(convId, [
         { title: 'Phase 1', description: '', tasks: [
           { title: 'Task A', description: '', agentId: 'luigi' },
           { title: 'Task B', description: '', agentId: 'luigi' },

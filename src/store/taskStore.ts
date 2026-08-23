@@ -6,9 +6,9 @@ import { DispatchAdvisor } from '@/lib/dispatchAdvisor';
 import { AGENT_ROSTER } from './agentStore';
 import type { TaskStatus } from '@/shared/task-status';
 import {
-  createHumanCommandIdempotencyKey,
-  humanCommandGateway,
-} from '@/lib/human-command';
+  createWorkspaceCommandIdempotencyKey,
+  workspaceCommandGateway,
+} from '@/lib/workspace-command';
 
 export type { TaskStatus } from '@/shared/task-status';
 
@@ -61,11 +61,32 @@ export interface Task {
 let taskCounter = 1;
 let statePhasesSeq = 1;
 const taskMutationEpoch = new Map<string, number>();
+const pendingWorkspaceIntents = new Map<string, {
+  idempotencyKey: string;
+  issuedAt: string;
+  objectId?: string;
+}>();
 
 function newTaskCommandId(scope: string): string {
   const identity = globalThis.crypto?.randomUUID?.()
     ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `webui:${scope}:${identity}`;
+}
+
+function retainedWorkspaceIntent(
+  signature: string,
+  scope: string,
+  objectId?: () => string,
+) {
+  const existing = pendingWorkspaceIntents.get(signature);
+  if (existing) return existing;
+  const intent = {
+    idempotencyKey: newTaskCommandId(scope),
+    issuedAt: new Date().toISOString(),
+    ...(objectId ? { objectId: objectId() } : {}),
+  };
+  pendingWorkspaceIntents.set(signature, intent);
+  return intent;
 }
 
 function nextTaskMutationEpoch(taskId: string): number {
@@ -187,10 +208,10 @@ export const createTaskSlice = (set: any, get: () => any) => {
         : undefined;
       if (!task || !conversation) return { ok: false, error: '当前任务不存在或已被删除' };
       try {
-        const receipt = await humanCommandGateway.submit({
+        const receipt = await workspaceCommandGateway.submit({
           type: 'task.progress.request',
           idempotencyKey: options.idempotencyKey
-            ?? createHumanCommandIdempotencyKey(task.conversationId),
+            ?? createWorkspaceCommandIdempotencyKey(task.conversationId),
           projectPath: conversation.projectPath,
           deliveryId: task.conversationId,
           taskId,
@@ -214,6 +235,8 @@ export const createTaskSlice = (set: any, get: () => any) => {
       const state = get();
       const conversationId = state.selectedConversationId;
       if (!conversationId) return;
+      const conversation = state.conversations.find((item: any) => item.id === conversationId);
+      if (!conversation) return;
       const existing = state.tasks.find(
         (t: Task) =>
           t.conversationId === conversationId &&
@@ -222,18 +245,34 @@ export const createTaskSlice = (set: any, get: () => any) => {
       );
       if (existing) return;
 
-      const id = `TASK-${String(taskCounter++).padStart(3, '0')}`;
+      const intentSignature = JSON.stringify({ type: 'task.create', conversationId, taskData });
+      const intent = retainedWorkspaceIntent(
+        intentSignature,
+        'task.create',
+        () => `TASK-${String(taskCounter++).padStart(3, '0')}`,
+      );
+      const id = intent.objectId!;
       try {
-        const response = await fetch('/api/mutations', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ type: 'task.create', payload: { id, conversation_id: conversationId, title: taskData.title, description: taskData.description, agent_id: taskData.agentId, dependencies: taskData.dependencies, artifacts: taskData.artifacts, requestExecution: true, idempotencyKey: newTaskCommandId('task.create') } }),
+        const receipt = await workspaceCommandGateway.submit({
+          type: 'task.create',
+          idempotencyKey: intent.idempotencyKey,
+          deliveryId: conversationId,
+          projectPath: conversation.projectPath,
+          actor: { type: 'user', id: 'webui:local-user' },
+          issuedAt: intent.issuedAt,
+          task: {
+            id,
+            title: taskData.title,
+            description: taskData.description,
+            agentId: taskData.agentId,
+            dependencies: taskData.dependencies,
+            artifacts: taskData.artifacts,
+          },
+          requestExecution: true,
         });
-        const body = await response.json().catch(() => ({}));
-        const created = authoritativeTask(body?.result);
-        if (!response.ok || !created) {
-          throw new Error(typeof body?.error === 'string' ? body.error : `HTTP ${response.status}`);
-        }
+        pendingWorkspaceIntents.delete(intentSignature);
+        const created = authoritativeTask((receipt.result as { task?: unknown } | undefined)?.task);
+        if (receipt.status !== 'accepted' || !created) throw new Error(receipt.userMessage ?? '任务创建失败');
         set((state: any) => ({
           tasks: state.tasks.some((task: Task) => task.id === created.id)
             ? state.tasks.map((task: Task) => task.id === created.id ? created : task)
@@ -258,17 +297,25 @@ export const createTaskSlice = (set: any, get: () => any) => {
         return;
       }
       const epoch = nextTaskMutationEpoch(taskId);
+      const conversation = get().conversations.find((item: any) => item.id === prev.conversationId);
+      if (!conversation) return;
+      const intentSignature = JSON.stringify({ type: 'task.update', taskId, revision: prev.revision, patch });
+      const intent = retainedWorkspaceIntent(intentSignature, 'task.update');
       try {
-        const response = await fetch('/api/mutations', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ type: 'task.update', payload: { id: taskId, ...patch, expectedTaskRevision: prev.revision, idempotencyKey: newTaskCommandId('task.update') } }),
+        const receipt = await workspaceCommandGateway.submit({
+          type: 'task.update',
+          idempotencyKey: intent.idempotencyKey,
+          deliveryId: prev.conversationId,
+          projectPath: conversation.projectPath,
+          taskId,
+          expectedTaskRevision: Number(prev.revision),
+          actor: { type: 'user', id: 'webui:local-user' },
+          issuedAt: intent.issuedAt,
+          updates: patch,
         });
-        const body = await response.json().catch(() => ({}));
-        const updated = authoritativeTask(body?.result);
-        if (!response.ok || !updated) {
-          throw new Error(typeof body?.error === 'string' ? body.error : `HTTP ${response.status}`);
-        }
+        pendingWorkspaceIntents.delete(intentSignature);
+        const updated = authoritativeTask((receipt.result as { task?: unknown } | undefined)?.task);
+        if (receipt.status !== 'accepted' || !updated) throw new Error(receipt.userMessage ?? '任务更新失败');
         set((state: any) => {
           const current = state.tasks.find((task: Task) => task.id === taskId);
           if (!shouldApplyCommandResult(current, updated, epoch)) return {};
@@ -285,6 +332,8 @@ export const createTaskSlice = (set: any, get: () => any) => {
       const prev = get().getTaskById(taskId);
       if (!prev) return;
       const conversationId = prev.conversationId;
+      const conversation = get().conversations.find((item: any) => item.id === conversationId);
+      if (!conversation) return;
       const epoch = nextTaskMutationEpoch(taskId);
 
       const reportFailure = (reasonSummary: string) => {
@@ -303,20 +352,30 @@ export const createTaskSlice = (set: any, get: () => any) => {
         return;
       }
 
+      const intentSignature = JSON.stringify({
+        type: 'task.transition', taskId, revision: prev.revision, status, reviewNote, evidence,
+      });
+      const intent = retainedWorkspaceIntent(intentSignature, 'task.updateStatus');
       try {
-        const response = await fetch('/api/mutations', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ type: 'task.updateStatus', payload: { id: taskId, status, reviewNote, evidence, expectedTaskRevision: prev.revision, idempotencyKey: newTaskCommandId('task.updateStatus') } }),
+        const receipt = await workspaceCommandGateway.submit({
+          type: 'task.transition',
+          idempotencyKey: intent.idempotencyKey,
+          deliveryId: conversationId,
+          projectPath: conversation.projectPath,
+          taskId,
+          expectedTaskRevision: Number(prev.revision),
+          actor: { type: 'user', id: 'webui:local-user' },
+          issuedAt: intent.issuedAt,
+          status,
+          reviewNote,
+          evidence,
         });
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          const responseError = typeof body?.error === 'string' ? body.error : '';
-          const httpError = `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
-          reportFailure(responseError || `状态流转到 ${status} 被服务端拒绝（${httpError}）。`);
+        pendingWorkspaceIntents.delete(intentSignature);
+        if (receipt.status !== 'accepted') {
+          reportFailure(receipt.userMessage ?? `状态流转到 ${status} 被服务端拒绝。`);
           return;
         }
-        const authoritative = authoritativeTask(body?.result);
+        const authoritative = authoritativeTask((receipt.result as { task?: unknown } | undefined)?.task);
         if (!authoritative) {
           reportFailure('服务端没有返回权威任务状态，请刷新后重试。');
           return;
@@ -363,62 +422,58 @@ export const createTaskSlice = (set: any, get: () => any) => {
       }));
     },
 
-    upsertPhase: (phaseData: Omit<Phase, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): string => {
-      const stamp = new Date().toISOString();
+    upsertPhase: async (phaseData: Omit<Phase, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<string> => {
       const existing = get().phases.find((p: Phase) => p.id === phaseData.id);
-      let id: string;
-
-      if (existing) {
-        id = phaseData.id!;
-        set((state: any) => ({
-          phases: state.phases.map((p: Phase) =>
-            p.id === id ? { ...p, ...phaseData, updatedAt: stamp } : p
-          ),
-        }));
-      } else {
-        id = phaseData.id || `${get().selectedConversationId}-PHASE-${String(statePhasesSeq++).padStart(3, '0')}`;
-        set((state: any) => ({
-          phases: [...state.phases, {
-            id,
-            conversationId: phaseData.conversationId,
-            title: phaseData.title,
-            description: phaseData.description,
-            order: phaseData.order,
-            status: phaseData.status,
-            createdAt: stamp,
-            updatedAt: stamp,
-          }],
-        }));
+      const id = phaseData.id
+        || `${phaseData.conversationId}-PHASE-${String(statePhasesSeq++).padStart(3, '0')}`;
+      const conversation = get().conversations.find((item: any) => item.id === phaseData.conversationId);
+      if (!conversation) throw new Error('当前交付不存在');
+      const receipt = await workspaceCommandGateway.submit({
+        type: 'work.phase.upsert',
+        idempotencyKey: newTaskCommandId('work.phase.upsert'),
+        deliveryId: phaseData.conversationId,
+        projectPath: conversation.projectPath,
+        actor: { type: 'user', id: 'webui:local-user' },
+        issuedAt: new Date().toISOString(),
+        phase: {
+          id,
+          title: phaseData.title,
+          description: phaseData.description,
+          order: phaseData.order,
+          status: phaseData.status,
+        },
+      });
+      const phase = (receipt.result as { phase?: Phase } | undefined)?.phase;
+      if (receipt.status !== 'accepted' || !phase) {
+        throw new Error(receipt.userMessage ?? '阶段保存失败');
       }
-
-      const phase = get().phases.find((p: Phase) => p.id === id);
-      if (phase) {
-        fetch('/api/phases', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            id: phase.id,
-            conversationId: phase.conversationId,
-            title: phase.title,
-            description: phase.description,
-            order: phase.order,
-            status: phase.status,
-            createdAt: phase.createdAt,
-            updatedAt: phase.updatedAt,
-          }),
-        }).catch((err: any) => console.error('[phases] upsert failed:', err));
-      }
-
+      set((state: any) => ({
+        phases: existing
+          ? state.phases.map((item: Phase) => item.id === id ? phase : item)
+          : [...state.phases, phase],
+      }));
       return id;
     },
 
-    removePhase: (phaseId: string) => {
-      set((state: any) => ({ phases: state.phases.filter((p: Phase) => p.id !== phaseId) }));
-
-      fetch(`/api/phases?id=${encodeURIComponent(phaseId)}`, {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-      }).catch((err: any) => console.error('[phases] delete failed:', err));
+    removePhase: async (phaseId: string): Promise<void> => {
+      const phase = get().phases.find((item: Phase) => item.id === phaseId);
+      const conversation = phase
+        ? get().conversations.find((item: any) => item.id === phase.conversationId)
+        : undefined;
+      if (!phase || !conversation) return;
+      const receipt = await workspaceCommandGateway.submit({
+        type: 'work.phase.delete',
+        idempotencyKey: newTaskCommandId('work.phase.delete'),
+        deliveryId: phase.conversationId,
+        projectPath: conversation.projectPath,
+        actor: { type: 'user', id: 'webui:local-user' },
+        issuedAt: new Date().toISOString(),
+        phaseId,
+      });
+      if (receipt.status !== 'accepted') {
+        throw new Error(receipt.userMessage ?? '阶段删除失败');
+      }
+      set((state: any) => ({ phases: state.phases.filter((item: Phase) => item.id !== phaseId) }));
     },
 
     // Breakdown actions
@@ -439,10 +494,10 @@ export const createTaskSlice = (set: any, get: () => any) => {
       if (!conv || conv.autonomous) return;
 
       try {
-        const receipt = await humanCommandGateway.submit({
+        const receipt = await workspaceCommandGateway.submit({
           type: 'delivery.plan.request',
           idempotencyKey: options.idempotencyKey
-            ?? createHumanCommandIdempotencyKey(conversationId),
+            ?? createWorkspaceCommandIdempotencyKey(conversationId),
           projectPath: conv.projectPath,
           deliveryId: conversationId,
           actor: { type: 'user', id: 'human' },
@@ -459,7 +514,11 @@ export const createTaskSlice = (set: any, get: () => any) => {
       }
     },
 
-    confirmBreakdown: (conversationId: string, proposals: PhaseProposal[]) => {
+    confirmBreakdown: async (
+      conversationId: string,
+      proposals: PhaseProposal[],
+      options?: { idempotencyKey: string; issuedAt: string },
+    ) => {
       const state = get();
       const allRoleCards = state.roleCards;
       const agentProfiles = AGENT_ROSTER.map((agent) => {
@@ -481,88 +540,71 @@ export const createTaskSlice = (set: any, get: () => any) => {
 
       const advisor = new DispatchAdvisor(agentProfiles);
       const enriched = advisor.suggest(proposals, currentLoad);
-
-      let taskSeq = state.tasks.length;
-      for (let pi = 0; pi < enriched.length; pi++) {
-        const prop = enriched[pi];
-        const phaseId = get().upsertPhase({
-          conversationId,
-          title: prop.title,
-          description: prop.description,
-          order: pi,
-          status: 'planned',
-        });
-        for (const taskProp of prop.tasks) {
-          taskSeq++;
-          const taskId = `TASK-${String(taskSeq).padStart(3, '0')}`;
-          const stamp = new Date().toISOString();
-          set((s: any) => ({
-            tasks: [...s.tasks, {
-              id: taskId,
-              conversationId,
-              phaseId,
-              title: taskProp.title,
-              description: taskProp.description,
-              status: 'ready' as TaskStatus,
-              agentId: taskProp.agentId || 'mario',
-              dependencies: [],
-              artifacts: [],
-              createdAt: stamp,
-              updatedAt: stamp,
-            }],
-          }));
-          fetch('/api/mutations', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              type: 'task.create',
-              payload: {
-                id: taskId,
-                conversation_id: conversationId,
-                title: taskProp.title,
-                description: taskProp.description,
-                agent_id: taskProp.agentId || 'mario',
-                dependencies: JSON.stringify([]),
-                artifacts: JSON.stringify([]),
-                requestExecution: true,
-                idempotencyKey: newTaskCommandId('task.create'),
-              },
-            }),
-          }).catch((err) => console.error('[mutation] task.create failed:', err));
-        }
-      }
-      get().setBreakdownStatus(conversationId, 'confirmed');
-
-      // Write .ath/ files via API (server-side file ops can't run in client bundle)
-      // Uses conversationId to scope .ath/ under workspaces/<conversationId>/.ath/
-      const allNewTasks = get().tasks.filter((t: any) => t.conversationId === conversationId);
+      const conversation = state.conversations.find((item: any) => item.id === conversationId);
+      if (!conversation) throw new Error('当前交付不存在');
+      const idempotencyKey = options?.idempotencyKey ?? newTaskCommandId('delivery.breakdown.confirm');
+      const issuedAt = options?.issuedAt ?? new Date().toISOString();
+      const intentSuffix = idempotencyKey.replace(/[^a-zA-Z0-9]/g, '').slice(-12);
       const roleMap: Record<string, string> = { mario: 'planner', toad: 'testing', peach: 'frontend', dk: 'security', yoshi: 'devops' };
-      const mdTasks = allNewTasks.map((t: any) => ({
-        id: t.id,
-        title: t.title,
-        phase: t.phaseId || '',
-        role: roleMap[t.agentId] || 'backend',
-        agent: t.agentId || '',
-        status: t.status,
-        depends: t.dependencies || [],
-        deliverable: '',
-      }));
-
-      const conv = get().conversations.find((c: any) => c.id === conversationId);
-
-      fetch('/api/mutations', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          type: 'ath.initBreakdown',
-          payload: {
-            conversationId,
-            projectName: conv?.title || 'Project',
-            projectGoal: conv?.goal || '',
-            tasks: mdTasks,
-          },
+      let taskSequence = 0;
+      const phases = enriched.map((phase, phaseIndex) => ({
+        id: `${conversationId}-PHASE-${intentSuffix}-${phaseIndex + 1}`,
+        title: phase.title,
+        description: phase.description,
+        order: phaseIndex,
+        status: 'planned' as const,
+        tasks: phase.tasks.map((task) => {
+          taskSequence += 1;
+          const agentId = task.agentId || 'mario';
+          return {
+            id: `${conversationId}-TASK-${intentSuffix}-${taskSequence}`,
+            title: task.title,
+            description: task.description,
+            agentId,
+            dependencies: [],
+            role: roleMap[agentId] || 'backend',
+            deliverable: '',
+          };
         }),
-      }).catch((e) => console.error('[confirmBreakdown] .ath/ write failed:', e));
+      }));
+      const receipt = await workspaceCommandGateway.submit({
+        type: 'delivery.breakdown.confirm',
+        idempotencyKey,
+        deliveryId: conversationId,
+        projectPath: conversation.projectPath,
+        actor: { type: 'user', id: 'webui:local-user' },
+        issuedAt,
+        projectName: conversation.title || 'Project',
+        projectGoal: conversation.goal || '',
+        phases,
+      });
+      const result = receipt.result as {
+        phases?: Phase[];
+        tasks?: Array<{ task: unknown; phaseId: string }>;
+      } | undefined;
+      const authoritativePhases = result?.phases;
+      const authoritativeTasks = result?.tasks?.map(({ task, phaseId }) => {
+        const parsed = authoritativeTask(task);
+        return parsed ? { ...parsed, phaseId } : undefined;
+      }).filter((task): task is Task => Boolean(task));
+      if (
+        receipt.status !== 'accepted'
+        || authoritativePhases?.length !== phases.length
+        || authoritativeTasks?.length !== taskSequence
+      ) {
+        throw new Error(receipt.userMessage ?? '工作拆解确认失败');
+      }
+      set((current: any) => ({
+        phases: [
+          ...current.phases.filter((phase: Phase) => phase.conversationId !== conversationId),
+          ...authoritativePhases,
+        ],
+        tasks: [
+          ...current.tasks.filter((task: Task) => !authoritativeTasks.some((created) => created.id === task.id)),
+          ...authoritativeTasks,
+        ],
+      }));
+      get().setBreakdownStatus(conversationId, 'confirmed');
 
       const totalTasks = enriched.reduce((sum, p) => sum + p.tasks.length, 0);
       const totalPhases = enriched.length;

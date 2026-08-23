@@ -31,11 +31,13 @@
 - [x] “需关注”只统计人工 blocker 和自主交付 `waiting_human`，不把普通 ready/review 或自动 gate 失败算作用户待办。
 - [x] 持久消息在刷新重连后自动对账，不重复、不回滚实时内容。
 - [x] 服务端能依据交付完成前已持久化的评审通过记录幂等修复 Task 投影回退，并发布可审计的 Task/Proof 事实。
-- [ ] Conversation 兼容映射只存在于投影边界并有退出条件。
+- [x] Conversation 兼容映射只存在于投影 producer/repository 边界并有退出条件；工作区子组件与侧栏只消费统一 View。
 
 ## Command 与控制面
 
-- [ ] 所有人的显式操作通过 `HumanCommandGateway` 获取 receipt。
+- [x] 所有 Delivery/Work 显式用户操作通过 `WorkspaceCommandGateway` 获取 receipt。
+- [x] 拆解确认只有一个稳定命令意图；阶段、任务和文件投影不由浏览器循环写入。
+- [x] 命令幂等 journal 独立于 Delivery 生命周期，并拒绝同键并发 owner。
 - [x] 补充要求的消息、A2A possession 与 Inbox 工作由一次服务端事务提交，并按 idempotency key 返回权威 receipt。
 - [x] 展示事件消费者不 import、不调用 Command Interface。
 - [x] 任务创建、改派和状态变化不在浏览器自动触发 Agent 执行。
@@ -45,7 +47,7 @@
 
 ## Daemon
 
-- [ ] Daemon 只消费已裁决的执行命令和取消命令。
+- [x] Daemon 只消费已裁决的执行命令和取消命令。
 - [x] Daemon ExecutionAdapter 只处理定向 envelope 与执行生命周期；自主恢复和 closure policy 由服务端 owner 决策。
 - [x] 本地 directed admission、原子进程占位、no-ACK、unreachable 和重复回调测试通过。
 - [ ] 多节点远端 transport 与 daemon 重启恢复测试通过。

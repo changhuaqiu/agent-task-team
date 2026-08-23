@@ -112,6 +112,9 @@ Project 的持久化兼容表名，但用户与新协作契约使用 Project/Del
 - 侧栏按真实项目目录分组交付，中心首屏展示目标、工作进度和需要关注，聊天降为“团队活动”；
 - 右侧一级入口从五个收敛为“任务/调试”，“需要关注”只出现必须由用户补充信息、选择或授权的事项，关系图成为任务视图模式；
 - 用户无需 `@Agent` 也能补充要求，默认接球人由服务端 Team Runtime 决定；未选交付不能发送，无接手人会明确提示。
+- 新建自主交付现在只提交一次统一命令；项目记录、上下文初始化和 Agent 团队启动由服务端编排，页面不再出现“记录已建但团队没启动”后再猜测回滚的中间状态。
+- 删除/推进交付、任务创建/编辑/流转/拆分/合并/改派等操作使用同一 Workspace Command 回执语义；刷新、重复点击或重放以幂等键识别同一操作。
+- 阶段保存与“确认拆解”不再由浏览器循环写多个接口：一个稳定意图在服务端协调 Phase、Task Graph 和 `.ath` 投影，完整回执返回前页面不会宣布确认成功。
 - 补充要求只有在服务端同时记录消息和团队接手工作后才进入活动流；失败时草稿保留，重试不会重复创建消息或工作项。
 - 任务详情中的“请求进度”只表达用户意图，不再让用户选择执行引擎或由当前浏览器直接启动 Agent；任务开始与自动接续
   即使页面断开，也由服务端命令、Inbox 和执行器链路持有。
@@ -136,12 +139,14 @@ Project 的持久化兼容表名，但用户与新协作契约使用 Project/Del
 - Agent 把同一步并行交给多个角色后，平台会等待全部分支终结并只回调原负责人一次；回调携带 complete/partial 分支摘要和精确 outcome 证据，不复制分支聊天，也不会因一支失败丢掉其他成功结果。并行宽度限制为 3，越界 handoff 在 Outcome 接纳事务内拒绝且不占用终态槽；取消或替换协作时，平台会取消 pending 回调、关闭已签发权限，并在派发和结果接纳两端拒绝旧 Possession revision。A2A、Inbox、WorkContract、Invocation Pipeline、ContextManager 相关回归 276/276 通过。
 - 多个交付复用同一项目目录时，`TASKS.md` 现在只归当前 Conversation 的 Task Graph 所有；新交付会先重建自己的投影并关闭旧 watcher。Task 一旦进入 WorkContract，文件中的状态、owner、标题、交付物和依赖全部只读，不能再把评审中或阻塞中的工作拉回执行。真实故障曾让同一成果产生重复父子任务、32 个执行 epoch 和 59 次 Task revision；对应接管与 revision 保护回归已覆盖，修复后的 3000 页面可正常加载且无控制台错误。
 - 在真实 3000 页面复核已完成交付：页面显示 100% 验收，历史中 2 条超长 Agent 回复进入渐进展开，11 个已完成 Trace 在收起态直接显示工具调用，浏览器控制台无应用错误。
+- Workspace Command、独立 lease journal、统一工作区投影、桌面握手/退出与架构门禁加入回归后，全量 1759 项测试通过、2 项跳过；Next.js standalone 生产构建通过。真实 standalone Service smoke 证明无密钥握手返回 401，正确密钥返回 protocol v1、内容派生的 Host/Service build ID、实际 Service PID 和 64 字符派生 session token；桌面模式下无 renderer session 的 Workspace Command 返回 401，认证 shutdown 完成 WAL checkpoint 后退出。
 
 ### 仍然保留的边界
 
 当前 `Conversation` 仍是持久化兼容对象，独立 Delivery schema 尚未冻结；自主交付验收详情仍由现有 snapshot 面板读取。
-独立 Delivery schema、完整验收详情和 `taskHubStore` 的进一步展示/UI 状态拆分尚未完成；部分 Task/交付操作仍走各自
-领域 API，而非全部统一到 `HumanCommandGateway`。Daemon 已删除浏览器启动/强杀旁路，但更细的进程生命周期模块拆分、
+独立 Delivery schema 和 `taskHubStore` 的进一步展示/UI 状态拆分尚未完成；账号、Skill、TeamPack 等配置对象仍使用各自领域 API。
+Tauri Host 和 Service 开发骨架已经落地，但当前机器未安装 Rust toolchain，尚未执行 `cargo check`；Node runtime 打包、renderer
+session 全链校验、Host crash 的 process-group kill-on-close、托盘/deep link、签名和自动更新完成前只能称为桌面开发版。Daemon 已删除浏览器启动/强杀旁路，但更细的进程生命周期模块拆分、
 重启恢复仍按活动规格继续验收；当前发布只接通本地单 daemon，非本地节点会明确拒绝，远端 transport 尚未实现。
 当前续作由 Agent 在退出前显式提交检查点；基于上下文占用、运行时长和产出规模自动触发检查点仍属于后续能力。
 历史上已经导入的影子 Task 保留审计事实，不由升级代码静默删除；修复阻止新影子工作和继续回滚，已有记录仍需通过正式取消/收口命令处理。

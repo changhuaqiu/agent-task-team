@@ -62,16 +62,21 @@
   - 关系图是同一任务域的视图模式
 
 `src/lib/delivery-workspace/DeliveryWorkspaceProjection.ts` 是当前工作区的只读投影 Interface。它集中完成
-Conversation 兼容映射、项目隔离、Task/Blocker/Message/DeliveryRun 合并和“需要关注”排序；主工作区的新组件不再各自
-重复拼接这些对象。独立 Delivery schema 尚未冻结，兼容映射只允许留在此投影边界。
+Conversation 兼容映射、Project -> Delivery 导航、项目隔离、Task/Blocker/Message/DeliveryRun 合并和“需要关注”排序。
+`ProjectWorkspace` 只计算一次 `DeliveryWorkspaceView` 和导航投影，再传给中栏、右栏和侧栏；子组件不再读取原始
+Conversation/Task 集合重复拼接领域含义。独立 Delivery schema 尚未冻结，兼容映射只允许留在此投影 producer 边界。
 
 WebUI 有两个明确分离的入口：
 
-- Human Command：人的点击、输入和确认可以调用正式 API/Command；
+- Workspace Command：人的点击、输入和确认只能调用统一 Command Interface；
 - Project View Consumer：服务端事件只能更新当前项目展示，不能自动启动 Agent、重试、推进任务或回传执行 ACK。
 
-交付活动输入已通过 `src/lib/human-command/` 的 `HumanCommandGateway` 提交
-`delivery.requirement.submit`。Web Adapter 只调用 `/api/human-commands` 并还原 `CommandReceipt`；服务端在一个事务内
+交付活动输入、交付创建/删除/人工继续、任务创建/编辑/流转/图操作、阶段写入与拆解确认已通过
+`src/lib/workspace-command/` 的 `WorkspaceCommandGateway` 提交。Web Adapter 只调用 `/api/workspace-commands` 并还原
+统一 receipt；服务端应用 Module 完成范围校验、幂等回执和跨领域编排，再委托 Delivery、Task Graph、Collaboration
+等既有 owner。交付创建不再由浏览器串行调用 Conversation create 与 Autonomous Delivery start，也不再由浏览器猜测补偿删除；
+拆解确认也不再循环提交 Phase、Task 与文件写入，只有一个稳定幂等意图和一个完整权威回执。
+其中 `delivery.requirement.submit` 仍由内部 Human A2A owner 在一个事务内
 完成消息、A2A possession、handoff packet、Agent Inbox 和持久 receipt。浏览器不再先写本地消息，也不再串行调用
 `message.append` 与 `a2a.human_handoff`：只有 accepted/duplicate receipt 返回后才按权威 message id 更新投影；领域
 拒绝或网络失败会保留草稿，同一草稿重试沿用原幂等键。
@@ -88,7 +93,7 @@ WebUI 有两个明确分离的入口：
 ### 项目与交付导航
 
 - [`ProjectSidebar.tsx`](../../src/components/project/ProjectSidebar.tsx)
-  - 按 `projectPath` 派生项目，再展示其中的交付
+  - 只消费 `ProjectNavigationGroup[]`，按统一投影展示项目与交付
   - 同时兼容 Windows 与 POSIX 路径；搜索项目名命中时保留该项目的全部交付
   - 根据任务和 blocker 计算交付摘要
   - 通过兼容键 `selectedConversationId` 切换当前交付
@@ -98,7 +103,7 @@ WebUI 有两个明确分离的入口：
 ### 交付主视图与团队活动
 
 - [`ProjectChatPanel.tsx`](../../src/components/project/ProjectChatPanel.tsx)
-  - 通过 `DeliveryWorkspaceProjection` 展示目标、进度、当前工作和需要关注
+  - 通过父级传入的 `DeliveryWorkspaceView` 展示目标、进度、当前工作和需要关注
   - 内嵌 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)
   - 自主交付状态最多占剩余高度 32%；团队活动占剩余空间，Human Command 输入区始终留在视口内
   - 未选交付时输入禁用；要求必须显式带当前交付 ID，不能由 Store 自动选中或创建 Conversation
@@ -163,15 +168,16 @@ Skill 加载流程：`loadFromServer()` → `loadSkills()` → `GET /api/skills`
 - 交付主视图与工作面板通过只读投影渲染跨领域状态；
 - UI-only 的面板、视图模式和创建弹窗状态保持在所属组件；
 - 手工“新建任务”全局入口及其 Store 状态已删除，顶栏只保留“新建交付”。
-- 交付补充要求、规划请求与任务进度请求已迁入原子 Human Command，并通过持久 receipt 对账。
+- 交付补充要求、规划请求、交付生命周期操作和全部 Task/Task Graph 用户操作已迁入 Workspace Command，并通过持久 receipt 对账。
 - Task 创建、改派和状态命令仍由 Task Command Service 持有事实；需要执行时由服务端 Task Wakeup 推进，浏览器不再
   把任务变化解释为 Agent 启动。浏览器也不再先乐观改 Task：命令携带预期 revision，只有服务端返回权威 Task 后才
   更新投影；rehydrate 与 `task.state` 都携带 revision 并推进投影 epoch，迟到 HTTP 响应不能覆盖更高 revision 的 Socket 事实。
 - `daemonStore` 只保留 Socket 连接、流式展示缓冲、watchdog 与运行投影；浏览器 runtime node、busy queue、强制发送、
   自动重试和 `terminal:start` emitter 已删除。
 
-尚未完成的事实是：`taskHubStore` 仍聚合较多展示、水合与显式写入 action，尚未拆成最终的小型 UI Store；部分人的
-Task/交付操作仍走各自领域 API，而非统一 `HumanCommandGateway`。这些是活动规格 Phase 2/3 的剩余收缩项。
+尚未完成的事实是：`taskHubStore` 仍聚合较多历史展示、水合和配置 action，尚未拆成最终的小型 UI Store；账号、Skill、
+TeamPack 等配置领域仍使用各自明确 API，它们不属于 Delivery/Work 命令模型。Delivery/Work 的生产浏览器代码已不再直接
+写 `/api/mutations`、`/api/task-graph` 或 `/api/autonomous-delivery`。
 
 `daemonStore` 对外只提供 slice、Socket 连接与 TaskHub 实际调用的 watchdog seam；流式 buffer 的
 schedule/append/flush 是同模块实现细节。Token 用量对外渲染入口是 `TokenBadge`，其展开卡片不作为独立公共组件。

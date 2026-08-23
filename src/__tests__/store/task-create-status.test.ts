@@ -5,6 +5,10 @@ describe('browser task creation status boundary', () => {
   beforeEach(() => {
     useTaskHubStore.setState({
       selectedConversationId: 'conv-task-create',
+      conversations: [{
+        id: 'conv-task-create', title: 'Create task', goal: '', status: 'active', priority: 'p1',
+        projectPath: '', breakdownStatus: 'confirmed', createdAt: '', updatedAt: '',
+      }],
       tasks: [],
     });
   });
@@ -32,7 +36,10 @@ describe('browser task creation status boundary', () => {
       ok: true,
       status: 200,
       json: async () => ({
-        result: {
+        receipt: {
+          idempotencyKey: 'task-create', commandType: 'task.create', projectPath: '',
+          deliveryId: 'conv-task-create', status: 'accepted', duplicate: false, targetAgentIds: [],
+          recordedAt: '2026-08-16T00:00:00.000Z', result: { task: {
           id: 'TASK-001',
           conversation_id: 'conv-task-create',
           title: 'Canonical task',
@@ -44,6 +51,7 @@ describe('browser task creation status boundary', () => {
           revision: 0,
           created_at: '2026-08-16T00:00:00.000Z',
           updated_at: '2026-08-16T00:00:00.000Z',
+          } },
         },
       }),
     } as Response);
@@ -52,8 +60,8 @@ describe('browser task creation status boundary', () => {
     expect(useTaskHubStore.getState().tasks).toContainEqual(
       expect.objectContaining({ title: 'Canonical task', status: 'ready', revision: 0 }),
     );
-    const request = fetchSpy.mock.calls.find(([url]) => url === '/api/mutations')?.[1];
-    const body = JSON.parse(String(request?.body)) as { payload: Record<string, unknown> };
-    expect(body.payload).not.toHaveProperty('status');
+    const request = fetchSpy.mock.calls.find(([url]) => url === '/api/workspace-commands')?.[1];
+    const body = JSON.parse(String(request?.body)) as { task: Record<string, unknown> };
+    expect(body.task).not.toHaveProperty('status');
   });
 });

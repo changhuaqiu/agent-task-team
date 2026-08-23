@@ -24,9 +24,19 @@
 
 这条接口已经是页面 hydrate 的主要真相源。
 
-### `/api/mutations`
+### `/api/workspace-commands`
 
-[`src/pages/api/mutations.ts`](../../src/pages/api/mutations.ts) 提供统一 mutation 入口。
+[`src/pages/api/workspace-commands.ts`](../../src/pages/api/workspace-commands.ts) 是 Delivery/Work 的统一用户操作入口。
+`WorkspaceCommandService` 负责命令判别、actor/scope 校验、幂等回执和应用编排；实际 Conversation 兼容聚合、
+Autonomous Delivery、Task Command/Graph、Human A2A 与文件投影仍由各自 owner 维护事实。
+
+当前命令覆盖：交付创建/删除/人工继续/补充要求/规划/拆解确认，以及 Phase 与 Task 的创建/更新/流转/进度请求/图操作。
+自主交付创建把兼容聚合、项目上下文初始化和 DeliveryRun 启动收为一个服务端应用操作；拆解确认用一个命令协调
+Phase、Task Graph commit 和文件投影。浏览器展示事件不能调用此 Interface。
+
+### `/api/mutations`（兼容）
+
+[`src/pages/api/mutations.ts`](../../src/pages/api/mutations.ts) 仍保留给历史/内部兼容调用，不再是 Delivery/Work 浏览器写入口。
 
 当前支持的 mutation 包括：
 
@@ -37,10 +47,20 @@
 
 Task 取消统一走 `/api/task-graph` 的 `cancelTask` owner command。Session create/bind/seal 与 Invocation create/transition 属于服务端 Runtime owner，不向浏览器 mutation 暴露；前端只读取 `/api/state` 与 runtime projection。
 
-人的补充要求、规划请求与任务进度请求走 `/api/human-commands`，由 `HumanCommandService` 返回持久
-`human_command_receipt`；`dispatch.enqueue/cancel` 已从通用 mutation 入口移除。
+`/api/human-commands` 与 `HumanCommandService` 暂留为 Workspace Command 内部兼容 Adapter；生产 Renderer 已无消费者。
+统一回执写入独立 `workspace_command_journal`；processing owner token 会 heartbeat 续租，长操作返回及下游副作用前再次
+fence。自主交付初始推进与 final 回执原子写入 durable advancement queue；final 回执不引用 Conversation，因此 Delivery
+删除后仍能重放历史结果。`human_command_receipt` 只属于内部 Human A2A 兼容 owner。
 
-Phase 读取与写入统一由 `/api/phases` 承担；通用 mutation 不再重复暴露 phase upsert/delete。
+### Desktop Host handshake
+
+`/api/desktop/handshake` 只接受 Host 注入的一次性 bootstrap secret，返回 protocol version、不可变 artifact build revision、
+Service PID 和派生 renderer session token。Tauri 主窗口严格核对 protocol/build/PID 后才显示；无密钥请求返回 401。
+`/api/desktop/shutdown` 使用同一 bootstrap secret 执行 Daemon drain 与 WAL checkpoint，超时后 Host 再兜底 kill。
+当前实现仍是桌面开发版；Rust toolchain、renderer 全请求 session 校验、Node runtime bundling、Host crash process-group、签名/更新
+和安装矩阵仍是发布门禁。
+
+Phase 读取仍可由 `/api/phases` 提供；Renderer 写入只走 `work.phase.*` / `delivery.breakdown.confirm`，通用 mutation 不再重复暴露 phase upsert/delete。
 
 TeamPack 会话的服务端任务创建会经过 [`src/server/team-runtime/task-assignment.ts`](../../src/server/team-runtime/task-assignment.ts)：
 

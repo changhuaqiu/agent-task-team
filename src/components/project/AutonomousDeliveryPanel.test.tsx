@@ -261,7 +261,19 @@ describe('AutonomousDeliveryPanel', () => {
         status: 200,
         json: async () =>
           init?.method === 'POST'
-            ? { disposition: 'waiting', snapshot: resumed }
+            ? {
+                receipt: {
+                  idempotencyKey: 'resume-1',
+                  commandType: 'delivery.advance',
+                  projectPath: '',
+                  deliveryId: contract.scope.conversationId,
+                  status: 'accepted',
+                  duplicate: false,
+                  targetAgentIds: [],
+                  result: { disposition: 'waiting', snapshot: resumed },
+                  recordedAt: '2026-07-19T00:00:00.000Z',
+                },
+              }
             : waiting,
       }));
     vi.stubGlobal('fetch', fetchMock);
@@ -276,7 +288,7 @@ describe('AutonomousDeliveryPanel', () => {
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        '/api/autonomous-delivery',
+        '/api/workspace-commands',
         expect.objectContaining({
           method: 'POST',
           body: expect.stringContaining('"idempotencyKey":'),

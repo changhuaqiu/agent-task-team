@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { extractTaskReference } from '@/lib/taskReference';
-import { createHumanCommandIdempotencyKey } from '@/lib/human-command/types';
+import { createWorkspaceCommandIdempotencyKey } from '@/lib/workspace-command';
 
 export const INITIAL_TIMELINE_ITEM_LIMIT = 120;
 
@@ -94,7 +94,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
     const referencedTaskId = extractTaskReference(inputValue);
     const content = inputValue;
     const pendingCommand = pendingCommandRef.current ?? {
-      idempotencyKey: createHumanCommandIdempotencyKey(selectedConversationId),
+      idempotencyKey: createWorkspaceCommandIdempotencyKey(selectedConversationId),
       issuedAt: new Date().toISOString(),
     };
     pendingCommandRef.current = pendingCommand;

@@ -1,61 +1,31 @@
 'use client';
 
-import { useMemo } from 'react';
-import { useShallow } from 'zustand/react/shallow';
-import { useTaskHubStore } from '@/store/taskHubStore';
-import { projectDeliveryWorkspace } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
 import { GlobalChatRoom } from '@/components/task-hub/GlobalChatRoom';
 import { AgentBar } from '@/components/task-hub/AgentBar';
 import { AutonomousDeliveryPanel } from './AutonomousDeliveryPanel';
 import { DeliveryWorkspaceOverview } from './DeliveryWorkspaceOverview';
 import type { DeliveryRunSnapshot } from '@/server/autonomous-delivery/types';
+import type { DeliveryWorkspaceView } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
 
 export function ProjectChatPanel({
-  deliveryRunSnapshot,
+  view = null,
   onDeliveryRunSnapshotChange,
 }: {
-  deliveryRunSnapshot?: DeliveryRunSnapshot;
+  view?: DeliveryWorkspaceView | null;
   onDeliveryRunSnapshotChange?: (snapshot: DeliveryRunSnapshot | undefined) => void;
-} = {}) {
-  const {
-    selectedDeliveryId,
-    conversations,
-    tasks,
-    blockersByConversation,
-    chatMessagesByConversation,
-  } = useTaskHubStore(useShallow((state) => ({
-    selectedDeliveryId: state.selectedConversationId,
-    conversations: state.conversations,
-    tasks: state.tasks,
-    blockersByConversation: state.blockersByConversation,
-    chatMessagesByConversation: state.chatMessagesByConversation,
-  })));
-
-  const delivery = useMemo(() => projectDeliveryWorkspace({
-    conversations,
-    tasks,
-    deliveryRunSnapshot,
-    blockersByConversation,
-    chatMessagesByConversation,
-  }, selectedDeliveryId), [
-    blockersByConversation,
-    chatMessagesByConversation,
-    conversations,
-    deliveryRunSnapshot,
-    selectedDeliveryId,
-    tasks,
-  ]);
+}) {
+  const selectedDeliveryId = view?.delivery.id;
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col bg-[hsl(var(--bg-app))]">
-      <DeliveryWorkspaceOverview view={delivery} />
+      <DeliveryWorkspaceOverview view={view} />
 
       {selectedDeliveryId && (
         <div className="max-h-[32%] shrink-0 overflow-y-auto" data-testid="autonomous-delivery-viewport">
           <AutonomousDeliveryPanel
             key={selectedDeliveryId}
             conversationId={selectedDeliveryId}
-            stage={delivery?.stage}
+            stage={view?.stage}
             onSnapshotChange={onDeliveryRunSnapshotChange}
           />
         </div>

@@ -34,14 +34,17 @@
 - [x] 建立 C 级性能评测记录并保存相同数据集的前后载荷、初始脚本和无效请求指标。
 - [x] 完成组件测试与浏览器 E2E。
 
-## Phase 2：Human Command 单入口
+## Phase 2：Workspace Command 单入口
 
 - [x] 将无显式 mention 的默认入口成员选择迁到服务端 Team Runtime；无初始角色时使用已校验 roster，无成员时返回可见冲突。
 - [x] 定义 Command、CommandReceipt、幂等键和失败语义。
 - [x] 实现 Web API Adapter 与内存测试 Adapter。
 - [x] 迁移交付补充要求到 `HumanCommandGateway`，删除浏览器 `message.append -> a2a.human_handoff` 双调用。
-- [ ] 迁移任务动作到 `HumanCommandGateway`。
-- [ ] 迁移交付操作到 `HumanCommandGateway`。
+- [x] 将现有 `HumanCommandGateway` 深化为覆盖 Delivery/Work 显式用户业务操作的 `WorkspaceCommandGateway`；历史模块仅作为服务端内部兼容 Adapter，生产 Renderer 消费者已清零。
+- [x] 迁移任务动作到 `WorkspaceCommandGateway`。
+- [x] 迁移交付创建、删除与推进到 `WorkspaceCommandGateway`；自主交付创建由服务端作为一个应用操作完成，浏览器两步提交和补偿删除已删除。
+- [x] 将阶段写入与拆解确认迁移为权威 `work.phase.*` / `delivery.breakdown.confirm` Command；浏览器不再循环写入阶段、任务和文件投影。
+- [x] 将 Workspace Command 幂等回执移入独立 lease journal，保留删除后的历史回执并拒绝同键并发 owner。
 - [x] 将 optimistic Task domain write 改为 pending command + 带 revision 的服务端权威投影确认。
 - [x] 删除 `taskStore` 中任务变化后自动调用 `dispatchToAgent` 的路径。
 - [x] 添加展示事件不得调用 Command Interface 的静态架构测试。
@@ -52,6 +55,7 @@
 - [x] 删除浏览器运行配置选择、busy queue、强制派发和自动重试 owner。
 - [x] 删除 React/store 的 `terminal:start` emitter 和相关兼容类型。
 - [ ] 收缩 `taskHubStore` 为展示投影、水合、订阅和少量跨路由 UI 状态。
+- [x] `ProjectWorkspace` 只计算一次 `DeliveryWorkspaceView` 和 Project/Delivery 导航，子面板不再读取 Conversation/Task 原始事实重复投影。
 - [ ] 验证浏览器断线、多标签页和重连不会改变自动执行结果。
 
 ## Phase 4：Daemon executor-only 与收尾

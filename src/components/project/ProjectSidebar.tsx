@@ -3,113 +3,27 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
-import { useTaskHubStore, type Conversation } from '@/store/taskHubStore';
+import { useTaskHubStore } from '@/store/taskHubStore';
 import { WorkspaceSection } from './WorkspaceSection';
 import { ProjectTreeItem } from './ProjectTreeItem';
 import { getProjectStatus } from './getProjectStatus';
 import { cn } from '@/lib/utils';
+import { createWorkspaceCommandIdempotencyKey, workspaceCommandGateway } from '@/lib/workspace-command';
+import type { DeliveryNavigationItem, ProjectNavigationGroup } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
 
-interface WorkspaceGroup {
-  key: string;
-  name: string;
-  fullPath: string | null;
-  conversations: Conversation[];
-}
-
-function extractFolderName(path: string): string {
-  const trimmed = path.replace(/[\\/]+$/, '');
-  const last = trimmed.split(/[\\/]/).pop() || trimmed;
-  return last || path;
-}
-
-function groupByWorkspace(conversations: Conversation[]): WorkspaceGroup[] {
-  const map = new Map<string, Conversation[]>();
-  const ungrouped: Conversation[] = [];
-
-  for (const c of conversations) {
-    if (c.projectPath) {
-      const existing = map.get(c.projectPath);
-      if (existing) {
-        existing.push(c);
-      } else {
-        map.set(c.projectPath, [c]);
-      }
-    } else {
-      ungrouped.push(c);
-    }
-  }
-
-  const groups: WorkspaceGroup[] = [];
-  for (const [path, convs] of map) {
-    groups.push({
-      key: path,
-      name: extractFolderName(path),
-      fullPath: path,
-      conversations: convs,
-    });
-  }
-
-  // Sort groups by most recent conversation updatedAt
-  groups.sort((a, b) => {
-    const aLatest = a.conversations.reduce((max, c) => (c.updatedAt > max ? c.updatedAt : max), '');
-    const bLatest = b.conversations.reduce((max, c) => (c.updatedAt > max ? c.updatedAt : max), '');
-    return bLatest.localeCompare(aLatest);
-  });
-
-  if (ungrouped.length > 0) {
-    groups.push({
-      key: '__ungrouped__',
-      name: '未分类',
-      fullPath: null,
-      conversations: ungrouped,
-    });
-  }
-
-  return groups;
-}
-
-export function ProjectSidebar() {
-  const conversations = useTaskHubStore((s) => s.conversations);
+export function ProjectSidebar({ navigation }: { navigation: ProjectNavigationGroup[] }) {
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const setSelectedConversationId = useTaskHubStore((s) => s.setSelectedConversationId);
   const deleteConversation = useTaskHubStore((s) => s.deleteConversation);
-  const tasks = useTaskHubStore((s) => s.tasks);
-  const blockers = useTaskHubStore((s) => s.blockersByConversation);
 
   const [isExpanded, setIsExpanded] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [deletedNotice, setDeletedNotice] = useState<Conversation | null>(null);
+  const [deletedNotice, setDeletedNotice] = useState<DeliveryNavigationItem | null>(null);
   const deleteNoticeTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
-  const statsByConversation = useMemo(() => {
-    const taskStats = new Map<
-      string,
-      { total: number; blocked: number; inProgress: number; done: number }
-    >();
-    for (const t of tasks) {
-      const prev = taskStats.get(t.conversationId) ?? { total: 0, blocked: 0, inProgress: 0, done: 0 };
-      prev.total += 1;
-      if (t.status === 'blocked') prev.blocked += 1;
-      if (t.status === 'in_progress') prev.inProgress += 1;
-      if (t.status === 'done') prev.done += 1;
-      taskStats.set(t.conversationId, prev);
-    }
-
-    const openBlockers = new Map<string, number>();
-    for (const [cid, list] of Object.entries(blockers)) {
-      openBlockers.set(cid, (list || []).filter((b) => b.status === 'open').length);
-    }
-
-    return { taskStats, openBlockers };
-  }, [tasks, blockers]);
-
-  const sorted = useMemo(
-    () => [...conversations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-    [conversations]
-  );
-
-  const workspaceGroups = useMemo(() => groupByWorkspace(sorted), [sorted]);
+  const deliveries = useMemo(() => navigation.flatMap((group) => group.deliveries), [navigation]);
+  const workspaceGroups = navigation;
 
   const filteredGroups = useMemo(() => {
     if (!searchQuery.trim()) return workspaceGroups;
@@ -120,22 +34,32 @@ export function ProjectSidebar() {
           || group.fullPath?.toLowerCase().includes(q);
         return {
           ...group,
-          conversations: groupMatches
-            ? group.conversations
-            : group.conversations.filter(
+          deliveries: groupMatches
+            ? group.deliveries
+            : group.deliveries.filter(
               (c) => c.title.toLowerCase().includes(q) || (c.goal && c.goal.toLowerCase().includes(q)),
             ),
         };
       })
-      .filter((group) => group.conversations.length > 0);
+      .filter((group) => group.deliveries.length > 0);
   }, [workspaceGroups, searchQuery]);
 
-  const showSearch = sorted.length >= 5;
+  const showSearch = deliveries.length >= 5;
 
   async function handleDelete(id: string) {
-    const conv = conversations.find((c) => c.id === id);
+    const conv = deliveries.find((item) => item.id === id);
     if (!conv) return;
-    const deleted = await deleteConversation(id);
+    const receipt = await workspaceCommandGateway.submit({
+      type: 'delivery.delete',
+      idempotencyKey: createWorkspaceCommandIdempotencyKey(`delivery.delete:${id}`),
+      deliveryId: id,
+      projectPath: conv.projectPath,
+      actor: { type: 'user', id: 'webui:local-user' },
+      issuedAt: new Date().toISOString(),
+    }).catch(() => undefined);
+    const deleted = receipt?.status === 'accepted'
+      ? await deleteConversation(id, { persist: false })
+      : false;
     if (!deleted) {
       setDeletedNotice(null);
       return;
@@ -183,7 +107,7 @@ export function ProjectSidebar() {
                 项目与交付
               </span>
               <span className="text-[11px] text-[hsl(var(--text-tertiary))] tabular-nums">
-                {conversations.length}
+                {deliveries.length}
               </span>
             </div>
           ) : (
@@ -231,13 +155,13 @@ export function ProjectSidebar() {
                   key={group.key}
                   name={group.name}
                   fullPath={group.fullPath}
-                  count={group.conversations.length}
+                  count={group.deliveries.length}
                   collapsed={collapsedGroups.has(group.key)}
                   onToggle={() => toggleGroup(group.key)}
                 >
-                  {group.conversations.map((c) => {
-                    const stats = statsByConversation.taskStats.get(c.id) ?? { total: 0, blocked: 0, inProgress: 0, done: 0 };
-                    const openBlockerCount = statsByConversation.openBlockers.get(c.id) ?? 0;
+                  {group.deliveries.map((c) => {
+                    const stats = c.work;
+                    const openBlockerCount = c.openAttentionCount;
                     const health = getProjectStatus(stats);
                     const isSelected = c.id === selectedConversationId;
 
@@ -265,7 +189,7 @@ export function ProjectSidebar() {
                 </div>
               )}
 
-              {sorted.length === 0 && (
+              {deliveries.length === 0 && (
                 <div className="px-6 py-4 text-[11px] text-[hsl(var(--text-tertiary))]">
                   还没有交付
                 </div>
@@ -279,7 +203,7 @@ export function ProjectSidebar() {
                   {workspaceGroups.length > 1 && (
                     <div className="w-6 h-px bg-[hsl(var(--border-subtle))] my-0.5" title={group.name} />
                   )}
-                  {group.conversations.map((c) => {
+                  {group.deliveries.map((c) => {
                     const isSelected = c.id === selectedConversationId;
                     return (
                       <button

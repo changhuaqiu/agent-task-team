@@ -33,9 +33,9 @@ import type { DetectedRuntime } from '@/server/types';
 import type { A2APossessionView, ChatMessage, ToolEvent } from './types';
 import { assertTaskStatus, isTaskStatus } from '@/shared/task-status';
 import {
-  createHumanCommandIdempotencyKey,
-  humanCommandGateway,
-} from '@/lib/human-command';
+  createWorkspaceCommandIdempotencyKey,
+  workspaceCommandGateway,
+} from '@/lib/workspace-command';
 export type { A2AHandoffStatus, A2AHandoffView, A2APossessionView, ChatMessage, ToolEvent } from './types';
 
 // Re-export types from sub-stores (backward compatibility)
@@ -770,15 +770,19 @@ export interface TaskHubState {
   setRoleCardAccountIds: (roleCardId: string, accountIds: string[]) => void;
 
   phases: Phase[];
-  upsertPhase: (phase: Omit<Phase, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => string;
-  removePhase: (phaseId: string) => void;
+  upsertPhase: (phase: Omit<Phase, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<string>;
+  removePhase: (phaseId: string) => Promise<void>;
 
   setBreakdownStatus: (conversationId: string, status: Conversation['breakdownStatus']) => void;
   triggerProposal: (
     conversationId: string,
     options?: { idempotencyKey?: string; issuedAt?: string },
   ) => Promise<void>;
-  confirmBreakdown: (conversationId: string, proposals: PhaseProposal[]) => void;
+  confirmBreakdown: (
+    conversationId: string,
+    proposals: PhaseProposal[],
+    options?: { idempotencyKey: string; issuedAt: string },
+  ) => Promise<void>;
 
   isRoleCardDetailOpen: boolean;
   selectedRoleCardId: string | null;
@@ -1026,45 +1030,6 @@ export const useTaskHubStore = create<TaskHubState>()(
               runtimeRefreshInProgress: isBackgroundRefresh,
             });
             try {
-            const oldData = localStorage.getItem('agent-task-hub-store-clean');
-            if (oldData) {
-              try {
-                const parsed = JSON.parse(oldData);
-                if (parsed?.conversations?.length) {
-                  for (const conv of parsed.conversations) {
-                    fetch('/api/mutations', {
-                      method: 'POST',
-                      headers: { 'content-type': 'application/json' },
-                      body: JSON.stringify({ type: 'conversation.create', payload: { id: conv.id, title: conv.title, goal: conv.goal, priority: conv.priority } }),
-                    }).catch(() => {});
-                  }
-                }
-                if (parsed?.tasks?.length) {
-                  for (const t of parsed.tasks) {
-                    fetch('/api/mutations', {
-                      method: 'POST',
-                      headers: { 'content-type': 'application/json' },
-                      body: JSON.stringify({ type: 'task.create', payload: { id: t.id, conversation_id: t.conversationId, title: t.title, description: t.description, agent_id: t.agentId, dependencies: JSON.stringify(t.dependencies || []), artifacts: JSON.stringify(t.artifacts || []), idempotencyKey: `webui:migration:task.create:${t.conversationId}:${t.id}` } }),
-                    }).catch(() => {});
-                  }
-                }
-                if (parsed?.chatMessagesByConversation) {
-                  for (const [convId, msgs] of Object.entries(parsed.chatMessagesByConversation)) {
-                    for (const rawMsg of (msgs as any[])) {
-                      const msg = rawMsg as any;
-                      fetch('/api/mutations', {
-                        method: 'POST',
-                        headers: { 'content-type': 'application/json' },
-                        body: JSON.stringify({ type: 'message.append', payload: { conversationId: convId, senderType: msg.agentId === 'human' ? 'human' : 'agent', senderId: msg.agentId, content: msg.content, mentions: msg.mentions, intent: msg.intent, taskId: msg.referencedTaskId } }),
-                      }).catch(() => {});
-                    }
-                  }
-                }
-                localStorage.removeItem('agent-task-hub-store-clean');
-              } catch (migrationErr) {
-                console.error('[loadFromServer] localStorage migration failed:', migrationErr);
-              }
-            }
 
             const data = await fetchRuntimeJson<Awaited<ReturnType<Response['json']>>>(
               '/api/state',
@@ -1497,15 +1462,25 @@ export const useTaskHubStore = create<TaskHubState>()(
           });
 
           try {
-            const response = await fetch('/api/mutations', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ type: 'conversation.create', payload: { id, title, goal, priority: priority ?? 'p1', project_path: projectPath, team_pack_id: teamPackId, use_worktree: useWorktree, git_repo_root: gitRepoRoot } }),
-            });
-            if (!response.ok) {
-              const body = await response.json().catch(() => ({}));
-              throw new Error(body.error ?? '创建交付失败');
+            if (autonomous) {
+              throw new Error('自主交付必须通过带 GoalContract 的 delivery.create 命令创建');
             }
+            const receipt = await workspaceCommandGateway.submit({
+              type: 'delivery.create',
+              idempotencyKey: createWorkspaceCommandIdempotencyKey(`delivery.create:${id}`),
+              deliveryId: id,
+              projectPath: projectPath ?? '',
+              actor: { type: 'user', id: 'webui:local-user' },
+              issuedAt: stamp,
+              title,
+              goal,
+              priority: priority ?? 'p1',
+              teamPackId,
+              useWorktree,
+              gitRepoRoot,
+              autonomous: false,
+            });
+            if (receipt.status !== 'accepted') throw new Error(receipt.userMessage ?? '创建交付失败');
           } catch (error) {
             await get().deleteConversation(id, { persist: false });
             console.error('[mutation] conversation.create failed:', error);
@@ -1616,15 +1591,15 @@ export const useTaskHubStore = create<TaskHubState>()(
           if (options?.persist === false) return true;
 
           try {
-            const response = await fetch('/api/mutations', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'conversation.delete', payload: { id: conversationId } }),
+            const receipt = await workspaceCommandGateway.submit({
+              type: 'delivery.delete',
+              idempotencyKey: createWorkspaceCommandIdempotencyKey(`delivery.delete:${conversationId}`),
+              deliveryId: conversationId,
+              projectPath: removedConversation?.projectPath ?? '',
+              actor: { type: 'user', id: 'webui:local-user' },
+              issuedAt: new Date().toISOString(),
             });
-            if (!response.ok) {
-              const body = await response.json().catch(() => ({}));
-              throw new Error(body.error ?? `删除项目失败（HTTP ${response.status}）`);
-            }
+            if (receipt.status !== 'accepted') throw new Error(receipt.userMessage ?? '删除交付失败');
             return true;
           } catch (error) {
             set((current) => ({
@@ -1745,10 +1720,10 @@ export const useTaskHubStore = create<TaskHubState>()(
             const resolvedMentions = resolveMentionAgentIds(get(), mentions);
             const entryAgentIds = selectUserEntryAgentIds(resolvedMentions);
             try {
-              const receipt = await humanCommandGateway.submit({
+              const receipt = await workspaceCommandGateway.submit({
                 type: 'delivery.requirement.submit',
                 idempotencyKey: commandIdempotencyKey
-                  ?? createHumanCommandIdempotencyKey(conversationId),
+                  ?? createWorkspaceCommandIdempotencyKey(conversationId),
                 projectPath: existingConv.projectPath,
                 deliveryId: conversationId,
                 actor: { type: 'user', id: 'human' },
@@ -1810,25 +1785,8 @@ export const useTaskHubStore = create<TaskHubState>()(
                 ].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || '')),
               },
             }));
-            void fetch('/api/mutations', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ type: 'message.append', payload: {
-                conversationId,
-                taskId: rest.referencedTaskId,
-                senderType: 'agent',
-                senderId: rest.agentId,
-                content: rest.content,
-                mentions,
-                intent,
-                metadata: {
-                  source: rest.source,
-                  fromAgentId: rest.fromAgentId,
-                },
-              }}),
-            }).catch(
-              (error) => console.error('[mutation] message.append failed:', error),
-            );
+            // Agent-authored messages are persisted by the server/runtime owner.
+            // This branch only updates the passive browser projection.
           }
           return { ok: true };
         },

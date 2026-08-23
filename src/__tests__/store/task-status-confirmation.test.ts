@@ -59,6 +59,10 @@ describe('task.updateStatus confirmation boundary', () => {
     useTaskHubStore.setState({
       selectedConversationId: 'conv-1',
       selectedProjectId: 'conv-1',
+      conversations: [{
+        id: 'conv-1', title: 'Status task', goal: '', status: 'active', priority: 'p1',
+        projectPath: '', breakdownStatus: 'confirmed', createdAt: '', updatedAt: '',
+      }],
       tasks: [task],
       chatMessagesByConversation: { 'conv-1': [] },
       eventsByConversation: { 'conv-1': [] },
@@ -87,7 +91,11 @@ describe('task.updateStatus confirmation boundary', () => {
     resolveMutation({
       ok: true,
       status: 200,
-      json: async () => ({ result: acceptedTask('in_progress', 1) }),
+      json: async () => ({ receipt: {
+        idempotencyKey: 'status-1', commandType: 'task.transition', projectPath: '', deliveryId: 'conv-1',
+        status: 'accepted', duplicate: false, targetAgentIds: [], recordedAt: '2026-07-19T00:00:01.000Z',
+        result: { task: acceptedTask('in_progress', 1) },
+      } }),
     } as Response);
     await update;
 
@@ -102,9 +110,9 @@ describe('task.updateStatus confirmation boundary', () => {
       expect.objectContaining({ intent: 'task_status', metadata: expect.objectContaining({ status: 'in_progress' }) }),
     );
     expect(fetchSpy).toHaveBeenCalled();
-    expect(fetchSpy).toHaveBeenCalledWith('/api/mutations', expect.objectContaining({
+    expect(fetchSpy).toHaveBeenCalledWith('/api/workspace-commands', expect.objectContaining({
       method: 'POST',
-      body: expect.stringContaining('task.updateStatus'),
+      body: expect.stringContaining('task.transition'),
     }));
   });
 
@@ -114,7 +122,11 @@ describe('task.updateStatus confirmation boundary', () => {
         ok: false,
         status: 403,
         statusText: 'Forbidden',
-        json: async () => ({ error: 'Only the task owner can change this status.' }),
+        json: async () => ({ receipt: {
+          idempotencyKey: 'status-rejected', commandType: 'task.transition', projectPath: '', deliveryId: 'conv-1',
+          status: 'rejected', duplicate: false, targetAgentIds: [], recordedAt: '2026-07-19T00:00:01.000Z',
+          userMessage: 'Only the task owner can change this status.',
+        } }),
       } as Response)
       .mockResolvedValue({ ok: true } as Response);
     await useTaskHubStore.getState().updateTaskStatus('TASK-015', 'in_progress');
@@ -154,13 +166,19 @@ describe('task.updateStatus confirmation boundary', () => {
     resolvers[1]({
       ok: true,
       status: 200,
-      json: async () => ({ result: acceptedTask('blocked', 2) }),
+      json: async () => ({ receipt: {
+        idempotencyKey: 'newer', commandType: 'task.transition', projectPath: '', deliveryId: 'conv-1',
+        status: 'accepted', duplicate: false, targetAgentIds: [], recordedAt: '', result: { task: acceptedTask('blocked', 2) },
+      } }),
     } as Response);
     await newer;
     resolvers[0]({
       ok: true,
       status: 200,
-      json: async () => ({ result: acceptedTask('in_progress', 1) }),
+      json: async () => ({ receipt: {
+        idempotencyKey: 'older', commandType: 'task.transition', projectPath: '', deliveryId: 'conv-1',
+        status: 'accepted', duplicate: false, targetAgentIds: [], recordedAt: '', result: { task: acceptedTask('in_progress', 1) },
+      } }),
     } as Response);
     await older;
 
@@ -184,7 +202,10 @@ describe('task.updateStatus confirmation boundary', () => {
     resolveMutation({
       ok: true,
       status: 200,
-      json: async () => ({ result: acceptedTask('in_progress', 1) }),
+      json: async () => ({ receipt: {
+        idempotencyKey: 'delayed', commandType: 'task.transition', projectPath: '', deliveryId: 'conv-1',
+        status: 'accepted', duplicate: false, targetAgentIds: [], recordedAt: '', result: { task: acceptedTask('in_progress', 1) },
+      } }),
     } as Response);
     await update;
 

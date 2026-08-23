@@ -1,0 +1,21 @@
+[package]
+name = "agent-task-hub-desktop"
+version = "0.1.0"
+description = "Agent Task Hub desktop host"
+edition = "2021"
+
+[lib]
+name = "agent_task_hub_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+getrandom = "0.2"
+hex = "0.4"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-tls-webpki-roots"] }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+url = "2"

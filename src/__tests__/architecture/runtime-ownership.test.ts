@@ -326,14 +326,14 @@ describe('runtime ownership architecture', () => {
     expect(repository).not.toMatch(/^  listActiveAuthoritiesForTask\s*\(/m);
   });
 
-  it('keeps explicit human command adapters available', () => {
-    const gateway = source('src/lib/human-command/WebHumanCommandGateway.ts');
-    const commandApi = source('src/pages/api/human-commands.ts');
+  it('keeps the unified workspace command adapter available', () => {
+    const gateway = source('src/lib/workspace-command/WebWorkspaceCommandGateway.ts');
+    const commandApi = source('src/pages/api/workspace-commands.ts');
     const agentRuntime = source('src/server/agent-runtime/directed-agent-runtime.ts');
-    expect(taskHubStore).toContain('humanCommandGateway.submit({');
+    expect(taskHubStore).toContain('workspaceCommandGateway.submit({');
     expect(taskHubStore).not.toContain(`type: 'a2a.human_handoff'`);
-    expect(gateway).toContain("private readonly endpoint = '/api/human-commands'");
-    expect(commandApi).toContain('new HumanCommandService().submit');
+    expect(gateway).toContain("private readonly endpoint = '/api/workspace-commands'");
+    expect(commandApi).toContain('new WorkspaceCommandService({ io }).submit');
     expect(taskHubStore).not.toContain(`socket.emit('a2a:user-turn-created'`);
     expect(daemon).not.toContain(`socket.on('a2a:user-turn-created'`);
     expect(daemon).not.toContain(`socket.on('terminal:start'`);
@@ -342,6 +342,29 @@ describe('runtime ownership architecture', () => {
     expect(agentRuntime).toContain('implements AgentRuntime');
     expect(agentRuntime).toMatch(/async execute\(\s*plan: InvocationDispatchPlan,/);
     expect(productionTypeScriptFiles('src').filter((path) => source(path).includes("emit('terminal:start'"))).toEqual([]);
+  });
+
+  it('keeps renderer business writes behind WorkspaceCommandGateway', () => {
+    const renderer = productionTypeScriptFiles('src/components')
+      .concat(productionTypeScriptFiles('src/store'))
+      .map((path) => source(path))
+      .join('\n');
+    expect(renderer).not.toContain("fetch('/api/mutations'");
+    expect(renderer).not.toContain("fetch('/api/task-graph'");
+    expect(renderer).not.toContain("fetch('/api/autonomous-delivery',");
+    expect(renderer).not.toContain("@/lib/human-command");
+  });
+
+  it('projects the compatibility Conversation model once above workspace panels', () => {
+    const workspace = source('src/components/project/ProjectWorkspace.tsx');
+    const chat = source('src/components/project/ProjectChatPanel.tsx');
+    const right = source('src/components/project/ProjectRightPanel.tsx');
+    const sidebar = source('src/components/project/ProjectSidebar.tsx');
+    expect(workspace).toContain('projectDeliveryWorkspace({');
+    expect(workspace).toContain('projectDeliveryNavigation({');
+    expect(chat).not.toContain('projectDeliveryWorkspace');
+    expect(right).not.toContain('projectDeliveryWorkspace');
+    expect(sidebar).not.toContain('type Conversation');
   });
 
   it('routes every production domain trigger through CollaborationKernel', () => {
@@ -614,12 +637,15 @@ describe('runtime ownership architecture', () => {
     }
   });
 
-  it('keeps Phase persistence behind the dedicated Phase interface', () => {
+  it('keeps Phase persistence behind Workspace Command and the server Phase owner', () => {
     expect(phaseApi).toContain("if (req.method === 'GET')");
     expect(phaseApi).toContain("if (req.method === 'POST')");
     expect(phaseApi).toContain("if (req.method === 'DELETE')");
-    expect(taskStore).toContain("fetch('/api/phases'");
-    expect(taskStore).toContain('fetch(`/api/phases?id=${encodeURIComponent(phaseId)}`');
+    expect(taskStore).not.toContain("fetch('/api/phases'");
+    expect(taskStore).not.toContain('fetch(`/api/phases?id=${encodeURIComponent(phaseId)}`');
+    expect(taskStore).toContain("type: 'work.phase.upsert'");
+    expect(taskStore).toContain("type: 'work.phase.delete'");
+    expect(source('src/server/workspace-command/service.ts')).toContain('upsertPersistedPhase({');
     for (const action of ['phase.upsert', 'phase.delete']) {
       expect(mutationApi).not.toContain(`case '${action}'`);
       expect(taskStore).not.toContain(`type: '${action}'`);
@@ -850,7 +876,6 @@ describe('runtime ownership architecture', () => {
         'assertInvocationStatus',
         'canTransitionInvocation',
       ],
-      'src/server/db/phaseQueries.ts': ['getPhaseById'],
       'src/server/db/agentQueries.ts': ['getAgentById'],
       'src/server/agent/acp/acpBackend.ts': ['acpSessionMeta'],
       'src/server/work-contract/dispatch-contract.ts': ['deriveWorkId'],

@@ -93,6 +93,7 @@ export function TaskDetailPanel() {
   const {
     selectedTaskId,
     selectedConversationId,
+    selectedProjectPath,
     setSelectedTaskId,
     tasks,
     updateTaskStatus,
@@ -105,6 +106,7 @@ export function TaskDetailPanel() {
   } = useTaskHubStore(useShallow((s) => ({
     selectedTaskId: s.selectedTaskId,
     selectedConversationId: s.selectedConversationId,
+    selectedProjectPath: s.conversations.find((item) => item.id === s.selectedConversationId)?.projectPath ?? '',
     setSelectedTaskId: s.setSelectedTaskId,
     tasks: s.tasks,
     updateTaskStatus: s.updateTaskStatus,
@@ -491,6 +493,7 @@ export function TaskDetailPanel() {
             task={{
               id: task.id,
               conversationId: task.conversationId,
+              projectPath: selectedProjectPath,
               title: task.title,
               status: task.status,
               agentId: task.agentId,

@@ -1,7 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { FlaskConical, MessagesSquare } from 'lucide-react';
 import { ProjectSidebar } from './ProjectSidebar';
 import { ProjectChatPanel } from './ProjectChatPanel';
@@ -10,11 +11,25 @@ import { AgentObservabilityDrawerHost } from './AgentObservabilityDrawerHost';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
 import type { DeliveryRunSnapshot } from '@/server/autonomous-delivery/types';
+import { projectDeliveryNavigation, projectDeliveryWorkspace } from '@/lib/delivery-workspace/DeliveryWorkspaceProjection';
 
 const ProjectEvaluationWorkspace = dynamic(() => import('./ProjectEvaluationWorkspace').then((mod) => mod.ProjectEvaluationWorkspace));
 
 export function ProjectWorkspace() {
-  const selectedConversation = useTaskHubStore((s) => s.getSelectedConversation());
+  const {
+    selectedDeliveryId,
+    conversations,
+    tasks,
+    blockersByConversation,
+    chatMessagesByConversation,
+  } = useTaskHubStore(useShallow((state) => ({
+    selectedDeliveryId: state.selectedConversationId,
+    conversations: state.conversations,
+    tasks: state.tasks,
+    blockersByConversation: state.blockersByConversation,
+    chatMessagesByConversation: state.chatMessagesByConversation,
+  })));
+  const selectedConversation = conversations.find((item) => item.id === selectedDeliveryId);
   const [mode, setMode] = useState<'collaboration' | 'evaluation'>('collaboration');
   const [deliveryRunState, setDeliveryRunState] = useState<{
     deliveryId: string;
@@ -28,10 +43,29 @@ export function ProjectWorkspace() {
     if (!deliveryId || !snapshot) return;
     setDeliveryRunState({ deliveryId, snapshot });
   }, [selectedConversation?.id]);
+  const delivery = useMemo(() => projectDeliveryWorkspace({
+    conversations,
+    tasks,
+    deliveryRunSnapshot,
+    blockersByConversation,
+    chatMessagesByConversation,
+  }, selectedDeliveryId), [
+    blockersByConversation,
+    chatMessagesByConversation,
+    conversations,
+    deliveryRunSnapshot,
+    selectedDeliveryId,
+    tasks,
+  ]);
+  const navigation = useMemo(() => projectDeliveryNavigation({
+    conversations,
+    tasks,
+    blockersByConversation,
+  }), [blockersByConversation, conversations, tasks]);
 
   return (
     <div className="flex-1 min-h-0 flex overflow-hidden">
-      <ProjectSidebar />
+      <ProjectSidebar navigation={navigation} />
       <div className="min-w-0 flex-1 flex flex-col">
         <div className="shrink-0 h-11 border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] px-4 flex items-center justify-between">
           <div className="min-w-0">
@@ -58,10 +92,10 @@ export function ProjectWorkspace() {
         {mode === 'collaboration' ? (
           <div className="min-h-0 flex-1 flex overflow-hidden">
             <ProjectChatPanel
-              deliveryRunSnapshot={deliveryRunSnapshot}
+              view={delivery}
               onDeliveryRunSnapshotChange={handleDeliveryRunSnapshotChange}
             />
-            <ProjectRightPanel deliveryRunSnapshot={deliveryRunSnapshot} />
+            <ProjectRightPanel view={delivery} />
           </div>
         ) : (
           <main className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-muted))] p-4 lg:p-6">
