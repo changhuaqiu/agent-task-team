@@ -33,5 +33,6 @@ export type ExecutionEnvelopeStatus =
 export interface ExecutionEnvelopePayload {
   prompt?: string;
   handoffPacketId?: string;
+  sourceMessageId?: string;
   contextRefs: string[];
 }

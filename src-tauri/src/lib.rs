@@ -1,4 +1,6 @@
 use std::{
+    fs::OpenOptions,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
     thread,
@@ -9,6 +11,11 @@ use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 const PROTOCOL_VERSION: u32 = 1;
 const DEVELOPMENT_SECRET: &str = "agent-task-hub-desktop-development";
+
+fn node_compatible_path(path: &Path) -> PathBuf {
+    let value = path.to_string_lossy();
+    PathBuf::from(value.strip_prefix(r"\\?\").unwrap_or(&value))
+}
 
 struct ManagedService {
     child: Option<Child>,
@@ -56,8 +63,22 @@ fn start_service(app: &tauri::AppHandle, secret: &str, port: u16) -> Result<Opti
     }
     let resource_dir = app.path().resource_dir().map_err(|error| error.to_string())?;
     let server = resource_dir.join("service").join("server.js");
+    if !server.is_file() {
+        return Err(format!("desktop service entry is missing: {}", server.display()));
+    }
+    let server = node_compatible_path(&server);
     let data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
     std::fs::create_dir_all(&data_dir).map_err(|error| error.to_string())?;
+    let log_dir = app.path().app_log_dir().map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(&log_dir).map_err(|error| error.to_string())?;
+    let service_log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("service.log"))
+        .map_err(|error| format!("open service log: {error}"))?;
+    let service_error_log = service_log
+        .try_clone()
+        .map_err(|error| format!("clone service log: {error}"))?;
     Command::new("node")
         .arg(server)
         .env("HOSTNAME", "127.0.0.1")
@@ -65,11 +86,33 @@ fn start_service(app: &tauri::AppHandle, secret: &str, port: u16) -> Result<Opti
         .env("ATH_DATA_DIR", data_dir)
         .env("ATH_DESKTOP_BOOTSTRAP_SECRET", secret)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::from(service_log))
+        .stderr(Stdio::from(service_error_log))
         .spawn()
         .map(Some)
         .map_err(|error| format!("start service: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::node_compatible_path;
+    use std::path::Path;
+
+    #[test]
+    fn removes_windows_extended_length_prefix_for_node() {
+        assert_eq!(
+            node_compatible_path(Path::new(r"\\?\C:\Program Files\Agent Task Hub\service\server.js")),
+            Path::new(r"C:\Program Files\Agent Task Hub\service\server.js"),
+        );
+    }
+
+    #[test]
+    fn preserves_regular_paths() {
+        assert_eq!(
+            node_compatible_path(Path::new(r"C:\Agent Task Hub\service\server.js")),
+            Path::new(r"C:\Agent Task Hub\service\server.js"),
+        );
+    }
 }
 
 fn wait_for_service(service_url: &str, secret: &str) -> Result<Handshake, String> {

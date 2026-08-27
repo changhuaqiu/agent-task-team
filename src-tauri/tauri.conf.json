@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm desktop:dev-service",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm desktop:prepare && pnpm build",
+    "beforeBuildCommand": "pnpm desktop:service-build",
     "frontendDist": "../public"
   },
   "app": {
@@ -18,10 +18,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "icon": ["../src/app/favicon.ico"],
     "resources": {
-      "../.next/standalone/": "service",
-      "../.next/static/": "service/.next/static",
-      "../public/": "service/public"
+      "gen/service/": "service"
     }
   }
 }

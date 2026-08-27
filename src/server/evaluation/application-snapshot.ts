@@ -13,6 +13,8 @@ import { skillRepo } from '../repositories/skill-repo';
 import { teamPackRepo } from '../repositories/team-pack-repo';
 import { digest, stableJson } from './defaults';
 import { normalizePersistedRuntimeSelection } from '../runtime-selection';
+import { agentDefinitionRepo } from '../agents/agent-definition-repo';
+import type { AgentResponsibility } from '@/shared/agent-definition';
 
 type Row = Record<string, unknown>;
 
@@ -29,11 +31,18 @@ export type CaseExecutionStatus =
 
 export interface FrozenAgentManifest {
   agentId: string;
+  name: string;
+  instructions: string;
+  responsibility: AgentResponsibility;
+  definitionRevision: number;
+  definitionDigest: string;
   engine: RuntimeCliEngine;
   runtimeId?: string;
   accountId?: string;
   accountConfigDigest?: string;
-  roleCardDigest?: string;
+  model?: string;
+  canModifyCode: boolean;
+  canReview: boolean;
   skillRevisions: Array<{ skillId: string; revisionId: string; contentHash: string }>;
 }
 
@@ -74,6 +83,19 @@ function frozenAgents(
   team: TeamPack,
   revisionOverrides: Record<string, string>,
 ): FrozenAgentManifest[] {
+  const agentDefinitions = agentDefinitionRepo.list().map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    accountIds: agent.account_ids,
+    cliEngine: agent.runtime_id ?? undefined,
+    instructions: agent.instructions,
+    responsibility: agent.responsibility,
+    model: agent.model ?? undefined,
+    emoji: agent.emoji,
+    skillIds: agent.skill_ids,
+    canModifyCode: Boolean(agent.can_modify_code),
+    canReview: Boolean(agent.can_review),
+  }));
   const allSkills = Object.fromEntries(skillRepo.list().map((skill) => [skill.id, {
     id: skill.id,
     name: skill.name,
@@ -81,17 +103,12 @@ function frozenAgents(
     version: skill.version,
     config: skill.config ?? undefined,
   }]));
-  const agentSkillIds = skillRepo.getAllAgentSkillIds();
   const runtime = resolveTeamRuntime({
     conversationId,
     teamPack: team,
-    presetAgents: [],
+    presetAgents: agentDefinitions,
     activeAgentIds: team.roles.map((role) => role.id),
-    roleCards: [],
     skillsMap: allSkills,
-    agentSkillIds,
-    agentAccountOverrides: {},
-    agentRoleCardOverrides: {},
   });
   const accounts = listAccounts().map((account) => ({
     id: account.id,
@@ -106,10 +123,9 @@ function frozenAgents(
   const agents = team.roles.flatMap((role): FrozenAgentManifest[] => {
     const profile = resolveRuntimeAgentProfile(runtime, role.id, accounts);
     if (!profile) return [];
-    const skillIds = Array.from(new Set([
-      ...(role.skillIds ?? []),
-      ...profile.prompt.skills.map((skill) => skill.id).filter((id): id is string => Boolean(id)),
-    ])).sort();
+    const skillIds = Array.from(new Set(
+      profile.prompt.skills.map((skill) => skill.id).filter((id): id is string => Boolean(id)),
+    )).sort();
     const skillRevisions = skillIds.map((skillId) => {
       const requestedRevisionId = revisionOverrides[skillId];
       const revision = requestedRevisionId
@@ -125,6 +141,20 @@ function frozenAgents(
       : undefined;
     return [{
       agentId: role.id,
+      name: profile.agent.displayName,
+      instructions: profile.agent.instructions ?? '',
+      responsibility: profile.agent.responsibility ?? 'specialist',
+      definitionRevision: agentDefinitionRepo.get(role.id)?.revision ?? 1,
+      definitionDigest: digest({
+        name: profile.agent.displayName,
+        instructions: profile.agent.instructions ?? '',
+        responsibility: profile.agent.responsibility,
+        runtimeId: profile.agent.cliEngine,
+        accountIds: profile.agent.accountIds,
+        model: profile.agent.model,
+        canModifyCode: Boolean(profile.agent.canModifyCode),
+        canReview: Boolean(profile.agent.canReview),
+      }),
       engine: profile.execution.engine,
       runtimeId: profile.execution.runtimeId,
       accountId: profile.execution.accountId,
@@ -134,7 +164,9 @@ function frozenAgents(
         baseUrl: selectedAccount.baseUrl,
         models: selectedAccount.models,
       }) : undefined,
-      roleCardDigest: role.roleCardSnapshot ? digest(role.roleCardSnapshot) : undefined,
+      model: profile.agent.model,
+      canModifyCode: Boolean(profile.agent.canModifyCode),
+      canReview: Boolean(profile.agent.canReview),
       skillRevisions,
     }];
   }).sort((left, right) => left.agentId.localeCompare(right.agentId));
@@ -245,23 +277,25 @@ export function resolveApplicationSnapshotRuntime(
       config: revision.config ?? undefined,
     };
   }
-  const agentSkillIds = Object.fromEntries(snapshot.manifest.agents.map((agent) => [
-    agent.agentId,
-    agent.skillRevisions.map((skill) => skill.skillId),
-  ]));
   const runtime = resolveTeamRuntime({
     conversationId,
     teamPack: snapshot.manifest.team,
-    presetAgents: [],
+    presetAgents: snapshot.manifest.agents.map((agent) => {
+      return {
+        id: agent.agentId,
+        name: agent.name,
+        accountIds: agent.accountId ? [agent.accountId] : [],
+        cliEngine: agent.engine,
+        instructions: agent.instructions,
+        responsibility: agent.responsibility ?? 'specialist',
+        model: agent.model,
+        skillIds: agent.skillRevisions.map((skill) => skill.skillId),
+        canModifyCode: agent.canModifyCode,
+        canReview: agent.canReview,
+      };
+    }),
     activeAgentIds: snapshot.manifest.agents.map((agent) => agent.agentId),
-    roleCards: [],
     skillsMap,
-    agentSkillIds,
-    agentAccountOverrides: Object.fromEntries(snapshot.manifest.agents.map((agent) => [
-      agent.agentId,
-      agent.accountId ? [agent.accountId] : [],
-    ])),
-    agentRoleCardOverrides: {},
   });
   const agent = runtime.roster.find((item) => item.id === agentId);
   if (!agent) return undefined;
@@ -280,7 +314,6 @@ export function resolveApplicationSnapshotRuntime(
         accountId: frozenAgent.accountId,
       },
       prompt: {
-        roleCard: agent.roleCard,
         skills: agent.skills,
         teamPack: runtime.teamPack,
         roster: runtime.roster,

@@ -46,3 +46,12 @@
 - [x] hard max turn timeout 可终止持续产生更新但不结束的异常进程。
 - [x] 小写 runtime 原生工具不会触发平台自定义工具执行。
 - [x] 连续 ACP 文本 chunk 在历史消息中只形成一个逻辑文本段，工具边界前后不误合并。
+
+## Managed Runtime 与命令交付
+
+- [x] ACP worker 跨 Invocation 持久存在并可承载多个 session。
+- [x] 并发 ensureReady 只启动一次，旧 generation 结果不能覆盖新状态；切换 runtime 不创建第二个逻辑 owner。
+- [x] worker pool 部分可用时仍可接单，transport failure 只替换故障 worker；lane 串行与 stale lease 已覆盖。
+- [ ] session affinity、EventQueue fairness、retry、dead letter 与 ACK fencing 测试通过。
+- [x] 结构化 MCP 是 Agent 主路径；CLI 与 MCP 共用 CommandService 和 receipt（当前已接入命令）。
+- [x] `runtime.completed` 或 final text 均不能完成领域对象；WorkContract turn 缺少 accepted lifecycle receipt 时以 `ended_without_outcome` 失败并保持可恢复。

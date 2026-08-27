@@ -1,6 +1,6 @@
-import type { RoleCard } from '@/types/roleCard';
 import type { TeamPack } from '@/types/teamPack';
 import type { RuntimeCliEngine } from './runtimeEngine';
+import type { AgentResponsibility } from '@/shared/agent-definition';
 
 export type { RuntimeCliEngine } from './runtimeEngine';
 
@@ -20,11 +20,12 @@ export interface RuntimeAgent {
   id: string;
   displayName: string;
   source: RuntimeAgentSource;
-  roleCardId?: string;
-  roleCard?: RoleCard;
   accountIds: string[];
   skills: RuntimeSkillSummary[];
   cliEngine?: RuntimeCliEngine;
+  instructions?: string;
+  responsibility?: AgentResponsibility;
+  model?: string;
   emoji?: string;
   theme?: RuntimeAgentTheme;
   canModifyCode?: boolean;
@@ -45,9 +46,9 @@ export interface RuntimeAgentProfile {
     engine: RuntimeCliEngine;
     accountId?: string;
     runtimeId?: string;
+    preferredModel?: string;
   };
   prompt: {
-    roleCard?: RoleCard;
     skills: RuntimeSkillSummary[];
     teamPack?: TeamPack;
     roster: RuntimeAgent[];

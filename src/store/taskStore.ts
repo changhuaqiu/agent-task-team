@@ -45,6 +45,7 @@ export interface Task {
   conversationId: string;
   phaseId: string;
   title: string;
+  category?: 'issue' | 'change_request' | 'improvement';
   description: string;
   status: TaskStatus;
   agentId: string;
@@ -54,6 +55,15 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   revision: number;
+}
+
+export interface TaskIdentity {
+  conversationId: string;
+  taskId: string;
+}
+
+function taskIdentityKey(identity: TaskIdentity): string {
+  return `${identity.conversationId}\u0000${identity.taskId}`;
 }
 
 // --- Module-level counters (shared across app slice loadFromServer) ---
@@ -89,14 +99,15 @@ function retainedWorkspaceIntent(
   return intent;
 }
 
-function nextTaskMutationEpoch(taskId: string): number {
-  const next = (taskMutationEpoch.get(taskId) ?? 0) + 1;
-  taskMutationEpoch.set(taskId, next);
+function nextTaskMutationEpoch(identity: TaskIdentity): number {
+  const key = taskIdentityKey(identity);
+  const next = (taskMutationEpoch.get(key) ?? 0) + 1;
+  taskMutationEpoch.set(key, next);
   return next;
 }
 
-export function observeAuthoritativeTaskProjection(taskId: string): void {
-  nextTaskMutationEpoch(taskId);
+export function observeAuthoritativeTaskProjection(identity: TaskIdentity): void {
+  nextTaskMutationEpoch(identity);
 }
 
 function parseJsonArray<T>(value: unknown): T[] {
@@ -127,6 +138,7 @@ function authoritativeTask(value: unknown): Task | undefined {
     conversationId: row.conversation_id,
     phaseId: typeof row.phase_id === 'string' ? row.phase_id : '',
     title: row.title,
+    category: row.category === 'change_request' || row.category === 'improvement' ? row.category : 'issue',
     description: typeof row.description === 'string' ? row.description : '',
     status: row.status as TaskStatus,
     agentId: row.agent_id,
@@ -143,14 +155,16 @@ function shouldApplyCommandResult(
   current: Task | undefined,
   incoming: Task,
   commandEpoch: number,
+  identity: TaskIdentity,
 ): boolean {
+  if (incoming.id !== identity.taskId || incoming.conversationId !== identity.conversationId) return false;
   const currentRevision = typeof current?.revision === 'number'
     ? current.revision
     : -1;
   const incomingRevision = incoming.revision;
   if (incomingRevision < currentRevision) return false;
   if (
-    taskMutationEpoch.get(incoming.id) !== commandEpoch
+    taskMutationEpoch.get(taskIdentityKey(identity)) !== commandEpoch
     && incomingRevision <= currentRevision
   ) return false;
   return true;
@@ -165,7 +179,9 @@ function getTaskLookup(tasks: Task[]): Record<string, Task> {
   if (tasks !== _taskLookupRef) {
     _taskLookupRef = tasks;
     _taskLookup = {};
-    for (const t of tasks) _taskLookup[t.id] = t;
+    for (const t of tasks) {
+      _taskLookup[taskIdentityKey({ conversationId: t.conversationId, taskId: t.id })] = t;
+    }
   }
   return _taskLookup;
 }
@@ -190,7 +206,11 @@ export const createTaskSlice = (set: any, get: () => any) => {
     },
 
     getTaskById: (taskId: string): Task | undefined => {
-      return getTaskLookup(get().tasks)[taskId];
+      return get().tasks.find((task: Task) => task.id === taskId);
+    },
+
+    getTaskByIdentity: (identity: TaskIdentity): Task | undefined => {
+      return getTaskLookup(get().tasks)[taskIdentityKey(identity)];
     },
 
     getAgentCurrentTask: (agentId: string): Task | undefined => {
@@ -198,11 +218,11 @@ export const createTaskSlice = (set: any, get: () => any) => {
     },
 
     requestTaskProgress: async (
-      taskId: string,
+      identity: TaskIdentity,
       request: string,
       options: { idempotencyKey?: string; issuedAt?: string } = {},
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
-      const task = get().getTaskById(taskId);
+      const task = get().getTaskByIdentity(identity);
       const conversation = task
         ? get().conversations.find((candidate: any) => candidate.id === task.conversationId)
         : undefined;
@@ -214,7 +234,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
             ?? createWorkspaceCommandIdempotencyKey(task.conversationId),
           projectPath: conversation.projectPath,
           deliveryId: task.conversationId,
-          taskId,
+          taskId: identity.taskId,
           actor: { type: 'user', id: 'human' },
           request,
           issuedAt: options.issuedAt ?? new Date().toISOString(),
@@ -234,16 +254,16 @@ export const createTaskSlice = (set: any, get: () => any) => {
     addTask: async (taskData: Omit<Task, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => {
       const state = get();
       const conversationId = state.selectedConversationId;
-      if (!conversationId) return;
+      if (!conversationId) return false;
       const conversation = state.conversations.find((item: any) => item.id === conversationId);
-      if (!conversation) return;
+      if (!conversation) return false;
       const existing = state.tasks.find(
         (t: Task) =>
           t.conversationId === conversationId &&
           t.title === taskData.title &&
           t.agentId === taskData.agentId
       );
-      if (existing) return;
+      if (existing) return true;
 
       const intentSignature = JSON.stringify({ type: 'task.create', conversationId, taskData });
       const intent = retainedWorkspaceIntent(
@@ -263,43 +283,51 @@ export const createTaskSlice = (set: any, get: () => any) => {
           task: {
             id,
             title: taskData.title,
+            category: taskData.category,
             description: taskData.description,
             agentId: taskData.agentId,
             dependencies: taskData.dependencies,
             artifacts: taskData.artifacts,
           },
-          requestExecution: true,
+          requestExecution: Boolean(taskData.agentId?.trim()),
         });
         pendingWorkspaceIntents.delete(intentSignature);
         const created = authoritativeTask((receipt.result as { task?: unknown } | undefined)?.task);
         if (receipt.status !== 'accepted' || !created) throw new Error(receipt.userMessage ?? '任务创建失败');
         set((state: any) => ({
-          tasks: state.tasks.some((task: Task) => task.id === created.id)
-            ? state.tasks.map((task: Task) => task.id === created.id ? created : task)
+          tasks: state.tasks.some((task: Task) => task.id === created.id && task.conversationId === created.conversationId)
+            ? state.tasks.map((task: Task) => task.id === created.id && task.conversationId === created.conversationId ? created : task)
             : [...state.tasks, created],
         }));
+        return true;
       } catch (error) {
         console.error('[mutation] task.create failed:', error);
+        return false;
       }
     },
 
-    removeTask: (taskId: string) =>
+    removeTask: (identity: TaskIdentity) =>
       set((state: any) => ({
-        tasks: state.tasks.filter((t: Task) => t.id !== taskId),
-        selectedTaskId: state.selectedTaskId === taskId ? null : state.selectedTaskId,
+        tasks: state.tasks.filter((task: Task) => (
+          task.id !== identity.taskId || task.conversationId !== identity.conversationId
+        )),
+        selectedTaskId: state.selectedConversationId === identity.conversationId
+          && state.selectedTaskId === identity.taskId
+          ? null
+          : state.selectedTaskId,
       })),
 
-    updateTask: async (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => {
-      const prev = get().getTaskById(taskId);
+    updateTask: async (identity: TaskIdentity, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => {
+      const prev = get().getTaskByIdentity(identity);
       if (!prev) return;
       if (!Number.isSafeInteger(prev.revision) || Number(prev.revision) < 0) {
         console.error('[mutation] task.update requires an authoritative task revision');
         return;
       }
-      const epoch = nextTaskMutationEpoch(taskId);
+      const epoch = nextTaskMutationEpoch(identity);
       const conversation = get().conversations.find((item: any) => item.id === prev.conversationId);
       if (!conversation) return;
-      const intentSignature = JSON.stringify({ type: 'task.update', taskId, revision: prev.revision, patch });
+      const intentSignature = JSON.stringify({ type: 'task.update', ...identity, revision: prev.revision, patch });
       const intent = retainedWorkspaceIntent(intentSignature, 'task.update');
       try {
         const receipt = await workspaceCommandGateway.submit({
@@ -307,7 +335,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
           idempotencyKey: intent.idempotencyKey,
           deliveryId: prev.conversationId,
           projectPath: conversation.projectPath,
-          taskId,
+          taskId: identity.taskId,
           expectedTaskRevision: Number(prev.revision),
           actor: { type: 'user', id: 'webui:local-user' },
           issuedAt: intent.issuedAt,
@@ -317,10 +345,10 @@ export const createTaskSlice = (set: any, get: () => any) => {
         const updated = authoritativeTask((receipt.result as { task?: unknown } | undefined)?.task);
         if (receipt.status !== 'accepted' || !updated) throw new Error(receipt.userMessage ?? '任务更新失败');
         set((state: any) => {
-          const current = state.tasks.find((task: Task) => task.id === taskId);
-          if (!shouldApplyCommandResult(current, updated, epoch)) return {};
+          const current = state.tasks.find((task: Task) => task.id === identity.taskId && task.conversationId === identity.conversationId);
+          if (!shouldApplyCommandResult(current, updated, epoch, identity)) return {};
           return {
-            tasks: state.tasks.map((task: Task) => task.id === taskId ? updated : task),
+            tasks: state.tasks.map((task: Task) => task.id === identity.taskId && task.conversationId === identity.conversationId ? updated : task),
           };
         });
       } catch (error) {
@@ -328,19 +356,19 @@ export const createTaskSlice = (set: any, get: () => any) => {
       }
     },
 
-    updateTaskStatus: async (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => {
-      const prev = get().getTaskById(taskId);
-      if (!prev) return;
+    updateTaskStatus: async (identity: TaskIdentity, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => {
+      const prev = get().getTaskByIdentity(identity);
+      if (!prev) return false;
       const conversationId = prev.conversationId;
       const conversation = get().conversations.find((item: any) => item.id === conversationId);
-      if (!conversation) return;
-      const epoch = nextTaskMutationEpoch(taskId);
+      if (!conversation) return false;
+      const epoch = nextTaskMutationEpoch(identity);
 
       const reportFailure = (reasonSummary: string) => {
-        if (taskMutationEpoch.get(taskId) !== epoch) return;
+        if (taskMutationEpoch.get(taskIdentityKey(identity)) !== epoch) return;
         get().openBlocker?.({
           conversationId,
-          taskId,
+          taskId: identity.taskId,
           type: 'gate_fail',
           gateId: status === 'done' ? 'build' : 'unit',
           reasonSummary,
@@ -349,11 +377,11 @@ export const createTaskSlice = (set: any, get: () => any) => {
 
       if (!Number.isSafeInteger(prev.revision) || Number(prev.revision) < 0) {
         reportFailure('任务版本尚未完成同步，请刷新后重试。');
-        return;
+        return false;
       }
 
       const intentSignature = JSON.stringify({
-        type: 'task.transition', taskId, revision: prev.revision, status, reviewNote, evidence,
+        type: 'task.transition', ...identity, revision: prev.revision, status, reviewNote, evidence,
       });
       const intent = retainedWorkspaceIntent(intentSignature, 'task.updateStatus');
       try {
@@ -362,7 +390,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
           idempotencyKey: intent.idempotencyKey,
           deliveryId: conversationId,
           projectPath: conversation.projectPath,
-          taskId,
+          taskId: identity.taskId,
           expectedTaskRevision: Number(prev.revision),
           actor: { type: 'user', id: 'webui:local-user' },
           issuedAt: intent.issuedAt,
@@ -373,46 +401,46 @@ export const createTaskSlice = (set: any, get: () => any) => {
         pendingWorkspaceIntents.delete(intentSignature);
         if (receipt.status !== 'accepted') {
           reportFailure(receipt.userMessage ?? `状态流转到 ${status} 被服务端拒绝。`);
-          return;
+          return false;
         }
         const authoritative = authoritativeTask((receipt.result as { task?: unknown } | undefined)?.task);
         if (!authoritative) {
           reportFailure('服务端没有返回权威任务状态，请刷新后重试。');
-          return;
+          return false;
         }
         let applied = false;
         set((state: any) => {
-          const current = state.tasks.find((task: Task) => task.id === taskId);
-          if (!shouldApplyCommandResult(current, authoritative, epoch)) return {};
+          const current = state.tasks.find((task: Task) => task.id === identity.taskId && task.conversationId === identity.conversationId);
+          if (!shouldApplyCommandResult(current, authoritative, epoch, identity)) return {};
           applied = true;
           return {
-            tasks: state.tasks.map((task: Task) => task.id === taskId ? authoritative : task),
+            tasks: state.tasks.map((task: Task) => task.id === identity.taskId && task.conversationId === identity.conversationId ? authoritative : task),
           };
         });
-        if (!applied) return;
+        if (!applied) return false;
       } catch (error) {
         const networkError = error instanceof Error ? error.message : String(error);
         reportFailure(`状态流转到 ${status} 失败：${networkError}`);
-        return;
+        return false;
       }
 
       get().addEvent({
         conversationId,
         type: 'task.status_changed',
-        payload: { taskId, status, reviewNote },
+        payload: { taskId: identity.taskId, status, reviewNote },
       });
 
-      const updated = get().getTaskById(taskId);
-      if (!updated) return;
+      const updated = get().getTaskByIdentity(identity);
+      if (!updated) return false;
       const convId = updated.conversationId;
       const msg = {
-        id: `msg-${Date.now()}-ts-${taskId}`,
+        id: `msg-${Date.now()}-ts-${identity.conversationId}-${identity.taskId}`,
         agentId: updated.agentId || 'system',
-        content: `${taskId} status → ${status}`,
+        content: `${identity.taskId} status → ${status}`,
         timestamp: new Date().toISOString(),
         intent: 'task_status' as const,
         conversationId: convId,
-        metadata: { taskId, title: updated.title, status, agentId: updated.agentId },
+        metadata: { taskId: identity.taskId, title: updated.title, status, agentId: updated.agentId },
       };
       set((s: any) => ({
         chatMessagesByConversation: {
@@ -420,6 +448,7 @@ export const createTaskSlice = (set: any, get: () => any) => {
           [convId]: [...(s.chatMessagesByConversation[convId] || []), msg],
         },
       }));
+      return true;
     },
 
     upsertPhase: async (phaseData: Omit<Phase, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<string> => {
@@ -520,13 +549,16 @@ export const createTaskSlice = (set: any, get: () => any) => {
       options?: { idempotencyKey: string; issuedAt: string },
     ) => {
       const state = get();
-      const allRoleCards = state.roleCards;
       const agentProfiles = AGENT_ROSTER.map((agent) => {
-        const rc = allRoleCards.find((c: any) => c.id === agent.roleCardId);
         return {
           id: agent.id,
-          forbiddenActions: rc?.forbiddenActions ?? [],
-          capabilities: rc?.capabilities,
+          forbiddenActions: agent.canModifyCode ? [] : ['modify code', '修改代码'],
+          capabilities: {
+            domains: [],
+            skills: agent.skillIds,
+            seniority: 'mid' as const,
+            maxConcurrentTasks: agent.parallelism ?? 1,
+          },
         };
       });
 

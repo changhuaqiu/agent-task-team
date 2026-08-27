@@ -15,6 +15,7 @@ export function SkillImportDialog({ open, onClose }: SkillImportDialogProps) {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -45,12 +46,12 @@ export function SkillImportDialog({ open, onClose }: SkillImportDialogProps) {
       if (res.error) {
         setResult({ ok: false, message: res.error });
       } else {
-        setResult({ ok: true, message: `Successfully imported ${res.imported ?? 0} skill(s)` });
+        setResult({ ok: true, message: `已成功导入 ${res.imported ?? 0} 个技能` });
         setUrl('');
         setTimeout(() => onClose(), 1200);
       }
     } catch {
-      setResult({ ok: false, message: 'Import failed. Please check the URL and try again.' });
+      setResult({ ok: false, message: '导入失败，请检查地址后重试。' });
     } finally {
       setLoading(false);
     }
@@ -58,8 +59,13 @@ export function SkillImportDialog({ open, onClose }: SkillImportDialogProps) {
 
   const handleClose = () => {
     if (loading) return;
+    if (url.trim() && !confirmDiscard) {
+      setConfirmDiscard(true);
+      return;
+    }
     setUrl('');
     setResult(null);
+    setConfirmDiscard(false);
     onClose();
   };
 
@@ -83,7 +89,7 @@ export function SkillImportDialog({ open, onClose }: SkillImportDialogProps) {
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-[hsl(var(--border))]">
             <h2 className="text-[15px] font-bold text-[hsl(var(--text-primary))]">
-              Import Skill
+              导入技能
             </h2>
             <button
               type="button"
@@ -99,7 +105,7 @@ export function SkillImportDialog({ open, onClose }: SkillImportDialogProps) {
           <div className="p-5 space-y-4">
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-                Source URL
+                来源地址
               </label>
               <input
                 ref={inputRef}
@@ -136,7 +142,7 @@ export function SkillImportDialog({ open, onClose }: SkillImportDialogProps) {
               disabled={loading}
               className="px-4 py-2 text-[12px] font-medium text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-muted))] rounded-[var(--radius-md)] transition-colors disabled:opacity-40"
             >
-              Cancel
+              取消
             </button>
             <button
               type="submit"
@@ -153,10 +159,19 @@ export function SkillImportDialog({ open, onClose }: SkillImportDialogProps) {
               ) : (
                 <Download className="w-3.5 h-3.5" />
               )}
-              {loading ? 'Importing...' : 'Import'}
+              {loading ? '正在导入…' : '导入'}
             </button>
           </div>
         </form>
+        {confirmDiscard && (
+          <div role="alertdialog" aria-modal="true" aria-labelledby="discard-skill-title" className="absolute inset-0 z-10 flex items-center justify-center rounded-[var(--radius-xl)] bg-black/30 p-4">
+            <div className="w-full max-w-sm rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--bg-elevated))] p-5 shadow-xl">
+              <h3 id="discard-skill-title" className="text-sm font-semibold">放弃未完成的导入？</h3>
+              <p className="mt-2 text-xs leading-5 text-[hsl(var(--text-secondary))]">已填写的技能地址会丢失。</p>
+              <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setConfirmDiscard(false)} className="rounded-md px-3 py-2 text-xs">继续编辑</button><button type="button" onClick={handleClose} className="rounded-md bg-rose-600 px-3 py-2 text-xs font-medium text-white">放弃改动</button></div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

@@ -14,7 +14,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 getrandom = "0.2"
 hex = "0.4"
-reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-tls-webpki-roots"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls", "webpki-roots"] }
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-single-instance = "2"

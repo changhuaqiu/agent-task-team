@@ -145,7 +145,7 @@ interface AssembledContext {
 
 持久层（与 trigger 无关，每次都装）：identity（role）、project scope、protocol、behavior、collaboration、teamPack、team roster、skill/tool。
 
-`behavior` 与 `collaboration` 共同冻结输出聚焦契约：Agent 不用身份介绍、计划播报或工具复述占据团队活动；工具调用由 Runtime Event/Trace 独立展示，正文只在出现新决策、新证据、阻塞或最终结果时输出。WorkContract 期间任务投影为只读，Agent 只能通过一次结构化 `agent_submit_outcome` 提交候选结果，Process Manager 原子推进任务或 Gate，不能先编辑 TASKS.md/任务状态使自己的 fencing revision 失效。
+`behavior` 与 `collaboration` 共同冻结输出聚焦契约：Agent 不用身份介绍、计划播报或工具复述占据团队活动；工具调用由 Runtime Event/Trace 独立展示，正文只在出现新决策、新证据、阻塞或最终结果时输出。WorkContract 期间任务投影为只读，Agent 只能调用一次当前意图对应的结构化生命周期工具提交候选结果，CommandService 原子推进任务或 Gate，不能先编辑 TASKS.md/任务状态使自己的 fencing revision 失效。
 
 ### 5.3 项目作用域（D2）
 - `project: { id, name, path }`；`id`（= conversationId）为隔离键

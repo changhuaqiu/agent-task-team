@@ -16,7 +16,7 @@ created: 2026-02-26
 | 文档架构与多 Agent 约束 | done | Admin | `docs/README.md` |
 | 工程型角色卡机制 | in-progress | Admin | `docs/product/business/2026-05-01-engineering-role-card-business-plan.md` |
 | 智能分派系统 | done | Admin | `docs/wiki/01-architecture.md` — CapabilityProfile 能力图谱 + DispatchAdvisor 匹配引擎 + ProjectStatusLayer 任务看板 + 可配置角色系统 |
-| 统一配置入口 | done | Admin | 设置抽屉统一管理账号、角色素材、技能与团队套件；daemon 执行上下文由服务端解析 |
+| Agent-first 配置入口 | done | Admin | Agent Definition 统一拥有身份、工作指令、技能和执行选择；设置只管理账号、运行环境与共享技能 |
 | ACP 运行时统一接入 | in-progress | Admin | `specs/acp-runtime-integration/` — OpenCode 原生 ACP + Claude/Codex ACP 适配器 |
 | 上下文管理收敛 | in-progress | Admin | `specs/context-manager/` — 单一注入网关 + 项目隔离 + 可见性与预算 |
 | 默认团队精简 | in-progress | Admin | `specs/team-simplification/` — 6 人默认团队收敛为 4 人 |

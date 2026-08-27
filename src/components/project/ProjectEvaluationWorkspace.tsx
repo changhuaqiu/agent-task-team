@@ -460,7 +460,7 @@ export function ProjectEvaluationWorkspace({ conversationId }: { conversationId?
           </div><AlertTriangle className="size-3 text-amber-600"/></div>
       </article>)}
     </ObjectList>}
-    {view === 'proposals' && <ObjectList empty="当前没有改进提案。差距只会形成候选提案，不会直接修改 RoleCard、Skill 或策略。">
+    {view === 'proposals' && <ObjectList empty="当前没有改进提案。差距只会形成候选提案，不会直接修改 Agent Definition、Skill 或策略。">
       {proposals.map((proposal) => <article key={proposal.id} className="rounded-lg border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] p-2.5">
         <div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 size-3.5 text-[hsl(var(--accent))]"/>
           <div className="min-w-0 flex-1"><div className="text-[10px] font-semibold">{proposal.hypothesis}</div>

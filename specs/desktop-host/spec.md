@@ -21,7 +21,8 @@
 - `src-tauri` crate、最小权限 capability、CSP、单实例和隐藏启动窗口；
 - Node Service 的 `/api/desktop/handshake` 与 `/api/desktop/shutdown`；
 - Host 启动/健康探测/版本校验/认证 drain 与直接子进程兜底；
-- 开发脚本、协议契约测试和 Windows standalone Service smoke；真实 Host 冷启动 smoke 等待 Rust toolchain。
+- 开发脚本、协议契约测试、Windows standalone Service smoke，以及 Next standalone 的依赖物化与隔离打包；
+- 生成的桌面资源不得包含 `.ath` 用户事实库、历史 `src-tauri/target` bundle 或指向开发工作区的 junction。
 
 ## 后续发布范围
 
@@ -32,4 +33,4 @@
 - 无 secret 或版本不匹配时握手 fail closed；
 - 窗口显示前 Service 已 ready；重复启动只激活现有窗口；
 - Renderer 断开不影响内核运行；显式退出终止 Service 进程树；
-- Web build、Rust check（有 Rust toolchain 的环境）和 Windows 启动 smoke 均通过。
+- Web build、Rust check 和 Windows 原生窗口启动 smoke 均通过；生成 Service 从打包目录独立启动。

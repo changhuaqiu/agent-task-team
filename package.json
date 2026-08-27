@@ -2,13 +2,18 @@
   "name": "agent-task-hub",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "ath": "scripts/ath-cli.mjs"
+  },
   "packageManager": "pnpm@10.33.2",
   "scripts": {
     "setup": "bash setup.sh",
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
+    "cli": "node scripts/ath-cli.mjs",
     "desktop:prepare": "node scripts/prepare-desktop-build.mjs",
+    "desktop:service-build": "pnpm desktop:prepare && pnpm build && node scripts/stage-desktop-service.mjs",
     "desktop:dev-service": "pnpm desktop:prepare && node scripts/start-desktop-service.mjs",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",

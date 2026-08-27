@@ -58,6 +58,23 @@ function account(): Account {
   };
 }
 
+function agentDefinition() {
+  return {
+    id: 'mario',
+    name: 'Mario',
+    role_card_id: 'preset-planner',
+    theme: 'mario',
+    emoji: '⭐',
+    runtime_id: 'codex',
+    account_ids: [ACCOUNT_ID],
+    instructions: 'Plan and coordinate.',
+    model: null,
+    skill_ids: [],
+    can_modify_code: 1,
+    can_review: 0,
+  };
+}
+
 function teamPack(): TeamPack {
   return {
     id: TEAM_PACK_ID,
@@ -111,6 +128,55 @@ describe('server hydration runtime gate', () => {
     });
   });
 
+  it('normalizes malformed non-array task projections instead of crashing the workspace', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/state') {
+        return json({
+          conversations: [{
+            id: CONVERSATION_ID,
+            title: 'Projection recovery',
+            goal: null,
+            status: 'active',
+            priority: 'p2',
+            project_path: 'C:/fixture',
+            team_pack_id: null,
+            created_at: '2026-08-25T00:00:00.000Z',
+            updated_at: '2026-08-25T00:00:00.000Z',
+          }],
+          tasks: [{
+            id: 'work-malformed',
+            conversation_id: CONVERSATION_ID,
+            title: 'Recover malformed projection',
+            description: '',
+            status: 'ready',
+            agent_id: '',
+            dependencies: '{}',
+            artifacts: '{}',
+            created_at: '2026-08-25T00:00:00.000Z',
+            updated_at: '2026-08-25T00:00:00.000Z',
+            revision: 0,
+          }],
+          phases: [],
+          recentMessages: {},
+          activeSessions: [],
+        });
+      }
+      if (url === '/api/accounts') return json({ accounts: [] });
+      if (url === '/api/agents') return json({ agents: [] });
+      if (url === '/api/skills' || url.includes('/skills')) return json([]);
+      return json({});
+    }));
+
+    await useTaskHubStore.getState().loadFromServer();
+
+    expect(useTaskHubStore.getState().tasks).toContainEqual(expect.objectContaining({
+      id: 'work-malformed',
+      dependencies: [],
+      artifacts: [],
+    }));
+  });
+
   it('removes retired integration routing objects from persisted v6 state', async () => {
     localStorage.setItem('agent-task-hub-store-clean', JSON.stringify({
       version: 6,
@@ -132,7 +198,7 @@ describe('server hydration runtime gate', () => {
       version?: number;
       state?: Record<string, unknown>;
     };
-    expect(persisted.version).toBe(9);
+    expect(persisted.version).toBe(10);
     expect(persisted.state).not.toHaveProperty('providerProfiles');
     expect(persisted.state).not.toHaveProperty('channelConfigs');
     expect(persisted.state).not.toHaveProperty('routingPolicies');
@@ -153,7 +219,7 @@ describe('server hydration runtime gate', () => {
       version?: number;
       state?: Record<string, unknown>;
     };
-    expect(persisted.version).toBe(9);
+    expect(persisted.version).toBe(10);
     expect(persisted.state).not.toHaveProperty('enableMockRunner');
   });
 
@@ -187,7 +253,7 @@ describe('server hydration runtime gate', () => {
       { id: 'legacy-rejected', status: 'in_progress' },
     ]);
     const persisted = JSON.parse(localStorage.getItem('agent-task-hub-store-clean') ?? '{}');
-    expect(persisted.version).toBe(9);
+    expect(persisted.version).toBe(10);
   });
 
   it('keeps the UI gated until accounts and the selected Team Pack are hydrated', async () => {
@@ -231,7 +297,7 @@ describe('server hydration runtime gate', () => {
         });
       }
       if (url === '/api/accounts') return json({ accounts: [account()] });
-      if (url === '/api/agents') return json({ agents: [] });
+      if (url === '/api/agents') return json({ agents: [agentDefinition()] });
       if (url === `/api/team-packs/${TEAM_PACK_ID}`) {
         markTeamPackRequested();
         return teamPackResponse;
@@ -290,7 +356,7 @@ describe('server hydration runtime gate', () => {
         return stateResponse;
       }
       if (url === '/api/accounts') return json({ accounts: [account()] });
-      if (url === '/api/agents') return json({ agents: [] });
+      if (url === '/api/agents') return json({ agents: [agentDefinition()] });
       if (url === `/api/team-packs/${TEAM_PACK_ID}`) {
         teamPackRequestCount += 1;
         markTeamPackRequested();
@@ -361,7 +427,7 @@ describe('server hydration runtime gate', () => {
         return stateResponse;
       }
       if (url === '/api/accounts') return json({ accounts: [] });
-      if (url === '/api/agents') return json({ agents: [] });
+      if (url === '/api/agents') return json({ agents: [agentDefinition()] });
       if (url === '/api/skills' || url.includes('/skills')) return json([]);
       return json({});
     }));
@@ -402,7 +468,7 @@ describe('server hydration runtime gate', () => {
         return stateResponse;
       }
       if (url === '/api/accounts') return json({ accounts: [] });
-      if (url === '/api/agents') return json({ agents: [] });
+      if (url === '/api/agents') return json({ agents: [agentDefinition()] });
       if (url === '/api/skills' || url.includes('/skills')) return json([]);
       return json([]);
     }));
@@ -477,7 +543,7 @@ describe('server hydration runtime gate', () => {
         return stateResponse;
       }
       if (url === '/api/accounts') return json({ accounts: [] });
-      if (url === '/api/agents') return json({ agents: [] });
+      if (url === '/api/agents') return json({ agents: [agentDefinition()] });
       if (url === '/api/skills' || url.includes('/skills')) return json([]);
       return json([]);
     }));
@@ -727,7 +793,7 @@ describe('server hydration runtime gate', () => {
         });
       }
       if (url === '/api/accounts') return json({ accounts: [account()] });
-      if (url === '/api/agents') return json({ agents: [] });
+      if (url === '/api/agents') return json({ agents: [agentDefinition()] });
       if (url === `/api/team-packs/${TEAM_PACK_ID}`) {
         if (rejectTeamPack) throw new Error('offline');
         return json(teamPack());

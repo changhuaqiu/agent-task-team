@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createTestDb, setTestDb, resetDb } from '@/server/db/index';
 import { resetSeq } from '@/server/repositories/sortable-id';
 import handler from '@/pages/api/state';
@@ -25,6 +25,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   resetDb();
 });
 
@@ -41,6 +42,122 @@ describe('GET /api/state', () => {
     expect(res._json.activeSessions).toEqual([]);
     expect(res._json).not.toHaveProperty('recentInvocations');
     expect(res._json.a2aSnapshots).toEqual([]);
+    expect(res._json.dispatchReceipts).toEqual([]);
+  });
+
+  it('hydrates acknowledged dispatch receipts with their source message identity', async () => {
+    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+    const { executionEnvelopeRepo } = await import('@/server/repositories/execution-envelope-repo');
+    conversationRepo.create({ id: 'conv-receipt', title: 'Receipt hydration' });
+    const envelope = executionEnvelopeRepo.create({
+      source: 'a2a', intent: 'delegate', conversationId: 'conv-receipt',
+      fromNodeId: 'node-local', toNodeId: 'node-local', toAgentId: 'mario',
+      payload: { sourceMessageId: 'message-1', contextRefs: [] },
+    });
+    executionEnvelopeRepo.transition(envelope.id, { to: 'validated', expectedFrom: 'drafted' });
+    executionEnvelopeRepo.transition(envelope.id, { to: 'routed', expectedFrom: 'validated' });
+    executionEnvelopeRepo.transition(envelope.id, { to: 'sent', expectedFrom: 'routed' });
+    executionEnvelopeRepo.transition(envelope.id, { to: 'acknowledged', expectedFrom: 'sent' });
+
+    const res = mockRes();
+    await handler(mockReq('GET'), res);
+
+    expect(res._json.dispatchReceipts).toContainEqual(expect.objectContaining({
+      conversationId: 'conv-receipt', sourceMessageId: 'message-1',
+      targetAgentId: 'mario', phase: 'acknowledged',
+    }));
+  });
+
+  it('hydrates acknowledgements for more than 50 visible source messages', async () => {
+    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+    const { messageRepo } = await import('@/server/repositories/message-repo');
+    const { executionEnvelopeRepo } = await import('@/server/repositories/execution-envelope-repo');
+    conversationRepo.create({ id: 'conv-many-receipts', title: 'Receipt window' });
+    const sourceMessageIds = Array.from({ length: 60 }, (_, index) => messageRepo.append({
+      conversationId: 'conv-many-receipts',
+      senderType: 'human',
+      senderId: 'human',
+      content: `Message ${index}`,
+    }));
+    for (const sourceMessageId of sourceMessageIds) {
+      const envelope = executionEnvelopeRepo.create({
+        source: 'user', intent: 'delegate', conversationId: 'conv-many-receipts',
+        fromNodeId: 'node-local', toNodeId: 'node-local', toAgentId: 'mario',
+        payload: { sourceMessageId, contextRefs: [] },
+      });
+      executionEnvelopeRepo.transition(envelope.id, { to: 'validated', expectedFrom: 'drafted' });
+      executionEnvelopeRepo.transition(envelope.id, { to: 'routed', expectedFrom: 'validated' });
+      executionEnvelopeRepo.transition(envelope.id, { to: 'sent', expectedFrom: 'routed' });
+      executionEnvelopeRepo.transition(envelope.id, { to: 'acknowledged', expectedFrom: 'sent' });
+    }
+    const supersededSourceMessageId = sourceMessageIds[0];
+    let latestEnvelopeId = '';
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const envelope = executionEnvelopeRepo.create({
+        source: 'user', intent: 'delegate', conversationId: 'conv-many-receipts',
+        fromNodeId: 'node-local', toNodeId: 'node-local', toAgentId: 'mario',
+        payload: { sourceMessageId: supersededSourceMessageId, contextRefs: [] },
+      });
+      latestEnvelopeId = envelope.id;
+      executionEnvelopeRepo.transition(envelope.id, { to: 'validated', expectedFrom: 'drafted' });
+      executionEnvelopeRepo.transition(envelope.id, { to: 'routed', expectedFrom: 'validated' });
+      executionEnvelopeRepo.transition(envelope.id, { to: 'sent', expectedFrom: 'routed' });
+      executionEnvelopeRepo.transition(envelope.id, { to: 'acknowledged', expectedFrom: 'sent' });
+    }
+
+    const res = mockRes();
+    await handler(mockReq('GET'), res);
+
+    const receipts = res._json.dispatchReceipts.filter((receipt: any) => (
+      receipt.conversationId === 'conv-many-receipts'
+    ));
+    expect(receipts).toHaveLength(60);
+    expect(receipts.map((receipt: any) => receipt.sourceMessageId)).toContain(sourceMessageIds[0]);
+    expect(receipts.find((receipt: any) => receipt.sourceMessageId === supersededSourceMessageId).receiptId)
+      .toBe(`${latestEnvelopeId}:acknowledged`);
+  });
+
+  it('bounds fallback receipts by terminal update time and keeps a delayed acknowledgement', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-25T00:00:00.000Z'));
+    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+    const { executionEnvelopeRepo } = await import('@/server/repositories/execution-envelope-repo');
+    conversationRepo.create({ id: 'conv-bounded-receipts', title: 'Bounded receipts' });
+    const delayed = executionEnvelopeRepo.create({
+      source: 'a2a', intent: 'delegate', conversationId: 'conv-bounded-receipts',
+      fromNodeId: 'node-local', toNodeId: 'node-local', toAgentId: 'mario',
+      payload: { sourceMessageId: 'delayed-source', contextRefs: [] },
+    });
+
+    for (let index = 0; index < 205; index += 1) {
+      vi.setSystemTime(new Date(`2026-08-25T00:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`));
+      const envelope = executionEnvelopeRepo.create({
+        source: 'a2a', intent: 'delegate', conversationId: 'conv-bounded-receipts',
+        fromNodeId: 'node-local', toNodeId: 'node-local', toAgentId: 'luigi',
+        payload: { sourceMessageId: `historical-${index}`, contextRefs: [] },
+      });
+      executionEnvelopeRepo.transition(envelope.id, { to: 'validated', expectedFrom: 'drafted' });
+      executionEnvelopeRepo.transition(envelope.id, { to: 'routed', expectedFrom: 'validated' });
+      executionEnvelopeRepo.transition(envelope.id, { to: 'sent', expectedFrom: 'routed' });
+      executionEnvelopeRepo.transition(envelope.id, { to: 'acknowledged', expectedFrom: 'sent' });
+    }
+
+    vi.setSystemTime(new Date('2026-08-26T00:00:00.000Z'));
+    executionEnvelopeRepo.transition(delayed.id, { to: 'validated', expectedFrom: 'drafted' });
+    executionEnvelopeRepo.transition(delayed.id, { to: 'routed', expectedFrom: 'validated' });
+    executionEnvelopeRepo.transition(delayed.id, { to: 'sent', expectedFrom: 'routed' });
+    executionEnvelopeRepo.transition(delayed.id, { to: 'acknowledged', expectedFrom: 'sent' });
+
+    const res = mockRes();
+    await handler(mockReq('GET'), res);
+    const receipts = res._json.dispatchReceipts.filter((receipt: any) => (
+      receipt.conversationId === 'conv-bounded-receipts'
+    ));
+    expect(receipts).toHaveLength(200);
+    expect(receipts).toContainEqual(expect.objectContaining({
+      sourceMessageId: 'delayed-source',
+      receiptId: `${delayed.id}:acknowledged`,
+    }));
   });
 
   it('returns conversations, tasks, messages, and sessions without debug invocations', async () => {

@@ -27,4 +27,23 @@ describe('AgentProcessRegistry', () => {
     expect(kill).toHaveBeenCalledTimes(1);
     expect(registry.isBusy('mario', 'project-1')).toBe(false);
   });
+
+  it('cancels one project or every active invocation owned by an Agent', () => {
+    const registry = new AgentProcessRegistry();
+    const firstKill = vi.fn();
+    const secondKill = vi.fn();
+    const otherKill = vi.fn();
+    registry.attach('mario', 'project-1', { kill: firstKill });
+    registry.attach('mario', 'project-2', { kill: secondKill });
+    registry.attach('luigi', 'project-1', { kill: otherKill });
+
+    expect(registry.cancel('mario', 'project-1')).toBe(1);
+    expect(firstKill).toHaveBeenCalledTimes(1);
+    expect(secondKill).not.toHaveBeenCalled();
+    expect(otherKill).not.toHaveBeenCalled();
+
+    expect(registry.cancel('mario')).toBe(1);
+    expect(secondKill).toHaveBeenCalledTimes(1);
+    expect(otherKill).not.toHaveBeenCalled();
+  });
 });

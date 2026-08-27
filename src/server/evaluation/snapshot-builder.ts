@@ -6,6 +6,7 @@ import { redactObservationPreview } from '../observability/redaction';
 import { DEFAULT_RUBRIC_REVISION_ID, EVALUATOR_BUNDLE_REVISION, digest } from './defaults';
 import type { ApplicationManifest } from './application-snapshot';
 import type { EvaluationRequest, EvidenceRef, SubjectSnapshot } from './types';
+import { agentDefinitionRepo } from '../agents/agent-definition-repo';
 
 type Row = Record<string, unknown>;
 
@@ -259,16 +260,19 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
     : undefined;
 
   const roleRows = !frozenApplication && conversation.team_pack_id
-    ? rows('SELECT role_id,role_card_id,role_card_snapshot,account_ids,skill_ids FROM team_pack_role WHERE pack_id=? ORDER BY role_id',
+    ? rows('SELECT role_id FROM team_pack_role WHERE pack_id=? ORDER BY role_id',
         conversation.team_pack_id)
     : [];
+  const currentAgentDefinitions = frozenApplication
+    ? []
+    : roleRows.flatMap((role) => {
+      const agent = agentDefinitionRepo.get(String(role.role_id));
+      return agent ? [agent] : [];
+    });
   const skillIds = frozenApplication
     ? [...new Set(frozenApplication.agents.flatMap((agent) =>
       agent.skillRevisions.map((skill) => skill.skillId)))]
-    : [...new Set(roleRows.flatMap((role) => {
-      const ids = parse(role.skill_ids, []) as unknown[];
-      return ids.map(String);
-    }))];
+    : [...new Set(currentAgentDefinitions.flatMap((agent) => agent.skill_ids))];
   const skillRevisions = frozenApplication
     ? frozenApplication.agents.flatMap((agent) => agent.skillRevisions.map((skill) => ({
       id: skill.skillId,
@@ -356,18 +360,34 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   const appManifest = {
     gitRevision: revision,
     teamPackId: frozenApplication?.team.id ?? conversation.team_pack_id ?? undefined,
-    roleCardSnapshots: frozenApplication
-      ? frozenApplication.team.roles.map((role) => ({
-        roleId: role.id,
-        roleCardId: role.roleCardId,
-        snapshotDigest: role.roleCardSnapshot ? digest(role.roleCardSnapshot) : undefined,
-        accountIds: role.accountIds ?? [],
-        skillIds: role.skillIds ?? [],
+    agentDefinitions: frozenApplication
+      ? frozenApplication.agents.map((agent) => ({
+        agentId: agent.agentId,
+        revision: agent.definitionRevision,
+        definitionDigest: agent.definitionDigest,
+        responsibility: agent.responsibility,
+        accountIds: agent.accountId ? [agent.accountId] : [],
+        skillIds: agent.skillRevisions.map((skill) => skill.skillId),
+        permissions: { canModifyCode: agent.canModifyCode, canReview: agent.canReview },
       }))
-      : roleRows.map((role) => ({
-        roleId: role.role_id, roleCardId: role.role_card_id,
-        snapshotDigest: role.role_card_snapshot ? digest(parse(role.role_card_snapshot, {})) : undefined,
-        accountIds: parse(role.account_ids, []), skillIds: parse(role.skill_ids, []),
+      : currentAgentDefinitions.map((agent) => ({
+        agentId: agent.id,
+        revision: agent.revision,
+        definitionDigest: digest({
+          name: agent.name,
+          instructions: agent.instructions,
+          responsibility: agent.responsibility,
+          runtimeId: agent.runtime_id,
+          accountIds: agent.account_ids,
+          model: agent.model,
+          skillIds: agent.skill_ids,
+          canModifyCode: Boolean(agent.can_modify_code),
+          canReview: Boolean(agent.can_review),
+        }),
+        accountIds: agent.account_ids,
+        skillIds: agent.skill_ids,
+        responsibility: agent.responsibility,
+        permissions: { canModifyCode: Boolean(agent.can_modify_code), canReview: Boolean(agent.can_review) },
       })),
     skillRevisions: skillRevisions.map((skill) => ({
       skillId: skill.id,

@@ -32,6 +32,7 @@
 | [`team-simplification/`](team-simplification/) | active | 默认团队从 6 人收敛到 4 人并清理旧 preset |
 | [`system-control-plane/`](system-control-plane/) | active | 统一 dispatch、policy、proof、health 与跨实例状态权威 |
 | [`frontend-architecture-refactor/`](frontend-architecture-refactor/) | active | 以项目中的交付为主对象重构工作区，并完成 WebUI 被动投影、Human Command 单入口和浏览器退出派发控制 |
+| [`command-driven-delivery/`](command-driven-delivery/) | active | 以统一 CommandReceipt、Project 对象面、Automation 和结构化 MCP/CLI 收拢交付事实与创建协议 |
 | [`observability-drilldown/`](observability-drilldown/) | active | 在 agent-observability 之上补 ACP 边界的完整 prompt/工具/回复采集、消息卡下钻抽屉与调用链 DAG |
 | [`team-role-card-compatibility/`](team-role-card-compatibility/) | active | 自动化已完成，仍需三项人工兼容验收 |
 | [`role-card-format/`](role-card-format/) | draft | 冻结角色卡/Team Pack 文件格式并替换即将移除的示例 |

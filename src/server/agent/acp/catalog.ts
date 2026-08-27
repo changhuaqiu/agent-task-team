@@ -17,6 +17,8 @@ import type { AgentBackend, EngineId } from '../types';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import seed from './agentCatalog.seed.json';
+import { isRuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
+import { listCustomAcpHarnesses } from './customCatalog';
 
 /**
  * A single ACP runtime entry in the Agent Catalog (spec §5.1).
@@ -36,6 +38,7 @@ export interface AgentCatalogEntry {
     args: string[];
     package?: string;
     version?: string;
+    env?: Record<string, string>;
   };
   verifiedCapabilities: string[];
   // Seed carries extra descriptive fields (protocolVersion, agentInfo,
@@ -50,7 +53,7 @@ export interface AgentCatalogEntry {
  * `"native"`) required by the contract — the seed is hand-curated to conform.
  */
 export function loadCatalog(): AgentCatalogEntry[] {
-  return validateCatalog(seed);
+  return validateCatalog([...seed, ...listCustomAcpHarnesses()]);
 }
 
 export function validateCatalog(value: unknown): AgentCatalogEntry[] {
@@ -64,7 +67,7 @@ export function validateCatalog(value: unknown): AgentCatalogEntry[] {
     const launcher = entry.launcher as Record<string, unknown> | undefined;
     const id = typeof entry.id === 'string' ? entry.id.trim() : '';
     if (!id || ids.has(id)) throw new Error(`ACP catalog has invalid or duplicate id: ${id || index}`);
-    if (id !== 'opencode' && id !== 'claude' && id !== 'codex') {
+    if (!isRuntimeCliEngine(id)) {
       throw new Error(`ACP catalog has unsupported runtime id: ${id}`);
     }
     ids.add(id);
@@ -77,6 +80,14 @@ export function validateCatalog(value: unknown): AgentCatalogEntry[] {
     }
     if (!Array.isArray(launcher.args) || !launcher.args.every((arg) => typeof arg === 'string')) {
       throw new Error(`ACP catalog ${id} has invalid launcher args`);
+    }
+    if (launcher.env !== undefined && (
+      !launcher.env
+      || typeof launcher.env !== 'object'
+      || Array.isArray(launcher.env)
+      || Object.values(launcher.env).some((value) => typeof value !== 'string')
+    )) {
+      throw new Error(`ACP catalog ${id} has invalid launcher env`);
     }
     if (!Array.isArray(entry.verifiedCapabilities)) {
       throw new Error(`ACP catalog ${id} has invalid verifiedCapabilities`);
@@ -127,6 +138,7 @@ export function createBackend(
     | 'timeoutMs'
     | 'mcpServers'
     | 'autoApproveMcpToolNames'
+    | 'terminalMcpToolNames'
     | 'forwardNativeSubagentText'
   >,
 ): AgentBackend {
@@ -147,6 +159,7 @@ export function createBackend(
     timeoutMs: opts?.timeoutMs,
     mcpServers: opts?.mcpServers,
     autoApproveMcpToolNames: opts?.autoApproveMcpToolNames,
+    terminalMcpToolNames: opts?.terminalMcpToolNames,
     forwardNativeSubagentText:
       opts?.forwardNativeSubagentText ?? (entry.id === 'claude'),
     engine: entry.id,

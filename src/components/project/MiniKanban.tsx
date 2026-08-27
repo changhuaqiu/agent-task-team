@@ -196,7 +196,7 @@ export function MiniKanban(_props: MiniKanbanProps) {
       const targetStatus = overId as TaskStatus;
       const allowed = nextDirectTaskStatuses(activeTask.status);
       if (allowed.includes(targetStatus)) {
-        updateTaskStatus(activeTask.id, targetStatus);
+        updateTaskStatus({ conversationId: activeTask.conversationId, taskId: activeTask.id }, targetStatus);
       }
     }
     clearDragState();
@@ -226,11 +226,13 @@ export function MiniKanban(_props: MiniKanbanProps) {
   // --- Context menu handlers ---
 
   function handleContextStatusChange(taskId: string, status: TaskStatus) {
-    updateTaskStatus(taskId, status);
+    if (!selectedConversationId) return;
+    updateTaskStatus({ conversationId: selectedConversationId, taskId }, status);
   }
 
   function handleContextAssign(taskId: string, agentId: string) {
-    updateTask(taskId, { agentId });
+    if (!selectedConversationId) return;
+    updateTask({ conversationId: selectedConversationId, taskId }, { agentId });
   }
 
   function handleContextEdit(taskId: string) {

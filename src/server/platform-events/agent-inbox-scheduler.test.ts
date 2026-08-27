@@ -43,6 +43,7 @@ describe('AgentInboxScheduler', () => {
         possessionId: 'possession-1',
         possessionRevision: 4,
         executionMode: 'outcome_recovery',
+        executionSubject: { kind: 'ad_hoc_execution', id: 'automation:run-1:step-1' },
         a2aHandoff: {
           title: 'lead',
           requestedAction: 'Implement',
@@ -68,6 +69,7 @@ describe('AgentInboxScheduler', () => {
       possessionId?: string;
       possessionRevision?: number;
       executionMode?: string;
+      executionSubject?: { kind: string; id: string };
       a2aHandoff?: { evidenceRefs: string[] };
       wakeup?: { reasonCode: string; reasonSummary?: string };
       legacyProposal?: boolean;
@@ -108,6 +110,7 @@ describe('AgentInboxScheduler', () => {
       possessionId: 'possession-1',
       possessionRevision: 4,
       executionMode: 'outcome_recovery',
+      executionSubject: { kind: 'ad_hoc_execution', id: 'automation:run-1:step-1' },
       a2aHandoff: expect.objectContaining({ evidenceRefs: ['spec.md'] }),
       wakeup: {
         reasonCode: 'missing_implementation_evidence',
@@ -322,7 +325,7 @@ describe('AgentInboxScheduler', () => {
       status: 'expired',
       attemptCount: 2,
       runtimeStartFailureCount: 2,
-      lastError: 'runtime_start_failed',
+      lastError: 'runtime_start_failed_retry_exhausted',
     });
     scheduler.stop();
   });
@@ -369,7 +372,7 @@ describe('AgentInboxScheduler', () => {
     scheduler.stop();
   });
 
-  it('does not spend the Runtime startup budget on busy-lane claims', async () => {
+  it('bounds busy-lane retries so one head item cannot starve its lane forever', async () => {
     const item = inbox.enqueue({
       projectId: 'project-1',
       projectAgentId: 'implementer',
@@ -384,9 +387,7 @@ describe('AgentInboxScheduler', () => {
       maxStartAttempts: 2,
       submit: () => {
         submissions += 1;
-        const outcome = submissions <= 2
-          ? { status: 'deferred' as const, reasonCode: 'agent_busy' as const }
-          : { status: 'failed' as const, reasonCode: 'runtime_start_failed' as const };
+        const outcome = { status: 'deferred' as const, reasonCode: 'agent_busy' as const };
         return {
           disposition: outcome.status === 'deferred' ? 'deferred' : 'accepted',
           handled: outcome.status !== 'deferred',
@@ -399,18 +400,13 @@ describe('AgentInboxScheduler', () => {
     scheduler.start();
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(1);
-    await vi.advanceTimersByTimeAsync(2);
-    expect(inbox.get(item.id)).toMatchObject({
-      status: 'released',
-      attemptCount: 3,
-      runtimeStartFailureCount: 1,
-    });
-    await vi.advanceTimersByTimeAsync(4);
     expect(inbox.get(item.id)).toMatchObject({
       status: 'expired',
-      attemptCount: 4,
-      runtimeStartFailureCount: 2,
+      attemptCount: 2,
+      runtimeStartFailureCount: 0,
+      lastError: 'agent_busy_retry_exhausted',
     });
+    expect(submissions).toBe(2);
     scheduler.stop();
   });
 });

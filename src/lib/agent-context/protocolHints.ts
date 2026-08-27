@@ -30,7 +30,7 @@ export function buildProtocolHint(
     return '## 本轮场景：目标接收\n确认目标、验收标准、范围和授权；只对真正缺失且不可推断的信息提出最小问题。';
   }
   if (scenario === 'planning') {
-    return '## 本轮场景：规划\n基于目标、项目事实、团队能力和现有决策形成可执行计划；不要预先写死 Agent 自己可以在执行时判断的实现细节。';
+    return '## 本轮场景：规划\n基于目标、项目事实、可用 Agent 和现有决策形成可执行计划；不要预先写死 Agent 自己可以在执行时判断的实现细节。';
   }
   if (scenario === 'architecture_review') {
     return '## 本轮场景：架构评审\n检查约束、事实源、模块 seam、失败恢复和验证路径，输出明确结论与证据。';

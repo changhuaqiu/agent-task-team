@@ -1,7 +1,5 @@
 import type { Server as IOServer } from 'socket.io';
-import { PRESET_ROLE_CARD_MAP } from '@/data/presetRoleCards';
-import type { RoleCard } from '@/types/roleCard';
-import { listAgents } from '../db/agentQueries';
+import { agentDefinitionRepo, type AgentDefinition } from '../agents/agent-definition-repo';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { messageRepo } from '../repositories/message-repo';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
@@ -23,6 +21,7 @@ import {
 } from './task-wakeup';
 import { requestTaskWakeup } from './task-work-request';
 import { publishProjectView } from '../project-view/project-view-publisher';
+import { projectAgentMembershipRepo } from '../repositories/project-agent-membership-repo';
 
 export interface PublishTaskNotificationInput {
   io?: IOServer;
@@ -91,26 +90,19 @@ function emitTaskState(io: IOServer | undefined, task: TaskRow): void {
   });
 }
 
-function isCoordinator(agentId: string, displayName: string | undefined, roleCard?: RoleCard): boolean {
-  return roleCard?.category === 'planner' ||
-    roleCard?.engineering?.roleType === 'coordinator' ||
-    roleCard?.engineering?.roleType === 'planner' ||
-    agentId === 'mario' ||
-    agentId === 'planner' ||
-    !!displayName?.includes('统筹') ||
-    !!displayName?.includes('规划');
+function isCoordinator(agent: Pick<AgentDefinition, 'id' | 'name' | 'instructions'>): boolean {
+  return agent.id === 'mario'
+    || agent.id === 'planner'
+    || /统筹|规划|协调|coordinat|plan/i.test(`${agent.name} ${agent.instructions}`);
 }
 
-function isReviewer(roleCard?: RoleCard): boolean {
-  return roleCard?.category === 'code_reviewer' ||
-    roleCard?.category === 'arch_reviewer' ||
-    roleCard?.engineering?.canApprovePR === true;
+function isReviewer(agent: Pick<AgentDefinition, 'name' | 'instructions' | 'can_review'>): boolean {
+  return Boolean(agent.can_review)
+    || /评审|审查|架构|质量|\breview|architect|quality|\bqa\b/i.test(`${agent.name} ${agent.instructions}`);
 }
 
-function isQa(roleCard?: RoleCard): boolean {
-  return roleCard?.category === 'qa' ||
-    roleCard?.capabilities?.domains?.includes('testing') === true ||
-    roleCard?.capabilities?.skills?.some((skill) => /(?:^|-)testing$|test|qa/i.test(skill)) === true;
+function isQa(agent: Pick<AgentDefinition, 'name' | 'instructions' | 'can_review'>): boolean {
+  return Boolean(agent.can_review) && /质量|测试|验证|验收|\bqa\b|test|verif/i.test(`${agent.name} ${agent.instructions}`);
 }
 
 export function resolveTaskNotificationAudience(conversationId: string): {
@@ -129,22 +121,17 @@ export function resolveTaskNotificationAudience(conversationId: string): {
 
   const conversation = conversationRepo.getById(conversationId);
   const teamPack = conversation?.team_pack_id ? teamPackRepo.getById(conversation.team_pack_id) : undefined;
+  const definitions = new Map(agentDefinitionRepo.list().map((agent) => [agent.id, agent]));
+  const projectAgentIds = projectAgentMembershipRepo.listAgentIdsByConversation(conversationId);
+  const effectiveAgentIds = conversation?.project_id ? projectAgentIds : [...definitions.keys()];
 
   if (teamPack) {
-    for (const role of teamPack.roles) {
-      const roleCard = role.roleCardSnapshot
-        ? ({
-            ...role.roleCardSnapshot,
-            id: `team-role-snapshot-${role.id}`,
-            isPreset: false,
-            version: role.roleCardSnapshot.snapshotVersion,
-            createdAt: role.roleCardSnapshot.snapshottedAt,
-            updatedAt: role.roleCardSnapshot.snapshottedAt,
-          } as RoleCard)
-        : (role.roleCardId ? PRESET_ROLE_CARD_MAP[role.roleCardId] : undefined);
-      if (isCoordinator(role.id, role.displayName, roleCard)) add(coordinatorAgentIds, role.id);
-      if (isReviewer(roleCard)) add(reviewAgentIds, role.id);
-      if (isQa(roleCard)) add(qaAgentIds, role.id);
+    for (const agentId of effectiveAgentIds) {
+      const agent = definitions.get(agentId);
+      if (!agent) continue;
+      if (isCoordinator(agent)) add(coordinatorAgentIds, agentId);
+      if (isReviewer(agent)) add(reviewAgentIds, agentId);
+      if (isQa(agent)) add(qaAgentIds, agentId);
     }
     const workflowGateRoleIds = teamPack.workflow.states
       ?.filter((state) => /(?:quality|review)[_-]?gate|review/i.test(`${state.name} ${state.description}`))
@@ -165,11 +152,12 @@ export function resolveTaskNotificationAudience(conversationId: string): {
     };
   }
 
-  for (const agent of listAgents()) {
-    const roleCard = PRESET_ROLE_CARD_MAP[agent.role_card_id];
-    if (isCoordinator(agent.id, agent.name, roleCard)) add(coordinatorAgentIds, agent.id);
-    if (isReviewer(roleCard)) add(reviewAgentIds, agent.id);
-    if (isQa(roleCard)) add(qaAgentIds, agent.id);
+  for (const agentId of effectiveAgentIds) {
+    const agent = definitions.get(agentId);
+    if (!agent) continue;
+    if (isCoordinator(agent)) add(coordinatorAgentIds, agent.id);
+    if (isReviewer(agent)) add(reviewAgentIds, agent.id);
+    if (isQa(agent)) add(qaAgentIds, agent.id);
   }
 
   return { coordinatorAgentIds, reviewAgentIds, reviewGateAgentIds: reviewAgentIds, qaAgentIds };

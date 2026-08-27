@@ -4,7 +4,7 @@ import { drainDesktopService } from '@/server/desktop-service-lifecycle';
 
 type ResponseBody = { ok: true } | { error: string };
 
-export default function handler(req: NextApiRequest, res: NextApiResponse<ResponseBody>) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse<ResponseBody>) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'method_not_allowed' });
@@ -17,7 +17,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse<Respon
   }
 
   try {
-    drainDesktopService();
+    await drainDesktopService();
     res.setHeader('Cache-Control', 'no-store');
     res.once('finish', () => setTimeout(() => process.exit(0), 50));
     return res.status(202).json({ ok: true });

@@ -1,14 +1,12 @@
 'use client';
 
-import type { RoleCard } from '@/types/roleCard';
-import type { TeamPackRole } from '@/types/teamPack';
 import type { SkillSummary } from '@/lib/agent-context/types';
 import type { RuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
 import {
   type AccountAuthMode,
   type AccountProvider,
 } from '@/lib/account-auth';
-import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
+import type { AgentResponsibility } from '@/shared/agent-definition';
 
 // --- Agent Role & Roster ---
 
@@ -17,50 +15,87 @@ export type AgentTheme = 'mario' | 'luigi' | 'peach' | 'dk';
 export interface Agent {
   id: string;
   name: string;
-  roleCardId: string;
   theme: AgentTheme;
   emoji: string;
   isOnline: boolean;
   cliEngine?: RuntimeCliEngine;
   accountIds: string[];
+  instructions: string;
+  responsibility?: AgentResponsibility;
+  avatarUrl?: string;
+  model?: string;
+  skillIds: string[];
+  canModifyCode: boolean;
+  canReview: boolean;
+  runtimeMode?: 'defaults' | 'custom';
+  audienceMode?: 'owner' | 'anyone' | 'selected';
+  audienceIds?: string[];
+  parallelism?: number;
+  instanceNamePool?: string[];
+  runLocation?: 'local';
+  revision?: number;
 }
 
 const FALLBACK_AGENTS: Agent[] = [
   {
     id: 'mario',
     name: 'Mario',
-    roleCardId: 'preset-planner',
     theme: 'mario',
     emoji: '⭐',
     isOnline: true,
+    cliEngine: 'codex',
     accountIds: [],
+    instructions: '负责理解目标、拆解工作、协调团队并推动交付闭环。',
+    responsibility: 'coordinator',
+    skillIds: [],
+    canModifyCode: true,
+    canReview: false,
+    runtimeMode: 'defaults', audienceMode: 'owner', audienceIds: [], instanceNamePool: [], runLocation: 'local', revision: 1,
   },
   {
     id: 'luigi',
     name: 'Luigi',
-    roleCardId: 'preset-frontend',
     theme: 'luigi',
     emoji: '⚡',
     isOnline: true,
+    cliEngine: 'codex',
     accountIds: [],
+    instructions: '负责在明确边界内完成全栈实现，并提供可验证的实现证据。',
+    responsibility: 'implementer',
+    skillIds: [],
+    canModifyCode: true,
+    canReview: false,
+    runtimeMode: 'defaults', audienceMode: 'owner', audienceIds: [], instanceNamePool: [], runLocation: 'local', revision: 1,
   },
   {
     id: 'peach',
     name: 'Peach',
-    roleCardId: 'preset-code-reviewer',
     theme: 'peach',
     emoji: '🌸',
     isOnline: true,
+    cliEngine: 'codex',
     accountIds: [],
+    instructions: '负责独立评审、测试与质量判断，发现问题时给出可执行反馈。',
+    responsibility: 'reviewer',
+    skillIds: [],
+    canModifyCode: false,
+    canReview: true,
+    runtimeMode: 'defaults', audienceMode: 'owner', audienceIds: [], instanceNamePool: [], runLocation: 'local', revision: 1,
   },
   {
     id: 'dk',
     name: 'Donkey Kong',
-    roleCardId: 'preset-arch-reviewer',
     theme: 'dk',
     emoji: '⚙️',
     isOnline: false,
+    cliEngine: 'codex',
     accountIds: [],
+    instructions: '负责架构、数据模型、安全与跨模块风险评估。',
+    responsibility: 'reviewer',
+    skillIds: [],
+    canModifyCode: false,
+    canReview: true,
+    runtimeMode: 'defaults', audienceMode: 'owner', audienceIds: [], instanceNamePool: [], runLocation: 'local', revision: 1,
   },
 ];
 
@@ -91,12 +126,44 @@ export async function loadAgents(options: LoadAgentsOptions = {}): Promise<void>
     AGENT_ROSTER = data.agents.map((row: any) => ({
       id: row.id,
       name: row.name,
-      roleCardId: row.role_card_id,
       theme: row.theme as AgentTheme,
       emoji: row.emoji,
       isOnline: prevOnline[row.id] ?? false,
-      cliEngine: prevCliEngine[row.id],
-      accountIds: prevAccountIds[row.id] ?? [],
+      cliEngine: row.runtime_id ?? prevCliEngine[row.id],
+      accountIds: (() => {
+        try {
+          const value = typeof row.account_ids === 'string' ? JSON.parse(row.account_ids) : row.account_ids;
+          return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+        } catch {
+          return prevAccountIds[row.id] ?? [];
+        }
+      })(),
+      instructions: typeof row.instructions === 'string' ? row.instructions : '',
+      responsibility: ['coordinator', 'implementer', 'reviewer', 'specialist'].includes(row.responsibility)
+        ? row.responsibility
+        : 'specialist',
+      avatarUrl: row.avatar_url ?? undefined,
+      model: row.model ?? undefined,
+      skillIds: Array.isArray(row.skill_ids) ? row.skill_ids : [],
+      canModifyCode: Boolean(row.can_modify_code),
+      canReview: Boolean(row.can_review),
+      runtimeMode: row.use_runtime_defaults === 0 ? 'custom' : 'defaults',
+      audienceMode: ['owner', 'anyone', 'selected'].includes(row.audience_mode) ? row.audience_mode : 'owner',
+      audienceIds: (() => {
+        try {
+          const value = typeof row.audience_ids === 'string' ? JSON.parse(row.audience_ids) : row.audience_ids;
+          return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+        } catch { return []; }
+      })(),
+      parallelism: Number.isSafeInteger(row.parallelism) ? row.parallelism : undefined,
+      instanceNamePool: (() => {
+        try {
+          const value = typeof row.instance_name_pool === 'string' ? JSON.parse(row.instance_name_pool) : row.instance_name_pool;
+          return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+        } catch { return []; }
+      })(),
+      runLocation: 'local',
+      revision: Number.isSafeInteger(row.revision) ? row.revision : 1,
     }));
 
     // Sync to Zustand state for reactivity
@@ -158,72 +225,6 @@ export const createAgentSlice = (set: any, get: () => any) => {
 
     activeAgentIds: ['mario', 'luigi'] as string[],
 
-    // Role Cards
-    roleCards: [...PRESET_ROLE_CARDS] as RoleCard[],
-    upsertRoleCard: (card: Omit<RoleCard, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'isPreset'> & { id?: string; isPreset?: boolean }): string => {
-      const now = new Date().toISOString();
-      if (card.id) {
-        set((state: any) => ({
-          roleCards: state.roleCards.map((c: RoleCard) =>
-            c.id === card.id
-              ? { ...c, ...card, updatedAt: now, version: c.version + 1 } as RoleCard
-              : c
-          ),
-        }));
-        return card.id;
-      }
-      const id = `rc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      set((state: any) => ({
-        roleCards: [
-          ...state.roleCards,
-          { ...card, id, isPreset: false, version: 1, createdAt: now, updatedAt: now } as RoleCard,
-        ],
-      }));
-      return id;
-    },
-    removeRoleCard: (cardId: string) =>
-      set((state: any) => ({
-        roleCards: state.roleCards.filter((c: RoleCard) => !(c.id === cardId && !c.isPreset)),
-      })),
-    setAgentRoleCardId: (agentId: string, roleCardId: string) => {
-      const idx = AGENT_ROSTER.findIndex((a) => a.id === agentId);
-      if (idx !== -1) {
-        (AGENT_ROSTER as Agent[])[idx].roleCardId = roleCardId;
-      }
-      set((state: any) => ({
-        agentRoster: [...AGENT_ROSTER],
-        agentRoleCardOverrides: {
-          ...(state.agentRoleCardOverrides ?? {}),
-          [agentId]: roleCardId,
-        },
-      }));
-    },
-    setRoleCardAccountIds: (roleCardId: string, accountIds: string[]) =>
-      set((state: any) => ({
-        roleCards: state.roleCards.map((c: RoleCard) =>
-          c.id === roleCardId ? { ...c, accountIds, updatedAt: new Date().toISOString() } : c
-        ),
-      })),
-
-    // Agent account bindings
-    agentAccountOverrides: {} as Record<string, string[]>,
-    agentRoleCardOverrides: {} as Record<string, string>,
-    setAgentAccountIds: (agentId: string, accountIds: string[]) => {
-      const teamRole = typeof get().getSelectedConversation === 'function'
-        ? get().currentTeamPack?.roles?.find((role: TeamPackRole) => role.id === agentId)
-        : undefined;
-      if (teamRole && typeof get().setTeamRoleAccountIds === 'function') {
-        void get().setTeamRoleAccountIds(agentId, accountIds);
-        return;
-      }
-      set((state: any) => ({
-        agentAccountOverrides: {
-          ...state.agentAccountOverrides,
-          [agentId]: accountIds,
-        },
-      }));
-    },
-
     // Invite / dismiss
     inviteAgent: (agentId: string) =>
       set((state: any) => {
@@ -239,16 +240,6 @@ export const createAgentSlice = (set: any, get: () => any) => {
     // Roster modal UI
     isRosterModalOpen: false as boolean,
     setRosterModalOpen: (open: boolean) => set({ isRosterModalOpen: open }),
-
-    // Role Card UI state
-    isRoleCardDetailOpen: false as boolean,
-    selectedRoleCardId: null as string | null,
-    setRoleCardDetailOpen: (open: boolean, cardId?: string) =>
-      set({ isRoleCardDetailOpen: open, selectedRoleCardId: cardId ?? null }),
-    isRoleCardEditorOpen: false as boolean,
-    editingRoleCardId: null as string | null,
-    setRoleCardEditorOpen: (open: boolean, cardId?: string) =>
-      set({ isRoleCardEditorOpen: open, editingRoleCardId: cardId ?? null }),
 
     // Skill state
     skillsMap: {} as Record<string, SkillSummary>,
@@ -294,16 +285,6 @@ export const createAgentSlice = (set: any, get: () => any) => {
       const { skillsMap, agentSkillIds } = get();
       const ids = agentSkillIds[agentId] ?? [];
       return ids.map((id: string) => skillsMap[id]).filter(Boolean);
-    },
-    assignSkillsToAgent: async (agentId: string, skillIds: string[]) => {
-      await fetch(`/api/agents/${agentId}/skills`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ skillIds }),
-      });
-      set((state: any) => ({
-        agentSkillIds: { ...state.agentSkillIds, [agentId]: skillIds },
-      }));
     },
     importSkills: async (source: string): Promise<{ imported?: number; error?: string }> => {
       const res = await fetch('/api/skills/import', {

@@ -20,9 +20,30 @@ import { InvocationCoordinator } from '@/server/invocation-pipeline/coordinator'
 import { projectObservationProjection } from '@/server/observability/ProjectObservationProjection';
 import { autonomousDeliveryRepo } from '@/server/autonomous-delivery/repository';
 import { seedPresetSkills } from '@/server/seed-skills';
+import { agentDefinitionRepo } from '@/server/agents/agent-definition-repo';
+import { HumanCommandService } from '@/server/human-command/service';
+import { AgentInbox, type AgentWorkCommand } from '@/server/platform-events/agent-inbox';
 
 let dataDir: string;
 let previousDataDir: string | undefined;
+
+function bindAgentAccount(agentId: string, accountId: string) {
+  const agent = agentDefinitionRepo.get(agentId)!;
+  agentDefinitionRepo.save({
+    id: agent.id,
+    name: agent.name,
+    runtimeId: agent.runtime_id ?? 'codex',
+    runtimeMode: agent.use_runtime_defaults ? 'defaults' : 'custom',
+    accountIds: [accountId],
+    skillIds: agent.skill_ids,
+    instructions: agent.instructions,
+    model: agent.model ?? undefined,
+    permissions: {
+      canModifyCode: Boolean(agent.can_modify_code),
+      canReview: Boolean(agent.can_review),
+    },
+  });
+}
 
 beforeEach(() => {
   setTestDb(createTestDb());
@@ -70,7 +91,7 @@ describe('InvocationPlanner', () => {
 
   it('bootstraps identity for a first A2A handoff and keeps later handoffs lean', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
-    teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });
+    bindAgentAccount('peach', 'account-openai');
     writeAccount({
       id: 'account-openai',
       name: 'OpenAI',
@@ -94,7 +115,7 @@ describe('InvocationPlanner', () => {
     });
     expect(first.ok).toBe(true);
     if (!first.ok) return;
-    expect(first.plan.contextScenario).toBe('init');
+    expect(first.plan.contextScenario).toBe('code_review');
     expect(first.plan.systemPrompt).toContain('Peach');
     expect(first.plan.prompt).toContain('A2A');
     expect(first.plan.workContract).toMatchObject({
@@ -122,14 +143,188 @@ describe('InvocationPlanner', () => {
     });
     expect(later.ok).toBe(true);
     if (!later.ok) return;
-    expect(later.plan.contextScenario).toBe('handoff');
+    expect(later.plan.contextScenario).toBe('code_review');
     expect(later.plan.systemPrompt).toBeUndefined();
     expect(later.plan.prompt).toContain('请复核修复结果');
   });
 
+  it('turns a direct Mario start request into a non-writing planning contract', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    bindAgentAccount('mario', 'account-openai');
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-mario-admission', title: 'Mario Admission', team_pack_id: pack.id });
+
+    const result = await new InvocationPlanner().prepare({
+      id: 'trigger-mario-start',
+      source: 'a2a',
+      conversationId: 'conv-mario-admission',
+      agentId: 'mario',
+      fromAgentId: 'human',
+      prompt: '@mario 看到消息了吧，开始处理吧',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.executionProfile.stage).toBe('plan');
+    expect(result.plan.contextScenario).toBe('planning');
+    expect(result.plan.contextReport.archetype).toBe('planner');
+    expect(result.plan.prompt).toContain('Role: planner');
+    expect(result.plan.prompt).not.toContain('Role: worker');
+    expect(result.plan.workContract).toMatchObject({
+      taskId: undefined,
+      role: expect.objectContaining({
+        definitionId: 'mario',
+        responsibility: 'coordinator',
+      }),
+      permissions: expect.objectContaining({
+        authorization: expect.objectContaining({ allowCodeChanges: false }),
+        dispatchAdmission: expect.objectContaining({ kind: 'planning' }),
+      }),
+    });
+    expect(result.plan.workContract.allowedOutcomeTypes).not.toContain('submit_task_result');
+  });
+
+  it('keeps the real Human Command to A2A incident on the planning lane', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    bindAgentAccount('mario', 'account-openai');
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const projectRoot = join(dataDir, 'mario-real-incident');
+    mkdirSync(projectRoot, { recursive: true });
+    conversationRepo.create({
+      id: 'conv-mario-real-incident',
+      title: 'Mario Real Incident',
+      team_pack_id: pack.id,
+      project_path: projectRoot,
+    });
+    taskRepo.create({
+      id: 'TASK-AUTO-CLASSIFY',
+      conversation_id: 'conv-mario-real-incident',
+      title: '增加自动归类',
+      description: '支持面试结束后自动总结归类处理',
+      agent_id: '',
+    });
+    const receipt = new HumanCommandService({ db: getDb() }).submit({
+      type: 'delivery.requirement.submit',
+      idempotencyKey: 'real-mario-incident',
+      projectPath: projectRoot,
+      deliveryId: 'conv-mario-real-incident',
+      actor: { type: 'user', id: 'human' },
+      content: '@mario 看到消息了吧，开始处理吧',
+      targetAgentIds: ['mario'],
+      mentions: ['mario'],
+      intent: 'general',
+      issuedAt: new Date().toISOString(),
+    });
+    expect(receipt.status).toBe('accepted');
+    const inbox = getDb().prepare(`
+      SELECT command_json FROM agent_inbox_item
+      WHERE project_id='conv-mario-real-incident' AND project_agent_id='mario'
+    `).get() as { command_json: string };
+    const command = JSON.parse(inbox.command_json) as AgentWorkCommand;
+
+    const result = await new InvocationPlanner().prepare({
+      id: 'inbox-real-mario-incident',
+      conversationId: 'conv-mario-real-incident',
+      agentId: 'mario',
+      ...command,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(`${result.plan.systemPrompt ?? ''}\n${result.plan.prompt}`).toContain('增加自动归类');
+    expect(result.plan.workContract).toMatchObject({
+      taskId: undefined,
+      role: expect.objectContaining({ responsibility: 'coordinator' }),
+      permissions: expect.objectContaining({
+        authorization: expect.objectContaining({ allowCodeChanges: false }),
+        dispatchAdmission: expect.objectContaining({ kind: 'planning' }),
+      }),
+    });
+    expect(result.plan.executionProfile.stage).toBe('plan');
+  });
+
+  it('does not turn an unbound Human mention of an implementer into ad-hoc execution', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    bindAgentAccount('luigi', 'account-openai');
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const projectRoot = join(dataDir, 'luigi-unbound-incident');
+    mkdirSync(projectRoot, { recursive: true });
+    conversationRepo.create({
+      id: 'conv-luigi-unbound', title: 'Luigi Unbound', team_pack_id: pack.id, project_path: projectRoot,
+    });
+    const receipt = new HumanCommandService({ db: getDb() }).submit({
+      type: 'delivery.requirement.submit', idempotencyKey: 'real-luigi-unbound',
+      projectPath: projectRoot, deliveryId: 'conv-luigi-unbound',
+      actor: { type: 'user', id: 'human' }, content: '@luigi 开始处理',
+      targetAgentIds: ['luigi'], mentions: ['luigi'], intent: 'general',
+      issuedAt: new Date().toISOString(),
+    });
+    expect(receipt.status).toBe('accepted');
+    const inbox = getDb().prepare(`
+      SELECT command_json FROM agent_inbox_item
+      WHERE project_id='conv-luigi-unbound' AND project_agent_id='luigi'
+    `).get() as { command_json: string };
+    const command = JSON.parse(inbox.command_json) as AgentWorkCommand;
+    const result = await new InvocationPlanner().prepare({
+      id: 'inbox-real-luigi-unbound', conversationId: 'conv-luigi-unbound', agentId: 'luigi', ...command,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.executionProfile.stage).toBe('plan');
+    expect(result.plan.workContract.permissions).toMatchObject({
+      authorization: expect.objectContaining({ allowCodeChanges: false }),
+      dispatchAdmission: expect.objectContaining({
+        kind: 'planning', reasonCode: 'dispatch_unbound_request_planning',
+      }),
+    });
+  });
+
+  it('turns a durable server-issued ad-hoc subject into stable execution authority', async () => {
+    const pack = teamPackRepo.getByName('default-team')!;
+    bindAgentAccount('luigi', 'account-openai');
+    writeAccount({
+      id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
+      enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    conversationRepo.create({ id: 'conv-adhoc', title: 'Ad-hoc', team_pack_id: pack.id });
+    const item = new AgentInbox().enqueue({
+      projectId: 'conv-adhoc', projectAgentId: 'luigi', idempotencyKey: 'automation:run-7:dispatch',
+      command: {
+        source: 'workflow', prompt: '执行独立自动化工作', contextScenario: 'execution',
+        executionSubject: { kind: 'ad_hoc_execution', id: 'automation:run-7:dispatch' },
+      },
+    });
+    const result = await new InvocationPlanner().prepare({
+      id: `inbox:${item.id}:1`, conversationId: item.projectId,
+      agentId: item.projectAgentId, ...item.command,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.executionProfile.stage).toBe('implement');
+    expect(result.plan.workContract).toMatchObject({
+      workId: 'ad-hoc:automation:run-7:dispatch:agent:luigi',
+      authoritativeRefs: expect.arrayContaining(['ad_hoc_execution:automation:run-7:dispatch']),
+      permissions: expect.objectContaining({
+        authorization: expect.objectContaining({ allowCodeChanges: true }),
+        dispatchAdmission: expect.objectContaining({ kind: 'execution' }),
+      }),
+    });
+  });
+
   it('resolves role, account, context and project data on the server', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
-    teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });
+    bindAgentAccount('luigi', 'account-openai');
     writeAccount({
       id: 'account-openai',
       name: 'OpenAI',
@@ -201,7 +396,7 @@ describe('InvocationPlanner', () => {
 
   it('injects the active DeliveryRun through the production Context Contributor', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
-    teamPackRepo.updateRoleConfig(pack.id, 'mario', { accountIds: ['account-openai'] });
+    bindAgentAccount('mario', 'account-openai');
     writeAccount({
       id: 'account-openai',
       name: 'OpenAI',
@@ -301,6 +496,8 @@ describe('InvocationPlanner', () => {
 
   it('blocks with a stable reason when the role has no enabled runtime profile', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
+    getDb().prepare('UPDATE agents SET runtime_id=NULL,account_ids=? WHERE id=?')
+      .run('[]', 'luigi');
     conversationRepo.create({ id: 'conv-2', title: 'No Runtime', team_pack_id: pack.id });
 
     const result = await new InvocationPlanner().prepare({
@@ -319,7 +516,7 @@ describe('InvocationPlanner', () => {
 
   it('compiles an assigned Skill revision into the dispatch context with evidence', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
-    teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });
+    bindAgentAccount('luigi', 'account-openai');
     writeAccount({
       id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
       enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -347,7 +544,7 @@ describe('InvocationPlanner', () => {
 
   it('advertises only registered collaboration tools declared by an assigned Skill', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
-    teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });
+    bindAgentAccount('luigi', 'account-openai');
     writeAccount({
       id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
       enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -374,7 +571,7 @@ describe('InvocationPlanner', () => {
 
   it('routes a browser-evidence Task to browser verification without loading unrelated Git guidance', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
-    teamPackRepo.updateRoleConfig(pack.id, 'luigi', { accountIds: ['account-openai'] });
+    bindAgentAccount('luigi', 'account-openai');
     writeAccount({
       id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
       enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -426,7 +623,7 @@ describe('InvocationPlanner', () => {
 
   it('routes every activation source through required-Skill validation', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
-    teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });
+    bindAgentAccount('peach', 'account-openai');
     writeAccount({
       id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
       enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -521,7 +718,7 @@ describe('InvocationPlanner', () => {
 
   it('executes a legacy proposal for an ordinary project through Coordinator and Planner', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
-    teamPackRepo.updateRoleConfig(pack.id, 'mario', { accountIds: ['account-openai'] });
+    bindAgentAccount('mario', 'account-openai');
     writeAccount({
       id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
       enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -554,7 +751,7 @@ describe('InvocationPlanner', () => {
 
   it('observes an invalid legacy Skill file path as a bounded Skill failure', async () => {
     const pack = teamPackRepo.getByName('default-team')!;
-    teamPackRepo.updateRoleConfig(pack.id, 'peach', { accountIds: ['account-openai'] });
+    bindAgentAccount('peach', 'account-openai');
     writeAccount({
       id: 'account-openai', name: 'OpenAI', authMode: 'oauth', provider: 'openai', models: [],
       enabled: true, status: 'valid', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),

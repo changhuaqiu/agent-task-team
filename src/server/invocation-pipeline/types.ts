@@ -7,6 +7,7 @@ import type { ExecutionProfile } from './execution-profile';
 
 export type AgentActivationSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
 export type AgentExecutionMode = 'standard' | 'outcome_recovery';
+export type AgentExecutionSubject = { kind: 'ad_hoc_execution'; id: string };
 
 export interface AgentActivationCommand {
   id: string;
@@ -27,6 +28,8 @@ export interface AgentActivationCommand {
   idempotencyKey?: string;
   /** Stable business work identity. Retries rotate the epoch under the same workId. */
   workId?: string;
+  /** Server-issued subject for implementation that is intentionally not a Task. */
+  executionSubject?: AgentExecutionSubject;
   executionMode?: AgentExecutionMode;
   contextScenario?: ContextScenario;
   legacyProposal?: boolean;
@@ -45,6 +48,7 @@ export interface InvocationDispatchPlan {
   trigger: AgentActivationCommand;
   engine: RuntimeCliEngine;
   accountId?: string;
+  preferredModel?: string;
   runtimeId: string;
   systemPrompt?: string;
   prompt: string;
@@ -69,6 +73,9 @@ export type InvocationReasonCode =
   | 'task_missing'
   | 'task_scope_mismatch'
   | 'agent_not_in_team'
+  | 'dispatch_task_assignment_required'
+  | 'dispatch_agent_capability_mismatch'
+  | 'dispatch_subject_invalid'
   | 'autonomous_delivery_owns_planning'
   | 'runtime_profile_missing'
   | 'required_skill_not_loaded'

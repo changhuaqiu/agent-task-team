@@ -266,7 +266,7 @@ business decisions and MUST NOT transition the Delivery to `waiting_human`.
 Completion without an accepted Outcome uses a dedicated one-attempt `outcome_recovery` budget,
 not the ordinary Invocation retry budget. The recovery activation keeps the same stable Work id
 but opens a fresh fenced epoch, supplies the previous turn's durable output and authoritative
-context, and authorizes only the `agent_submit_outcome` platform tool. It MUST NOT grant native
+context, and authorizes only the WorkContract's single-intent lifecycle tools. It MUST NOT grant native
 edit/execute permission or Skill tools, and its prompt MUST ask the Agent only to select and submit
 one allowed structured exit; it must not re-run implementation or verification. A recovery turn
 that also terminates without an accepted Outcome, or fails at Runtime, is authoritative internal

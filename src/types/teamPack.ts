@@ -40,8 +40,12 @@ export interface TeamPackWorkflow {
 export interface TeamPackRole {
   id: string;
   displayName: string;
-  soul: string;
   required: boolean;
+}
+
+/** Exact historical storage/seed role. It is never a current API projection. */
+export interface LegacyTeamPackRole extends TeamPackRole {
+  soul: string;
   description?: string;
   roleCardId?: string;
   roleCardSnapshot?: RoleCardSnapshot;
@@ -98,9 +102,28 @@ export interface TeamPack {
   isPreset: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Revision of the current Agent Team aggregate. */
+  revision?: number;
 }
 
-export interface CreateTeamPackInput {
+/** Current write model: a Team references Agents; it never owns capability data. */
+export interface AgentTeamDefinitionInput {
+  name: string;
+  displayName: string;
+  description: string;
+  version?: string;
+  tags?: string[];
+  category?: string;
+  members: Array<{ agentId: string; required?: boolean }>;
+  teamMode: 'pipeline' | 'parallel' | 'hub_spoke' | 'custom';
+  workflow: TeamPackWorkflow;
+  communicationMatrix: TeamPackCommunicationMatrix;
+  sharedContext?: TeamPackSharedContext;
+  rules?: TeamPackRules;
+}
+
+/** Migration/managed-seed shape for historical rows. Never expose as a product write DTO. */
+export interface LegacyTeamPackSeedInput {
   name: string;
   displayName: string;
   description: string;
@@ -109,7 +132,7 @@ export interface CreateTeamPackInput {
   license?: string;
   tags?: string[];
   category?: string;
-  roles: TeamPackRole[];
+  roles: LegacyTeamPackRole[];
   teamMode: 'pipeline' | 'parallel' | 'hub_spoke' | 'custom';
   workflow: TeamPackWorkflow;
   communicationMatrix: TeamPackCommunicationMatrix;

@@ -26,6 +26,7 @@ import { autonomousDeliveryContextContributor } from '../autonomous-delivery/con
 import { autonomousDeliveryRepo } from '../autonomous-delivery/repository';
 import { resolveApplicationSnapshotRuntime } from '../evaluation/application-snapshot';
 import { projectContextContributor } from '../project-context/context-contributor';
+import { artifactLedgerContextContributor } from '../artifacts/context-contributor';
 import {
   issueDispatchWorkContract,
   StaleA2APossessionError,
@@ -33,6 +34,8 @@ import {
 import { StaleWorkAuthorityError } from '../work-contract/repository';
 import { RUNTIME_ID_BY_ENGINE } from '../runtime-selection';
 import { resolveExecutionProfileForTrigger } from './execution-profile';
+import { agentDefinitionRepo } from '../agents/agent-definition-repo';
+import { admitDispatch } from './dispatch-admission';
 
 function toChatMessage(row: MessageRow): ChatMessage {
   let metadata: Record<string, unknown> | undefined;
@@ -102,6 +105,30 @@ export class InvocationPlanner implements InvocationPlannerPort {
       return { ok: false, outcome: { status: 'blocked', reasonCode: 'runtime_profile_missing' } };
     }
     const { runtime, profile } = resolution;
+    const definitionRevision = evaluationResolution
+      ? evaluationResolution.snapshot.manifest.agents
+        .find((agent) => agent.agentId === trigger.agentId)?.definitionRevision ?? 0
+      : agentDefinitionRepo.get(trigger.agentId)?.revision ?? 0;
+    const admission = admitDispatch({
+      trigger,
+      task,
+      agent: profile.agent,
+      definitionRevision,
+    });
+    if (!admission.ok) {
+      return {
+        ok: false,
+        outcome: {
+          status: 'blocked',
+          reasonCode: admission.reasonCode,
+          message: admission.message,
+        },
+      };
+    }
+    const admittedTrigger: AgentActivationCommand = {
+      ...trigger,
+      contextScenario: admission.grant.contextScenario,
+    };
     const traceId = trigger.correlationId?.trim() || generateTraceId();
     const activeSession = sessionRepo.findActiveByConversation(
       trigger.agentId,
@@ -126,7 +153,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
           })()
         : undefined;
       const executionProfile = resolveExecutionProfileForTrigger({
-        trigger,
+        trigger: admittedTrigger,
         task,
         deliveryPolicy,
         skills: outcomeRecovery ? [] : profile.prompt.skills,
@@ -154,7 +181,6 @@ export class InvocationPlanner implements InvocationPlannerPort {
         })
         : undefined;
       const manager = new ContextManager({
-        getRoleCard: async () => profile.prompt.roleCard,
         getMessages: async (conversationId, limit) => trigger.evaluation
           ? []
           : messageRepo.getByConversationAgent(conversationId, trigger.agentId, { limit: limit ?? 10 })
@@ -197,7 +223,7 @@ export class InvocationPlanner implements InvocationPlannerPort {
       }, {
         contributors: trigger.evaluation
           ? []
-          : [projectContextContributor, autonomousDeliveryContextContributor],
+          : [projectContextContributor, artifactLedgerContextContributor, autonomousDeliveryContextContributor],
       });
       const referenceResolution = trigger.evaluation || outcomeRecovery
         ? { prompt: trigger.prompt, records: [] }
@@ -230,9 +256,14 @@ export class InvocationPlanner implements InvocationPlannerPort {
         taskId: trigger.taskId,
         deliveryRunId: trigger.deliveryRunId,
         rawPrompt: referenceResolution.prompt,
+        agentName: profile.agent.displayName,
+        agentInstructions: profile.agent.instructions,
+        agentArchetype: admission.grant.archetype,
         registeredToolNames: outcomeRecovery ? [] : getSupportedToolNames(),
         trigger: contextTrigger,
-        scenario: trigger.contextScenario,
+        scenario: admission.grant.kind === 'execution'
+          ? trigger.contextScenario
+          : admission.grant.contextScenario,
         a2aHandoff: trigger.source === 'a2a' ? trigger.a2aHandoff ?? {
           title: trigger.fromAgentId ?? 'agent',
           requestedAction: referenceResolution.prompt,
@@ -254,11 +285,12 @@ export class InvocationPlanner implements InvocationPlannerPort {
       });
       const runtimeId = profile.execution.runtimeId ?? RUNTIME_ID_BY_ENGINE[profile.execution.engine];
       const workContract = issueDispatchWorkContract({
-        trigger,
+        trigger: admittedTrigger,
         traceId,
         contextSnapshot: context.snapshot,
         task,
-        role: profile.prompt.roleCard,
+        role: admission.grant.role,
+        admission: admission.grant,
         executionProfile,
         runtime: {
           engine: profile.execution.engine,
@@ -271,9 +303,10 @@ export class InvocationPlanner implements InvocationPlannerPort {
       return {
         ok: true,
         plan: {
-          trigger,
+          trigger: admittedTrigger,
           engine: profile.execution.engine,
           accountId: profile.execution.accountId,
+          preferredModel: profile.execution.preferredModel,
           runtimeId,
           systemPrompt: context.systemPrompt,
           prompt: context.userPrompt,

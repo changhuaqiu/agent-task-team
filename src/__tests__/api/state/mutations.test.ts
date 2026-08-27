@@ -58,7 +58,14 @@ async function seedConversation() {
 async function seedTeamPackConversation(firstWorkflowRole: string | null = 'planner') {
   const { conversationRepo } = await import('@/server/repositories/conversation-repo');
   const { teamPackRepo } = await import('@/server/repositories/team-pack-repo');
-  const pack = teamPackRepo.create({
+  const { agentDefinitionRepo } = await import('@/server/agents/agent-definition-repo');
+  for (const id of ['planner', 'coder']) {
+    agentDefinitionRepo.save({
+      id, name: id, roleCardId: 'preset-planner', runtimeId: 'codex',
+      accountIds: [], skillIds: [], instructions: `Run as ${id}.`,
+    });
+  }
+  const pack = teamPackRepo.seedLegacy({
     name: 'workflow-policy-pack',
     displayName: 'Workflow Policy Pack',
     description: 'Tests workflow-driven initial task assignment',

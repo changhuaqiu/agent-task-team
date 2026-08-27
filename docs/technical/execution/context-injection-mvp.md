@@ -26,7 +26,7 @@
 1. **场景 × 角色 = 策略键**：注入策略是 `f(scenario, archetype)` 的函数，不是每层内部的隐式判断。
 2. **默认隔离，显式订阅**：dialog / handoff 等易越界簇，**默认 omit**；策略表要显式打开才注入。参考 LangGraph 的 state 读投影语义。
 3. **loop 闭环由平台兜底**：agent 不需要"记得收敛"、"记得校验 handoff"——这些是平台的责任。
-4. **能力声明必须真实**：只有已经通过当前 runtime 的结构化通道注册的工具才能写成“可调用”。底层 CLI 的 `Task`、`Agent`、`SendMessage`、`TodoWrite/TodoRead` 不属于平台 capability；A2A 只接受 invocation-scoped `agent_submit_outcome / handoff_to_agent`。工具不可用时必须报告阻塞，不能用可见文本或相似名称猜测工具映射。
+4. **能力声明必须真实**：只有已经通过当前 runtime 的结构化通道注册的工具才能写成“可调用”。底层 CLI 的 `Task`、`Agent`、`SendMessage`、`TodoWrite/TodoRead` 不属于平台 capability；A2A 只接受 invocation-scoped `work_handoff`。工具不可用时必须报告阻塞，不能用可见文本或相似名称猜测工具映射。
 
 ---
 

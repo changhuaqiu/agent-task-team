@@ -6,7 +6,7 @@ export const TASK_MANAGEMENT_SKILL: CreateSkillInput = {
   content: `# Task Management
 
 In a structured WorkContract invocation, propose the Task Graph through exactly one
-agent_submit_outcome(propose_task_graph). Do not create, assign, or update Task rows directly;
+task_propose_graph call. Do not create, assign, or update Task rows directly;
 Task Authority validates and commits the proposal after Outcome admission.
 
 The legacy task tools below apply only outside WorkContract execution when the platform explicitly exposes them.

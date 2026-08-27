@@ -1,6 +1,6 @@
 'use client';
 
-import { BellRing, ChevronRight } from 'lucide-react';
+import { BellRing, CheckCircle2, ChevronRight } from 'lucide-react';
 import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -42,7 +42,7 @@ function activitySummary(message: ChatMessage): string {
   return taskTitle ? `${subject}有新活动` : '系统活动已更新';
 }
 
-export function ChatActivityNotice({ message }: { message: ChatMessage }) {
+export function ChatActivityNotice({ message, repeatCount = 1 }: { message: ChatMessage; repeatCount?: number }) {
   const setSelectedTaskId = useTaskHubStore((state) => state.setSelectedTaskId);
   const taskId = message.referencedTaskId
     ?? (typeof message.metadata?.taskId === 'string' ? message.metadata.taskId : undefined);
@@ -51,6 +51,26 @@ export function ChatActivityNotice({ message }: { message: ChatMessage }) {
     minute: '2-digit',
     hour12: false,
   });
+  const factType = typeof message.metadata?.factType === 'string' ? message.metadata.factType : undefined;
+  if (factType) {
+    const factLabel = factType === 'work.created' ? '工作已登记'
+      : factType === 'review.created' ? '评审已发起'
+        : factType === 'review.decision_recorded' ? '评审结论已记录'
+          : '事实已确认';
+    return (
+      <article className="mx-auto flex w-full max-w-3xl items-start gap-2.5 border-l-2 border-emerald-500/50 px-3 py-2" data-testid="command-fact-card">
+        <div className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600"><CheckCircle2 className="size-3.5" /></div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="text-[10px] font-semibold text-emerald-700">{factLabel}</span>
+            <span className="text-[9px] text-[hsl(var(--text-tertiary))]">{time}</span>
+            <p className="min-w-0 text-[11px] text-[hsl(var(--text-secondary))]">{message.content}</p>
+          </div>
+          {taskId && <button type="button" onClick={() => setSelectedTaskId(taskId)} className="mt-1 text-[10px] font-medium text-[hsl(var(--accent))] hover:underline">打开工作</button>}
+        </div>
+      </article>
+    );
+  }
 
   return (
     <div className="flex justify-center" data-testid="chat-activity-notice">
@@ -58,6 +78,7 @@ export function ChatActivityNotice({ message }: { message: ChatMessage }) {
         <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-1.5 text-[10px] [&::-webkit-details-marker]:hidden">
           <BellRing className="h-3 w-3 shrink-0 text-[hsl(var(--text-tertiary))]" />
           <span className="min-w-0 truncate font-medium">{activitySummary(message)}</span>
+          {repeatCount > 1 && <span className="shrink-0 rounded-full bg-[hsl(var(--bg-card))] px-1.5 py-0.5 text-[9px]">×{repeatCount}</span>}
           <span className="shrink-0 text-[9px] text-[hsl(var(--text-tertiary))]">{time}</span>
           <ChevronRight className="h-3 w-3 shrink-0 text-[hsl(var(--text-tertiary))] transition-transform group-open:rotate-90" />
         </summary>

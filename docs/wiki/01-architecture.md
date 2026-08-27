@@ -384,7 +384,7 @@ DispatchAdvisor 基于 CapabilityProfile 进行匹配：
 | 状态 | 模块 |
 |------|------|
 | ✅ 已完成 | 项目工作台 UI、SQLite 持久化、Agent Backend、账号模型、Skill 系统、会话隔离、队列隔离、Team Runtime Contract 基础链路 |
-| ✅ 已收敛 | 设置抽屉统一管理账号、角色素材、技能与团队套件；运行时由服务端 ACP Catalog 和项目绑定解析 |
+| ✅ 已收敛 | Agent Definition 统一拥有身份、工作指令、技能和执行选择；设置只管理账号、运行环境与共享技能，运行时由服务端 ACP Catalog 和项目绑定解析 |
 | 📋 规划中 | 安全与权限边界、渠道/provider/routing policy |
 
 ## 1.9 关联文档

@@ -62,6 +62,7 @@ Socket 断线不通过重放命令恢复；持久部分重新查询事实，瞬�
 - WebUI 在 Socket 连接/重连及项目切换后调用只读消息快照接口，补齐断线或未订阅 room 期间错过的通知；快照返回最新有界窗口并保持时间升序，不能因会话超过窗口上限而永久遗漏最新消息；
 - 首屏或后台水合不得整表覆盖刷新期间刚收到的实时消息；服务端快照必须与当前展示投影合并，并在持久消息到达后替换同一 Invocation 的临时流式消息。
 - 每条持久消息（包括工具消息）必须映射为批次无关的稳定展示 ID；单条落库通知与整批快照不得生成不同展示形状。
+- Runtime 的 `dispatch.receipt` 通过 `sourceMessageId` 关联触发它的用户消息；只有 `acknowledged` 可投影“Agent 已收到”反应。Execution Envelope payload 持久保存该 identity，`/api/state` 从权威 Envelope 状态恢复确认回执，Socket 只负责低延迟更新。启动水合必须在仓储层按当前消息窗口和 `updated_at` 有界查询；同一 `sourceMessageId + targetAgentId` 分别保留最新 progress 与最新 terminal，避免新一轮 `sent` 擦除既有权威 ACK。相同时间戳使用 Envelope sortable id 和显式 phase 顺序决定稳定先后，消息反应与 A2A 摘要共用该规则。
 
 因此，刷新页面不是消息可见性的恢复协议。即使 `project:view` 丢失，持久 `chat_message`
 也会在重连或项目切换时被重新投影；即使快照请求与 Socket delta 并发，已显示消息也不会被

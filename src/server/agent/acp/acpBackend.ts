@@ -69,6 +69,8 @@ export interface AcpBackendOpts {
   limits?: Partial<AcpRuntimeLimits>;
   mcpServers?: acp.McpServer[];
   autoApproveMcpToolNames?: string[];
+  /** WorkContract lifecycle tools whose accepted receipt is itself a valid turn result. */
+  terminalMcpToolNames?: string[];
   /**
    * Forward text produced by runtime-native subagents through the parent ACP
    * session. Claude's adapter already keeps the turn open until native
@@ -188,6 +190,31 @@ function sanitizeAcpDiagnostic(value: string): string {
     .replace(/(["']?(?:api[_-]?key|access[_-]?token|password|secret)["']?\s*[:=]\s*["']?)[^"'\s]+/gi, '$1[REDACTED]');
 }
 
+function hasAcceptedCommandReceipt(value: unknown, depth = 0): boolean {
+  if (depth > 8 || value === null || value === undefined) return false;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) return false;
+    try {
+      return hasAcceptedCommandReceipt(JSON.parse(trimmed), depth + 1);
+    } catch {
+      return false;
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => hasAcceptedCommandReceipt(item, depth + 1));
+  }
+  if (typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  if (
+    (candidate.status === 'applied' || candidate.status === 'duplicate')
+    && candidate.result
+    && typeof candidate.result === 'object'
+    && (candidate.result as Record<string, unknown>).exitAccepted === true
+  ) return true;
+  return Object.values(candidate).some((item) => hasAcceptedCommandReceipt(item, depth + 1));
+}
+
 function isAcpResourceNotFound(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { code?: unknown; message?: unknown };
@@ -286,6 +313,7 @@ export class AcpBackend implements AgentBackend {
     let output = '';
     let sawToolActivity = false;
     let hasTextAfterLastTool = false;
+    let acceptedTerminalCommand = false;
     let attemptHadVisibleActivity = false;
     let projectedChars = 0;
     let sessionId: string | undefined;
@@ -294,6 +322,7 @@ export class AcpBackend implements AgentBackend {
     const mapTurnUpdate = createTurnScopedAcpEventMapper();
     const approvedMcpToolCallIds = new Set<string>();
     const autoApprovedMcpToolNames = new Set(this.o.autoApproveMcpToolNames ?? []);
+    const terminalMcpToolNames = new Set(this.o.terminalMcpToolNames ?? []);
     let stderrTail = '';
     let initialized = false;
     let resultResolved = false;
@@ -358,6 +387,14 @@ export class AcpBackend implements AgentBackend {
       } else if (boundedEvent.type === 'tool_use' || boundedEvent.type === 'tool_result') {
         sawToolActivity = true;
         hasTextAfterLastTool = false;
+        if (
+          boundedEvent.type === 'tool_result'
+          && boundedEvent.tool?.status === 'completed'
+          && terminalMcpToolNames.has(boundedEvent.tool.name)
+          && hasAcceptedCommandReceipt(boundedEvent.content)
+        ) {
+          acceptedTerminalCommand = true;
+        }
       }
       if (resolveNext) {
         resolveNext({ value: boundedEvent, done: false });
@@ -753,6 +790,7 @@ export class AcpBackend implements AgentBackend {
 
             if (
               response.stopReason === 'end_turn'
+              && !acceptedTerminalCommand
               && (!output.trim() || (sawToolActivity && !hasTextAfterLastTool))
             ) {
               const canReplaceEmptySession = (
@@ -793,6 +831,7 @@ export class AcpBackend implements AgentBackend {
 
             if (
               response.stopReason === 'end_turn'
+              && !acceptedTerminalCommand
               && (!output.trim() || (sawToolActivity && !hasTextAfterLastTool))
             ) {
               emit({ type: 'text', content: EMPTY_COMPLETION_FALLBACK, sessionId }, true);

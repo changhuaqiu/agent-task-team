@@ -6,7 +6,7 @@
 
 ## 1. 目标
 
-把“当前该做什么、必须具备什么能力、加载哪些 Skill、允许如何退出”从角色自由发挥提升为服务端生成的不可变执行配置。角色卡继续表达职责与风格，平台负责阶段判定、能力授予、Skill 激活和硬门禁。
+把“当前该做什么、必须具备什么能力、加载哪些 Skill、允许如何退出”从 Agent 自由发挥提升为服务端生成的不可变执行配置。Agent Definition 的结构化 responsibility 与 instructions 表达职责和工作方式，平台负责阶段判定、能力授予、Skill 激活和硬门禁。
 
 ## 2. 问题
 
@@ -17,8 +17,8 @@
 ## 3. 设计原则
 
 - 参考 Clowder 的 L0 + SOP stage + hard predicate 分层，但只学习机制，不复制文案或产品标识。
-- 角色卡不承担机械规则；可校验规则必须进入平台配置或 admission predicate。
-- `ExecutionProfileResolver.resolve()` 是唯一阶段/Skill/能力决策 seam。
+- 自由文本 instructions 不承担机械权限；可校验职责与规则必须进入 Agent Definition 的结构化字段或 admission predicate。
+- `DispatchAdmission` 是触发能否进入规划、执行、评审或验证的唯一准入 seam；`ExecutionProfileResolver.resolve()` 只在准入结果内决定阶段所需的 Skill、能力与退出策略，不能把 planning grant 重新升级为 implement。
 - eligible 与 activated 分离；未激活 Skill 不进入 Prompt，也不暴露其工具。
 - 明确点名、Task/场景强信号优先；语义向量路由仍不在本期。
 - Web E2E 需要真实浏览器时，平台授予受限的本地浏览器验证命令；不得因普通验证请求升级给用户。
@@ -37,7 +37,7 @@ interface ExecutionProfile {
 }
 ```
 
-解析输入只使用服务端事实：`AgentActivationCommand`、当前 Task、DeliveryRun policy 与 Agent 已绑定 Skill。浏览器传来的 Skill 列表、能力或阶段不具权威性。
+解析输入只使用服务端事实：`DispatchAdmissionGrant`、`AgentActivationCommand`、当前 Task、DeliveryRun policy 与 Agent 已绑定 Skill。浏览器传来的 Skill 列表、能力或阶段不具权威性；通用 A2A 指令也不能自行选择 implement 阶段。
 
 ## 5. 激活规则
 

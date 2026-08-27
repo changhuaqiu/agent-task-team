@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from '../db';
-import { AgentInbox, AgentInboxConflictError } from './agent-inbox';
+import { AgentInbox, AgentInboxCapacityError, AgentInboxConflictError } from './agent-inbox';
 import { PlatformEventLog } from './event-log';
 
 describe('AgentInbox', () => {
@@ -74,6 +74,31 @@ describe('AgentInbox', () => {
       settledAt: now.toISOString(),
     });
     expect(inbox.claimNext()!.id).toBe(second.id);
+  });
+
+  it('bounds one durable runtime lane without breaking idempotent replay', () => {
+    inbox = new AgentInbox({
+      db,
+      eventLog: log,
+      now: () => now,
+      idFactory: (prefix) => `${prefix}-${++id}`,
+      maxPendingPerRuntimeLane: 2,
+    });
+    const first = {
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'bounded-one',
+      command: { source: 'user' as const, prompt: 'One' },
+    };
+    inbox.enqueue(first);
+    inbox.enqueue({ ...first, idempotencyKey: 'bounded-two', command: { source: 'user', prompt: 'Two' } });
+
+    expect(inbox.enqueue(first).idempotencyKey).toBe('bounded-one');
+    expect(() => inbox.enqueue({
+      ...first,
+      idempotencyKey: 'bounded-three',
+      command: { source: 'user', prompt: 'Three' },
+    })).toThrow(AgentInboxCapacityError);
   });
 
   it('does not claim the next lane item while another Runtime owner lease is live', () => {
@@ -308,6 +333,57 @@ describe('AgentInbox', () => {
         'agent.work.claimed',
         'agent.work.expired',
       ]);
+  });
+
+  it('keeps expired work visible and supports an explicit manual retry', () => {
+    const item = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'reviewer',
+      idempotencyKey: 'retry-visible-failure',
+      command: { source: 'review_gate', prompt: 'Review', taskId: 'TASK-RETRY' },
+    });
+    const claim = inbox.claimNext()!;
+    expect(inbox.expire(item.id, claim.leaseToken!, 'runtime_start_failed', true)).toBe(true);
+
+    expect(inbox.listExpired('project-1')).toEqual([
+      expect.objectContaining({
+        id: item.id,
+        status: 'expired',
+        lastError: 'runtime_start_failed',
+        runtimeStartFailureCount: 1,
+      }),
+    ]);
+    expect(inbox.retryExpired(item.id)).toMatchObject({
+      status: 'released',
+      attemptCount: 0,
+      runtimeStartFailureCount: 0,
+    });
+    expect(inbox.listExpired('project-1')).toEqual([]);
+    expect(inbox.claimNext()?.id).toBe(item.id);
+    expect(log.listStream('agent-work:project-1:reviewer').map((event) => event.type))
+      .toEqual([
+        'agent.work.enqueued',
+        'agent.work.claimed',
+        'agent.work.expired',
+        'agent.work.released',
+        'agent.work.claimed',
+      ]);
+  });
+
+  it('expires an repeatedly abandoned lease so the next lane item can proceed after manual action', () => {
+    const first = inbox.enqueue({
+      projectId: 'project-1', projectAgentId: 'reviewer', idempotencyKey: 'lease-head',
+      command: { source: 'review_gate', prompt: 'Head' },
+    });
+    inbox.enqueue({
+      projectId: 'project-1', projectAgentId: 'reviewer', idempotencyKey: 'lease-next',
+      command: { source: 'review_gate', prompt: 'Next' },
+    });
+    inbox.claimNext(10);
+    now = new Date(now.getTime() + 11);
+    expect(inbox.releaseExpiredClaims(1)).toBe(1);
+    expect(inbox.get(first.id)).toMatchObject({ status: 'expired', lastError: 'lease_expired_retry_exhausted' });
+    expect(inbox.claimNext()?.idempotencyKey).toBe('lease-next');
   });
 
   it('cancels queued work without cancelling an active claim', () => {

@@ -20,6 +20,7 @@ function expectProjectView(emit: ReturnType<typeof vi.fn>, type: string, payload
 beforeEach(() => {
   setTestDb(createTestDb());
   resetSeq();
+  seedPresetAgents();
   conversationRepo.create({ id: 'conv-1', title: 'Notifications' });
 });
 
@@ -30,7 +31,7 @@ afterEach(() => {
 
 describe('publishTaskNotification', () => {
   it('uses the TeamPack quality gate owner without hiding advisory reviewers', () => {
-    const pack = teamPackRepo.create({
+    const pack = teamPackRepo.seedLegacy({
       name: 'quality-owner-test',
       displayName: 'Quality owner test',
       description: 'Peach owns quality; DK is advisory',

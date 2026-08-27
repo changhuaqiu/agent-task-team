@@ -39,12 +39,12 @@ export class AgentInboxScheduler {
   constructor(private readonly options: AgentInboxSchedulerOptions) {
     this.inbox = options.inbox ?? new AgentInbox();
     this.intervalMs = options.intervalMs ?? 250;
-    this.retryDelayMs = options.retryDelayMs ?? 1_000;
-    this.maxRetryDelayMs = options.maxRetryDelayMs ?? 30_000;
-    this.maxClaimsPerTick = options.maxClaimsPerTick ?? 20;
+    this.retryDelayMs = options.retryDelayMs ?? 5_000;
+    this.maxRetryDelayMs = options.maxRetryDelayMs ?? 300_000;
+    this.maxClaimsPerTick = options.maxClaimsPerTick ?? 50;
     this.leaseMs = options.leaseMs ?? 30_000;
     this.heartbeatMs = options.heartbeatMs ?? Math.max(1_000, Math.floor(this.leaseMs / 3));
-    this.maxStartAttempts = options.maxStartAttempts ?? 3;
+    this.maxStartAttempts = options.maxStartAttempts ?? 10;
   }
 
   start(): void {
@@ -76,7 +76,7 @@ export class AgentInboxScheduler {
 
   private async tick(): Promise<void> {
     try {
-      this.inbox.releaseExpiredClaims();
+      this.inbox.releaseExpiredClaims(this.maxStartAttempts);
       for (let index = 0; index < this.maxClaimsPerTick; index += 1) {
         const item = this.inbox.claimNext(this.leaseMs);
         if (!item?.leaseToken) break;
@@ -91,6 +91,7 @@ export class AgentInboxScheduler {
           causationId: item.command.causationId,
           workId: item.command.workId,
           executionMode: item.command.executionMode,
+          executionSubject: item.command.executionSubject,
           taskId: item.command.taskId,
           deliveryRunId: item.command.deliveryRunId,
           fromAgentId: item.command.fromAgentId,
@@ -121,12 +122,16 @@ export class AgentInboxScheduler {
         });
         if (submission.disposition === 'deferred') {
           controller.abort();
-          this.inbox.release(
-            item.id,
-            item.leaseToken,
-            this.retryBackoffMs(item.attemptCount),
-            'agent_busy',
-          );
+          if (item.attemptCount >= this.maxStartAttempts) {
+            this.inbox.expire(item.id, item.leaseToken, 'agent_busy_retry_exhausted');
+          } else {
+            this.inbox.release(
+              item.id,
+              item.leaseToken,
+              this.retryBackoffMs(item.attemptCount),
+              'agent_busy',
+            );
+          }
           continue;
         }
         this.trackAdmission(
@@ -188,10 +193,19 @@ export class AgentInboxScheduler {
       const outcome = await started;
       const runtimeStartFailureCount = this.inbox.get(itemId)?.runtimeStartFailureCount
         ?? this.maxStartAttempts;
+      const runtimeStartFailed = outcome.status === 'failed'
+        && outcome.reasonCode === 'runtime_start_failed';
       if (outcome.status === 'accepted') {
         // Production admission is committed atomically with Envelope ACK.
         // Deterministic test runtimes may resolve `started` without an Envelope.
         if (this.inbox.ownsClaim(itemId, leaseToken)) this.inbox.admit(itemId, leaseToken);
+      } else if (attemptCount >= this.maxStartAttempts) {
+        this.inbox.expire(
+          itemId,
+          leaseToken,
+          `${outcome.reasonCode}_retry_exhausted`,
+          runtimeStartFailed,
+        );
       } else if (outcome.status === 'deferred') {
         this.inbox.release(
           itemId,
@@ -200,8 +214,7 @@ export class AgentInboxScheduler {
           outcome.reasonCode,
         );
       } else if (
-        outcome.status === 'failed'
-        && outcome.reasonCode === 'runtime_start_failed'
+        runtimeStartFailed
         && runtimeStartFailureCount + 1 < this.maxStartAttempts
       ) {
         this.inbox.release(
@@ -216,7 +229,7 @@ export class AgentInboxScheduler {
           itemId,
           leaseToken,
           outcome.reasonCode,
-          outcome.status === 'failed' && outcome.reasonCode === 'runtime_start_failed',
+          runtimeStartFailed,
         );
       }
     } finally {

@@ -12,6 +12,8 @@ import {
 } from './dispatch-contract';
 import type { ExecutionProfile } from '../invocation-pipeline/execution-profile';
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
+import type { DispatchAdmissionGrant, DispatchKind } from '../invocation-pipeline/dispatch-admission';
+import type { TaskRow } from '../repositories/task-repo';
 
 const executionProfile: ExecutionProfile = {
   stage: 'implement',
@@ -22,6 +24,32 @@ const executionProfile: ExecutionProfile = {
   capabilities: [],
   exitPolicy: 'structured_outcome',
 };
+
+function dispatchGrant(kind: DispatchKind = 'execution', task?: TaskRow): DispatchAdmissionGrant {
+  const responsibility = kind === 'planning'
+    ? 'coordinator'
+    : kind === 'review' || kind === 'verification'
+      ? 'reviewer'
+      : 'implementer';
+  return {
+    kind,
+    contextScenario: kind === 'planning' ? 'planning' : kind === 'review' ? 'code_review' : kind,
+    archetype: responsibility === 'coordinator' ? 'planner' : responsibility === 'reviewer' ? 'reviewer' : 'worker',
+    role: {
+      definitionId: 'test-agent',
+      definitionRevision: 1,
+      name: 'Test Agent',
+      responsibility,
+      instructions: 'Test dispatch.',
+      capabilities: { canModifyCode: kind === 'execution', canReview: responsibility === 'reviewer' },
+    },
+    allowCodeChanges: kind === 'execution',
+    reasonCode: 'test_dispatch',
+    ...(task ? {
+      taskAuthority: { taskId: task.id, ownerAgentId: task.agent_id, revision: task.revision },
+    } : {}),
+  };
+}
 
 describe('issueDispatchWorkContract', () => {
   let db: Database.Database;
@@ -53,10 +81,16 @@ describe('issueDispatchWorkContract', () => {
       'verification_serve_artifact',
       'shell',
     ])).toEqual([
-      'agent_submit_outcome',
       'shell',
       'task_list',
+      'task_propose_graph',
+      'task_request_review',
+      'task_submit_result',
       'verification_serve_artifact',
+      'work_continue',
+      'work_handoff',
+      'work_report_blocked',
+      'work_request_human_decision',
     ]);
   });
 
@@ -105,6 +139,7 @@ describe('issueDispatchWorkContract', () => {
         contextSnapshot: snapshot,
         task,
         role: { id: 'reviewer' },
+        admission: dispatchGrant(source === 'review_gate' ? 'review' : 'verification'),
         executionProfile: {
           ...executionProfile,
           stage: source === 'review_gate' ? 'review' : 'verify',
@@ -169,6 +204,7 @@ describe('issueDispatchWorkContract', () => {
       contextSnapshot: snapshot,
       task,
       role: { id: 'implementer' },
+      admission: dispatchGrant('recovery'),
       executionProfile: { ...executionProfile, stage: 'recover', exitPolicy: 'outcome_recovery' },
       runtime: {
         engine: 'codex',
@@ -177,13 +213,21 @@ describe('issueDispatchWorkContract', () => {
       },
     });
 
-    expect(workContractToolNames(contract)).toEqual(['agent_submit_outcome']);
+    expect(workContractToolNames(contract)).toEqual([
+      'work_continue',
+      'task_propose_graph',
+      'task_submit_result',
+      'task_request_review',
+      'work_handoff',
+      'work_report_blocked',
+      'work_request_human_decision',
+    ]);
     expect(contract.permissions).toMatchObject({
       executionMode: 'outcome_recovery',
       authorization: {},
     });
     const instruction = renderWorkContractInstruction(contract);
-    expect(instruction).toContain('outcome-only recovery turn');
+    expect(instruction).toContain('command-only recovery turn');
     expect(instruction).toContain('Do not repeat implementation');
     expect(instruction).toContain('Do not send a narrative assistant reply');
   });
@@ -239,6 +283,7 @@ describe('issueDispatchWorkContract', () => {
       traceId: 'trace-a2a-callback',
       contextSnapshot: snapshot,
       role: { id: 'lead' },
+      admission: dispatchGrant('planning'),
       executionProfile,
       runtime: {
         engine: 'codex',
@@ -270,6 +315,7 @@ describe('issueDispatchWorkContract', () => {
       traceId: 'trace-stale-a2a-callback',
       contextSnapshot: snapshot,
       role: { id: 'lead' },
+      admission: dispatchGrant('planning'),
       executionProfile,
       runtime: {
         engine: 'codex',
@@ -306,6 +352,7 @@ describe('issueDispatchWorkContract', () => {
       },
       traceId: 'trace-terminal-task', contextSnapshot: snapshot, task,
       role: { id: 'builder' }, executionProfile,
+      admission: dispatchGrant('execution', task),
       runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
     })).toThrow(/Task owner is terminal/);
 
@@ -330,8 +377,38 @@ describe('issueDispatchWorkContract', () => {
       },
       traceId: 'trace-terminal-delivery', contextSnapshot: snapshot,
       role: { id: 'builder' }, executionProfile,
+      admission: dispatchGrant(),
       runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
     })).toThrow(/Delivery owner is terminal/);
+  });
+
+  it('rejects execution when the Task owner changes after admission', () => {
+    const admittedTask = taskRepo.create({
+      id: 'task-owner-race', conversation_id: 'project-1',
+      title: 'Owner race', agent_id: 'builder',
+    }, now);
+    const admission = dispatchGrant('execution', admittedTask);
+    taskRepo.update(admittedTask.id, { agent_id: 'replacement' });
+    const snapshot: ContextSnapshot = {
+      id: 'context-owner-race',
+      query: {
+        scenario: 'execution', trigger: 'task_wakeup', conversationId: 'project-1',
+        agentId: 'builder', archetype: 'executor', taskId: admittedTask.id, budgetTokens: 1_000,
+        requiredContributorIds: [], now: now.toISOString(), requestDigest: 'owner-race',
+      },
+      fragmentRefs: [], capabilities: [], constraints: [], missingRequired: [], omissions: [],
+      compiledPrompt: 'Execute', createdAt: now.toISOString(),
+    };
+
+    expect(() => issueDispatchWorkContract({
+      trigger: {
+        id: 'trigger-owner-race', source: 'workflow', conversationId: 'project-1',
+        agentId: 'builder', taskId: admittedTask.id, prompt: 'Execute',
+      },
+      traceId: 'trace-owner-race', contextSnapshot: snapshot, task: admittedTask,
+      role: { id: 'builder' }, admission, executionProfile,
+      runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
+    })).toThrow(/Task authority changed before contract issuance/);
   });
 
   it('allows Delivery Gate Work to keep a done Task as read-only artifact context', () => {
@@ -369,6 +446,7 @@ describe('issueDispatchWorkContract', () => {
       },
       traceId: 'trace-delivery-review', contextSnapshot: snapshot, task,
       role: { id: 'reviewer' },
+      admission: dispatchGrant('review'),
       executionProfile: { ...executionProfile, stage: 'review', exitPolicy: 'gate_decision' },
       runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
     });
@@ -416,6 +494,7 @@ describe('issueDispatchWorkContract', () => {
       },
       traceId: 'trace-task-terminal-review', contextSnapshot: snapshot, task,
       role: { id: 'reviewer' },
+      admission: dispatchGrant('review'),
       executionProfile: { ...executionProfile, stage: 'review', exitPolicy: 'gate_decision' },
       runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
     })).toThrow(/Task owner is terminal/);

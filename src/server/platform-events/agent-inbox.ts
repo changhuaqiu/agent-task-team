@@ -5,6 +5,7 @@ import { getDb } from '../db';
 import type {
   AgentActivationSource,
   AgentExecutionMode,
+  AgentExecutionSubject,
   RuntimeAdmissionContext,
 } from '../invocation-pipeline/types';
 import type { CollaborationReplyAddress } from '../collaboration-kernel/types';
@@ -23,6 +24,7 @@ export interface AgentWorkCommand {
   causationId?: string;
   workId?: string;
   executionMode?: AgentExecutionMode;
+  executionSubject?: AgentExecutionSubject;
   taskId?: string;
   deliveryRunId?: string;
   fromAgentId?: string;
@@ -101,6 +103,7 @@ export interface AgentInboxOptions {
   eventLog?: PlatformEventLog;
   now?: () => Date;
   idFactory?: (prefix: 'inbox' | 'lease') => string;
+  maxPendingPerRuntimeLane?: number;
 }
 
 function fromRow(row: AgentInboxRow): AgentInboxItem {
@@ -142,6 +145,7 @@ function rowCoordinationRefs(row: AgentInboxRow): Record<string, unknown> {
     laneId: command.laneId,
     replyTo: command.replyTo,
     workId: command.workId,
+    executionSubject: command.executionSubject,
     taskId: command.taskId,
     deliveryRunId: command.deliveryRunId,
     chainId: command.chainId,
@@ -157,17 +161,26 @@ export class AgentInboxConflictError extends Error {
   readonly reasonCode = 'agent_inbox_idempotency_conflict';
 }
 
+export class AgentInboxCapacityError extends Error {
+  readonly reasonCode = 'agent_inbox_lane_capacity_exceeded';
+}
+
 export class AgentInbox {
   private readonly database?: Database.Database;
   private readonly eventLog: PlatformEventLog;
   private readonly now: () => Date;
   private readonly idFactory: (prefix: 'inbox' | 'lease') => string;
+  private readonly maxPendingPerRuntimeLane: number;
 
   constructor(options: AgentInboxOptions = {}) {
     this.database = options.db;
     this.eventLog = options.eventLog ?? new PlatformEventLog({ db: options.db });
     this.now = options.now ?? (() => new Date());
     this.idFactory = options.idFactory ?? ((prefix) => generateSortableId(prefix));
+    this.maxPendingPerRuntimeLane = options.maxPendingPerRuntimeLane ?? 500;
+    if (!Number.isInteger(this.maxPendingPerRuntimeLane) || this.maxPendingPerRuntimeLane < 1) {
+      throw new Error('agent_inbox_capacity_invalid');
+    }
   }
 
   enqueue(input: EnqueueAgentWorkInput): AgentInboxItem {
@@ -200,6 +213,16 @@ export class AgentInbox {
           throw new AgentInboxConflictError(input.idempotencyKey);
         }
         return fromRow(existing);
+      }
+      const pending = db.prepare(`
+        SELECT COUNT(*) AS count FROM agent_inbox_item
+        WHERE project_id=? AND project_agent_id=?
+          AND status IN ('enqueued','released','claimed')
+      `).get(input.projectId, input.projectAgentId) as { count: number };
+      if (pending.count >= this.maxPendingPerRuntimeLane) {
+        throw new AgentInboxCapacityError(
+          `agent_inbox_lane_capacity_exceeded:${input.projectId}:${input.projectAgentId}`,
+        );
       }
       const now = this.now().toISOString();
       const id = this.idFactory('inbox');
@@ -298,13 +321,14 @@ export class AgentInbox {
         projectAgentId: candidate.project_agent_id,
         correlationId: rowCorrelationId(candidate),
         causationId: rowCausationId(candidate),
+        dedupeNonce: leaseToken,
         payload: { ...rowCoordinationRefs(candidate), attemptCount: candidate.attempt_count + 1 },
       });
       return this.get(candidate.id);
     }).immediate();
   }
 
-  releaseExpiredClaims(): number {
+  releaseExpiredClaims(maxAttempts = 10): number {
     const db = this.database ?? getDb();
     const now = this.now().toISOString();
     return db.transaction(() => {
@@ -314,15 +338,24 @@ export class AgentInbox {
         WHERE status='claimed' AND lease_expires_at <= ?
       `).all(now) as AgentInboxRow[];
       for (const item of expired) {
+        const exhausted = item.attempt_count >= maxAttempts;
         const result = db.prepare(`
           UPDATE agent_inbox_item
-          SET status='released', available_at=?, lease_token=NULL, lease_expires_at=NULL,
-              updated_at=?
+          SET status=?, available_at=?, lease_token=NULL, lease_expires_at=NULL,
+              last_error=?, settled_at=?, updated_at=?
           WHERE id=? AND status='claimed' AND lease_token=?
-        `).run(now, now, item.id, item.lease_token);
+        `).run(
+          exhausted ? 'expired' : 'released',
+          now,
+          exhausted ? 'lease_expired_retry_exhausted' : null,
+          exhausted ? now : null,
+          now,
+          item.id,
+          item.lease_token,
+        );
         if (result.changes !== 1) continue;
         recovered += 1;
-        this.appendCoordination('agent.work.released', {
+        this.appendCoordination(exhausted ? 'agent.work.expired' : 'agent.work.released', {
           id: item.id,
           projectId: item.project_id,
           projectAgentId: item.project_agent_id,
@@ -330,7 +363,7 @@ export class AgentInbox {
           causationId: rowCausationId(item),
           payload: {
             ...rowCoordinationRefs(item),
-            reasonCode: 'lease_expired',
+            reasonCode: exhausted ? 'lease_expired_retry_exhausted' : 'lease_expired',
             attemptCount: item.attempt_count,
           },
         });
@@ -483,6 +516,49 @@ export class AgentInbox {
           ORDER BY created_at ASC, id ASC
         `).all();
     return (rows as AgentInboxRow[]).map(fromRow);
+  }
+
+  listExpired(projectId?: string): AgentInboxItem[] {
+    const db = this.database ?? getDb();
+    const rows = projectId
+      ? db.prepare(`
+          SELECT * FROM agent_inbox_item
+          WHERE project_id=? AND status='expired'
+          ORDER BY settled_at DESC, id DESC
+        `).all(projectId)
+      : db.prepare(`
+          SELECT * FROM agent_inbox_item
+          WHERE status='expired'
+          ORDER BY settled_at DESC, id DESC
+        `).all();
+    return (rows as AgentInboxRow[]).map(fromRow);
+  }
+
+  retryExpired(itemId: string): AgentInboxItem | undefined {
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const row = db.prepare(`SELECT * FROM agent_inbox_item WHERE id=? AND status='expired'`)
+        .get(itemId) as AgentInboxRow | undefined;
+      if (!row) return undefined;
+      const now = this.now().toISOString();
+      const result = db.prepare(`
+        UPDATE agent_inbox_item
+        SET status='released', attempt_count=0, runtime_start_failure_count=0,
+            available_at=?, lease_token=NULL, lease_expires_at=NULL,
+            last_error=NULL, settled_at=NULL, updated_at=?
+        WHERE id=? AND status='expired'
+      `).run(now, now, itemId);
+      if (result.changes !== 1) return undefined;
+      this.appendCoordination('agent.work.released', {
+        id: row.id,
+        projectId: row.project_id,
+        projectAgentId: row.project_agent_id,
+        correlationId: rowCorrelationId(row),
+        causationId: rowCausationId(row),
+        payload: { ...rowCoordinationRefs(row), reasonCode: 'manual_retry', attemptCount: row.attempt_count },
+      });
+      return this.get(itemId);
+    }).immediate();
   }
 
   cancelPending(projectId: string, projectAgentId: string, idempotencyKey?: string): number {
@@ -702,6 +778,7 @@ export class AgentInbox {
       projectAgentId: string;
       correlationId: string;
       causationId?: string;
+      dedupeNonce?: string;
       payload: Record<string, unknown>;
     },
   ): void {
@@ -717,7 +794,7 @@ export class AgentInbox {
       inboxItemId: input.id,
       correlationId: input.correlationId,
       causationId: input.causationId,
-      dedupeKey: `coordination:${input.id}:${type}:${JSON.stringify(input.payload)}`,
+      dedupeKey: `coordination:${input.id}:${type}:${input.dedupeNonce ?? JSON.stringify(input.payload)}`,
       payload: input.payload,
     });
   }

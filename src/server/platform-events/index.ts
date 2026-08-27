@@ -74,6 +74,7 @@ export {
 } from './runtime-worker';
 export {
   AgentInbox,
+  AgentInboxCapacityError,
   AgentInboxConflictError,
   type AgentInboxItem,
   type AgentInboxOptions,

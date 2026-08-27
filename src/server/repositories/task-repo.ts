@@ -17,6 +17,7 @@ export interface TaskRow {
   id: string;
   conversation_id: string;
   title: string;
+  category: 'issue' | 'change_request' | 'improvement';
   description: string | null;
   status: TaskStatus;
   agent_id: string;
@@ -33,10 +34,11 @@ export interface NewTask {
   id: string;
   conversation_id: string;
   title: string;
+  category?: TaskRow['category'];
   description?: string;
   agent_id: string;
   dependencies?: string[];
-  artifacts?: Record<string, unknown>;
+  artifacts?: Array<{ type: string; label: string; url?: string }>;
   initialStatus?: 'proposed' | 'ready';
   correlationId?: string;
   causationId?: string;
@@ -102,14 +104,15 @@ export const taskRepo = {
     return db.transaction(() => {
       db.prepare(
         `INSERT INTO task (
-          id, conversation_id, title, description, status, agent_id,
+          id, conversation_id, title, category, description, status, agent_id,
           dependencies, artifacts, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
         input.conversation_id,
         input.title,
+        input.category ?? 'issue',
         input.description ?? null,
         status,
         input.agent_id,

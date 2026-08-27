@@ -15,6 +15,12 @@
 - [x] OpenCode 使用 `opencode acp` 接入并完成真实 smoke test。
 - [x] Claude 使用 `@agentclientprotocol/claude-agent-acp` 接入并完成真实 smoke test。
 - [x] Codex 使用 `@agentclientprotocol/codex-acp` 接入并完成真实 smoke test。
+
+## 统一 Harness Catalog
+
+- [x] 将 Buzz 的内建与预设 ACP Harness 纳入同一发现目录，未安装项保留为候选。
+- [x] 只有 OpenCode、Claude、Codex 暴露已真实验证的能力；其他预设在 probe 前保持未验证。
+- [x] 支持用户创建、编辑和删除 Custom Harness，并由同一目录驱动 Agent 运行；Catalog 不保存秘密环境值，更新/删除会注销旧运行实例。
 - [x] 为每种运行时记录版本、认证方式、握手能力和已验证行为。
 
 ## 集成与收敛
@@ -44,3 +50,16 @@
 - [x] runtime 原生工具判断改为大小写无关，禁止重复拦截。
 - [x] 增加持续活动不触发 idle timeout、真正静默仍超时的测试。
 - [x] 合并同一 Invocation 内连续 ACP 文本 chunk，并保留工具事件边界。
+
+## Managed Runtime 与命令交付（当前重构）
+
+- [x] 实现按 Agent + Project + Runtime Node 分区的 ManagedAgentRuntimeSupervisor foundation；runtime 切换复用同一 owner、generation fencing、订阅就绪门槛、退避与熔断已覆盖测试。
+- [x] AgentWorkerPool 已实现 partial readiness、lane affinity、串行保护、stale lease fencing 与 worker replacement；实际 ACP worker 已从 daemon composition root 接线并跨 Invocation 持久化。
+- [x] Durable Inbox 在 runtime waking/degraded 时保留事件，具备有界 lane，并只在真实 ACK 后 admission。
+- [x] 将 Invocation-scoped MCP grant 安全绑定到 persistent worker turn并在终态撤销；回归证明下一 Session 不继承上一 Invocation 的 MCP server。
+- [x] 将首批 Agent 生命周期 MCP 工具接入统一 CommandService 与 CommandReceipt。
+- [x] 建立共用 handler 的 `ath` CLI 逃生仓，并让 `project.create` 同时服务 CLI 与 Human API。
+- [x] 正常 ACP completion 但没有 accepted outcome 时记录 `ended_without_outcome`，不得推进 Task/Delivery；已接纳 terminal receipt 为对应正例。
+- [x] 以本地 Buzz EXE 的真实触发、session、tool command 与 CLI 写回链路复核生产调用图，并在规格中增加“文件存在不等于接线完成”的真实性门禁。
+- [x] daemon composition root 创建并长期持有 Supervisor/WorkerPool；健康 ACP transport 跨至少两个 Invocation 复用，per-Invocation 只创建/加载 Session 和签发 grant。
+- [ ] 将当前显式提及/授权触发收敛为可持久化的有序 first-match SubscriptionRule；表达式执行必须有长度、并发、超时、连续超时熔断和 fail-closed 上限，并由 Agent Profile/Project 频道投影同一规则事实。

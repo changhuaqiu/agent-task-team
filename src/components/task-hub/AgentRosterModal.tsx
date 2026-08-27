@@ -5,7 +5,6 @@ import { useShallow } from 'zustand/react/shallow';
 import { PixelAvatar } from './PixelAvatar';
 import { X, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { RoleCardSummary } from '@/components/role-card/RoleCardSummary';
 import type { AgentTheme } from '@/store/agentStore';
 
 const CARD_THEME_CLASSES: Record<AgentTheme, {
@@ -48,7 +47,6 @@ export function AgentRosterModal() {
   )));
   const inviteAgent = useTaskHubStore((s) => s.inviteAgent);
   const addChatMessage = useTaskHubStore((s) => s.addChatMessage);
-  const getAgentRoleCard = useTaskHubStore((s) => s.getAgentRoleCard);
 
   if (!isOpen) return null;
 
@@ -94,7 +92,6 @@ export function AgentRosterModal() {
               {availableAgents.map((agent) => (
                 (() => {
                   const theme = CARD_THEME_CLASSES[agent.theme];
-                  const roleCard = getAgentRoleCard(agent.id);
                   return (
                 <div
                   key={agent.id}
@@ -120,11 +117,9 @@ export function AgentRosterModal() {
                       <h3 className="text-[14px] font-bold text-[hsl(var(--text-primary))] flex items-center gap-2">
                         {agent.name} <span>{agent.emoji}</span>
                       </h3>
-                      {roleCard && (
-                        <div className="mt-1">
-                          <RoleCardSummary card={roleCard} />
-                        </div>
-                      )}
+                      <p className="mt-1 line-clamp-3 text-[11px] leading-5 text-[hsl(var(--text-tertiary))]">
+                        {agent.instructions || '这个 Agent 还没有工作指令。'}
+                      </p>
                     </div>
 
                     <button

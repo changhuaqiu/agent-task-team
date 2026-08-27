@@ -9,7 +9,7 @@ describe('team-runtime public contract', () => {
   it('exports runtime contract types through the public index', () => {
     const agent: RuntimeAgent = {
       id: 'planner',
-      displayName: 'Planner',
+      displayName: 'Planner Agent',
       source: 'team-pack-role',
       accountIds: [],
       skills: [],
@@ -41,6 +41,25 @@ const presetAgent: PresetRuntimeAgentInput = {
   emoji: '⭐',
   accountIds: ['acc-agent'],
 };
+
+const teamAgents: PresetRuntimeAgentInput[] = [
+  {
+    id: 'planner',
+    name: 'Planner Agent',
+    roleCardId: 'rc-planner',
+    accountIds: ['acc-agent'],
+    cliEngine: 'codex',
+    skillIds: [],
+  },
+  {
+    id: 'reviewer',
+    name: 'Reviewer Agent',
+    roleCardId: 'rc-reviewer',
+    accountIds: [],
+    cliEngine: 'codex',
+    skillIds: [],
+  },
+];
 
 function roleCard(id: string, displayName: string): RoleCard {
   return {
@@ -181,7 +200,7 @@ describe('resolveTeamRuntime', () => {
     const runtime = resolveTeamRuntime({
       conversationId: 'conv-team',
       teamPack,
-      presetAgents: [presetAgent],
+      presetAgents: teamAgents,
       activeAgentIds: ['planner', 'reviewer'],
       roleCards: [],
       skillsMap: {},
@@ -193,10 +212,28 @@ describe('resolveTeamRuntime', () => {
     expect(runtime.roster.map((agent) => agent.id)).toEqual(['planner', 'reviewer']);
     expect(runtime.roster[0]).toMatchObject({
       id: 'planner',
-      displayName: 'Planner',
+      displayName: 'Planner Agent',
       source: 'team-pack-role',
-      accountIds: ['acc-team'],
+      accountIds: ['acc-agent'],
     });
+  });
+
+  it('includes a Project member that was added outside the deployed Team', () => {
+    const specialist: PresetRuntimeAgentInput = {
+      id: 'specialist', name: 'Specialist', accountIds: [], cliEngine: 'codex', skillIds: [],
+    };
+    const runtime = resolveTeamRuntime({
+      conversationId: 'conv-project-member',
+      teamPack,
+      presetAgents: [...teamAgents, specialist],
+      activeAgentIds: ['planner', 'reviewer', 'specialist'],
+      skillsMap: {},
+      strictActiveRoster: true,
+    });
+
+    expect(runtime.roster.map((agent) => agent.id)).toEqual(['planner', 'reviewer', 'specialist']);
+    expect(runtime.roster[2]).toMatchObject({ source: 'preset-agent', displayName: 'Specialist' });
+    expect(runtime.explainHandoffBlock('planner', 'specialist')).toBeUndefined();
   });
 
   it.each(initialAssignmentCases)(
@@ -205,7 +242,7 @@ describe('resolveTeamRuntime', () => {
       const runtime = resolveTeamRuntime({
         conversationId: `conv-${mode}`,
         teamPack: { ...teamPack, teamMode: mode, workflow },
-        presetAgents: [presetAgent],
+        presetAgents: teamAgents,
         activeAgentIds: ['planner', 'reviewer'],
         roleCards: [],
         skillsMap: {},
@@ -238,7 +275,7 @@ describe('resolveTeamRuntime', () => {
           steps: [{ role: 'missing-role', action: 'plan', output: 'plan' }],
         },
       },
-      presetAgents: [],
+      presetAgents: teamAgents,
       activeAgentIds: ['planner', 'reviewer'],
       roleCards: [],
       skillsMap: {},
@@ -262,7 +299,7 @@ describe('resolveTeamRuntime', () => {
           states: [{ name: 'start', role: 'reviewer', description: 'Start', transitions: [] }],
         },
       },
-      presetAgents: [],
+      presetAgents: teamAgents,
       activeAgentIds: ['planner', 'reviewer'],
       roleCards: [],
       skillsMap: {},
@@ -274,7 +311,7 @@ describe('resolveTeamRuntime', () => {
     expect(runtime.initialAgentId).toBe('reviewer');
   });
 
-  it('lets TeamPack role card overrides replace default role cards', () => {
+  it('keeps Agent Definition as role-card owner when TeamPack carries legacy overrides', () => {
     const defaultCard = roleCard('rc-default', 'Default Planner');
     const overrideCard = roleCard('rc-override', 'Override Planner');
     const teamPackWithDefaultRoleCard: TeamPack = {
@@ -287,7 +324,7 @@ describe('resolveTeamRuntime', () => {
     const runtime = resolveTeamRuntime({
       conversationId: 'conv-team-override',
       teamPack: teamPackWithDefaultRoleCard,
-      presetAgents: [presetAgent],
+      presetAgents: [{ ...teamAgents[0], roleCardId: defaultCard.id }, teamAgents[1]],
       activeAgentIds: ['planner', 'reviewer'],
       roleCards: [defaultCard, overrideCard],
       skillsMap: {},
@@ -298,16 +335,16 @@ describe('resolveTeamRuntime', () => {
 
     expect(runtime.roster[0]).toMatchObject({
       id: 'planner',
-      roleCardId: overrideCard.id,
-      displayName: overrideCard.displayName,
+      displayName: 'Planner Agent',
     });
+    expect(runtime.roster[0].roleCard).toBeUndefined();
   });
 
   it('enforces communication matrix for TeamPack runtime', () => {
     const runtime = resolveTeamRuntime({
       conversationId: 'conv-team',
       teamPack,
-      presetAgents: [presetAgent],
+      presetAgents: teamAgents,
       activeAgentIds: ['planner', 'reviewer'],
       roleCards: [],
       skillsMap: {},
@@ -412,7 +449,7 @@ describe('resolveRuntimeAgentProfile', () => {
     const runtime = resolveTeamRuntime({
       conversationId: 'conv-team',
       teamPack,
-      presetAgents: [presetAgent],
+      presetAgents: teamAgents,
       activeAgentIds: ['planner'],
       roleCards: [],
       skillsMap: {},
@@ -423,7 +460,7 @@ describe('resolveRuntimeAgentProfile', () => {
 
     const profile = resolveRuntimeAgentProfile(runtime, 'planner', [
       {
-        id: 'acc-team',
+        id: 'acc-agent',
         name: 'OpenAI',
         authMode: 'api_key',
         provider: 'openai',
@@ -438,7 +475,7 @@ describe('resolveRuntimeAgentProfile', () => {
 
     expect(profile).toMatchObject({
       agent: { id: 'planner' },
-      execution: { engine: 'codex', accountId: 'acc-team' },
+      execution: { engine: 'codex', accountId: 'acc-agent' },
       prompt: { teamPack: { id: 'pack-1' } },
     });
   });
@@ -592,7 +629,7 @@ describe('resolveRuntimeAgentProfile', () => {
     const runtime = resolveTeamRuntime({
       conversationId: 'conv-team',
       teamPack,
-      presetAgents: [presetAgent],
+      presetAgents: teamAgents,
       activeAgentIds: ['planner'],
       roleCards: [],
       skillsMap: {},

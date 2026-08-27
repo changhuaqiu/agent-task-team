@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
+  type TaskIdentity,
   type TaskStatus,
   useTaskHubStore,
 } from '@/store/taskHubStore';
 import { useShallow } from 'zustand/react/shallow';
 import { StatusBadge } from './StatusBadge';
 import { TerminalView } from './TerminalView';
-import { RoleCardBadge } from '@/components/role-card/RoleCardBadge';
 import { TaskGraphTimeline } from './TaskGraphTimeline';
 import { TaskGraphActionsPanel } from './TaskGraphActionsPanel';
 import { useTaskGraph } from './useTaskGraph';
@@ -37,6 +37,20 @@ const artifactIcons = {
   log: FileWarning,
   link: ExternalLink,
 };
+
+function taskIdentity(task: { id: string; conversationId: string }): TaskIdentity {
+  return { conversationId: task.conversationId, taskId: task.id };
+}
+
+function sameTaskIdentity(left: TaskIdentity | null | undefined, right: TaskIdentity | null | undefined): boolean {
+  return Boolean(left && right
+    && left.conversationId === right.conversationId
+    && left.taskId === right.taskId);
+}
+
+function taskIdentityKey(identity: TaskIdentity): string {
+  return `${identity.conversationId}\u0000${identity.taskId}`;
+}
 
 /* ---- Quick-action buttons per status transition ---- */
 const statusActions: {
@@ -100,7 +114,6 @@ export function TaskDetailPanel() {
     updateTask,
     removeTask,
     effectiveRoster,
-    getAgentRoleCard,
     requestTaskProgress,
     agentStatus,
   } = useTaskHubStore(useShallow((s) => ({
@@ -113,43 +126,46 @@ export function TaskDetailPanel() {
     updateTask: s.updateTask,
     removeTask: s.removeTask,
     effectiveRoster: s.getEffectiveRoster(),
-    getAgentRoleCard: s.getAgentRoleCard,
     requestTaskProgress: s.requestTaskProgress,
     agentStatus: s.agentStatus,
   })));
-  const selectedAgentRoleCard = useTaskHubStore((state) => {
-    const selectedTask = state.tasks.find((candidate) => candidate.id === state.selectedTaskId);
-    return selectedTask?.conversationId === state.selectedConversationId
-      ? state.getAgentRoleCard(selectedTask.agentId)
-      : undefined;
-  });
   const panelRef = useRef<HTMLDivElement>(null);
   const descEditRef = useRef<HTMLTextAreaElement>(null);
   const reviewNoteRef = useRef<HTMLTextAreaElement>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
-  const [progressRequestState, setProgressRequestState] = useState<{
-    taskId: string;
+  const [progressRequestStates, setProgressRequestStates] = useState<Record<string, {
+    identity: TaskIdentity;
+    idempotencyKey: string;
     inFlight: boolean;
     error: string | null;
-  }>();
-  const progressRequestInFlight = progressRequestState?.taskId === selectedTaskId
-    && progressRequestState.inFlight;
-  const progressRequestError = progressRequestState?.taskId === selectedTaskId
-    ? progressRequestState.error
+  }>>({});
+  const selectedTaskIdentity = selectedConversationId && selectedTaskId
+    ? { conversationId: selectedConversationId, taskId: selectedTaskId }
     : null;
-  const progressCommandRef = useRef<{
-    taskId: string;
+  const selectedProgressState = selectedTaskIdentity
+    ? progressRequestStates[taskIdentityKey(selectedTaskIdentity)]
+    : undefined;
+  const progressRequestInFlight = Boolean(
+    selectedProgressState?.inFlight
+    && sameTaskIdentity(selectedProgressState.identity, selectedTaskIdentity),
+  );
+  const progressRequestError = sameTaskIdentity(selectedProgressState?.identity, selectedTaskIdentity)
+    ? selectedProgressState?.error ?? null
+    : null;
+  const progressCommandsRef = useRef(new Map<string, {
+    identity: TaskIdentity;
     idempotencyKey: string;
     issuedAt: string;
-  } | null>(null);
+  }>());
 
-  const task = tasks.find((t) => t.id === selectedTaskId);
-  const taskMatchesSelectedConversation = task?.conversationId === selectedConversationId;
+  const task = tasks.find((item) => (
+    item.id === selectedTaskId && item.conversationId === selectedConversationId
+  ));
   const { graph, isLoading: graphLoading, error: graphError, refresh: refreshGraph } = useTaskGraph(
-    taskMatchesSelectedConversation ? task.conversationId : undefined,
+    task?.conversationId,
   );
-  const agent = taskMatchesSelectedConversation
+  const agent = task
     ? effectiveRoster.find((a) => a.id === task.agentId)
     : null;
   const agentRunStatus = agent ? agentStatus[agent.id] : undefined;
@@ -167,25 +183,52 @@ export function TaskDetailPanel() {
 
   const handleProgressRequest = async () => {
     if (!task || progressRequestInFlight) return;
-    const pending = progressCommandRef.current?.taskId === task.id
-      ? progressCommandRef.current
+    const identity = taskIdentity(task);
+    const identityKey = taskIdentityKey(identity);
+    const reusableCommand = progressCommandsRef.current.get(identityKey);
+    const pending = reusableCommand && sameTaskIdentity(reusableCommand.identity, identity)
+      ? reusableCommand
       : {
-        taskId: task.id,
+        identity,
         idempotencyKey: `human:${task.conversationId}:${task.id}:progress:${Date.now()}`,
         issuedAt: new Date().toISOString(),
       };
-    progressCommandRef.current = pending;
-    setProgressRequestState({ taskId: task.id, inFlight: true, error: null });
+    progressCommandsRef.current.set(identityKey, pending);
+    setProgressRequestStates((current) => ({
+      ...current,
+      [identityKey]: {
+        identity,
+        idempotencyKey: pending.idempotencyKey,
+        inFlight: true,
+        error: null,
+      },
+    }));
     const result = await requestTaskProgress(
-      task.id,
+      identity,
       '请给出当前进度、已完成内容、阻塞项和下一步。',
-      pending,
+      { idempotencyKey: pending.idempotencyKey, issuedAt: pending.issuedAt },
     );
-    if (result.ok) progressCommandRef.current = null;
-    setProgressRequestState({
-      taskId: task.id,
-      inFlight: false,
-      error: result.ok ? null : result.error,
+    if (
+      result.ok
+      && progressCommandsRef.current.get(identityKey)?.idempotencyKey === pending.idempotencyKey
+    ) {
+      progressCommandsRef.current.delete(identityKey);
+    }
+    setProgressRequestStates((current) => {
+      const active = current[identityKey];
+      if (
+        !sameTaskIdentity(active?.identity, identity)
+        || active?.idempotencyKey !== pending.idempotencyKey
+      ) return current;
+      return {
+        ...current,
+        [identityKey]: {
+          identity,
+          idempotencyKey: pending.idempotencyKey,
+          inFlight: false,
+          error: result.ok ? null : result.error,
+        },
+      };
     });
   };
 
@@ -211,13 +254,13 @@ export function TaskDetailPanel() {
     const textarea = reviewNoteRef.current;
     const current = task.reviewNote ?? '';
     if (!textarea) {
-      updateTaskStatus(task.id, task.status, current + emoji);
+      updateTaskStatus(taskIdentity(task), task.status, current + emoji);
       return;
     }
     const start = textarea.selectionStart ?? current.length;
     const end = textarea.selectionEnd ?? start;
     const next = current.slice(0, start) + emoji + current.slice(end);
-    updateTaskStatus(task.id, task.status, next);
+    updateTaskStatus(taskIdentity(task), task.status, next);
     requestAnimationFrame(() => {
       const pos = start + emoji.length;
       textarea.focus();
@@ -225,7 +268,7 @@ export function TaskDetailPanel() {
     });
   }, [task, updateTaskStatus]);
 
-  if (!task || !taskMatchesSelectedConversation) return null;
+  if (!task) return null;
 
   // Dependency resolution
   const depTasks = task.dependencies
@@ -290,12 +333,12 @@ export function TaskDetailPanel() {
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
               onBlur={() => {
-                updateTask(task.id, { title: editValue });
+                updateTask(taskIdentity(task), { title: editValue });
                 setEditingField(null);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
-                  updateTask(task.id, { title: editValue });
+                  updateTask(taskIdentity(task), { title: editValue });
                   setEditingField(null);
                 }
                 if (e.key === 'Escape') setEditingField(null);
@@ -320,7 +363,7 @@ export function TaskDetailPanel() {
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
                 onBlur={() => {
-                  updateTask(task.id, { description: editValue });
+                  updateTask(taskIdentity(task), { description: editValue });
                   setEditingField(null);
                 }}
                 onKeyDown={(e) => {
@@ -349,14 +392,12 @@ export function TaskDetailPanel() {
             </label>
             {editingField === 'agent' ? (
               <div className="flex flex-col gap-1">
-                {effectiveRoster.map((a) => {
-                  const roleCard = getAgentRoleCard(a.id);
-                  return (
+                {effectiveRoster.map((a) => (
                   <button
                     key={a.id}
                     type="button"
                     onClick={() => {
-                      updateTask(task.id, { agentId: a.id });
+                      updateTask(taskIdentity(task), { agentId: a.id });
                       setEditingField(null);
                     }}
                     className={cn(
@@ -367,13 +408,11 @@ export function TaskDetailPanel() {
                   >
                     <span className="text-sm">{a.emoji}</span>
                     <span className="text-sm font-medium text-[hsl(var(--text-primary))]">{a.name}</span>
-                    {roleCard && <span className="text-xs text-[hsl(var(--text-tertiary))]">{roleCard.displayName}</span>}
                   </button>
-                  );
-                })}
+                ))}
                 <button
                   type="button"
-                  onClick={() => { updateTask(task.id, { agentId: '' }); setEditingField(null); }}
+                  onClick={() => { updateTask(taskIdentity(task), { agentId: '' }); setEditingField(null); }}
                   className="text-xs text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] px-3 py-1"
                 >
                   清除分配
@@ -389,7 +428,6 @@ export function TaskDetailPanel() {
                 <span className="text-sm font-medium text-[hsl(var(--text-primary))]">
                   {agent?.name ?? 'Unassigned'}
                 </span>
-                {selectedAgentRoleCard && <RoleCardBadge card={selectedAgentRoleCard} size="sm" />}
               </button>
             )}
           </div>
@@ -405,7 +443,7 @@ export function TaskDetailPanel() {
                   ref={reviewNoteRef}
                   value={task.reviewNote ?? ''}
                   onChange={(e) => {
-                    updateTaskStatus(task.id, task.status, e.target.value);
+                    updateTaskStatus(taskIdentity(task), task.status, e.target.value);
                   }}
                   placeholder="填写原因..."
                   rows={2}
@@ -534,7 +572,7 @@ export function TaskDetailPanel() {
                 <button
                   key={action.target}
                   type="button"
-                  onClick={() => updateTaskStatus(task.id, action.target)}
+                  onClick={() => updateTaskStatus(taskIdentity(task), action.target)}
                   className={cn(
                     'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] border text-[11px] font-semibold transition-all duration-200',
                     action.className
@@ -565,7 +603,7 @@ export function TaskDetailPanel() {
           <button
             type="button"
             onClick={() => {
-              removeTask(task.id);
+              removeTask(taskIdentity(task));
               setSelectedTaskId(null);
               void refreshGraph();
             }}

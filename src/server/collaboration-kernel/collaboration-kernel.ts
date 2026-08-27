@@ -46,6 +46,13 @@ export class CollaborationKernel {
     const idempotencyKey = required(input.idempotencyKey, 'idempotency_key');
     const correlationId = required(input.cause.correlationId, 'correlation_id');
     const replyTo = normalizeReplyTo(input.replyTo);
+    const executionSubject = input.scope?.executionSubject;
+    if (executionSubject && executionSubject.kind !== 'ad_hoc_execution') {
+      throw new Error('collaboration_execution_subject_invalid');
+    }
+    const normalizedExecutionSubject = executionSubject
+      ? { kind: executionSubject.kind, id: required(executionSubject.id, 'execution_subject_id') } as const
+      : undefined;
     if (input.cause.event && input.cause.event.projectId !== projectId) {
       throw new Error('collaboration_cause_event_project_mismatch');
     }
@@ -61,6 +68,7 @@ export class CollaborationKernel {
       causationId: input.cause.causationId,
       workId: input.scope?.workId,
       executionMode: input.scope?.executionMode,
+      executionSubject: normalizedExecutionSubject,
       taskId: input.scope?.taskId,
       deliveryRunId: input.scope?.deliveryRunId,
       fromAgentId: input.collaboration?.fromAgentId,

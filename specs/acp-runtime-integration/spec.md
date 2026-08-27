@@ -7,7 +7,9 @@
 
 ## 1. 目标
 
-Agent Task Team 使用一个 ACP 客户端驱动 OpenCode、Claude 和 Codex，停止在 daemon 中长期维护三套私有 CLI 输出解析与能力判断。
+Agent Task Team 使用 ACP worker pool 驱动 OpenCode、Claude 和 Codex，停止在 daemon 中长期维护三套私有 CLI 输出解析与能力判断。ACP 进程由 Managed Runtime 持久管理，不再按 Invocation 启停。
+
+三者是已完成真实 smoke 的首批运行时，不是产品 Catalog 的上限。统一 Harness Catalog 还列出 Goose、Buzz Agent、Devin、Cursor、Oh My Pi、Grok Build、Kimi Code、Amp、Hermes Agent、OpenClaw 等 ACP 预设；未在本产品完成真实 probe 的条目保持 `verifiedCapabilities=[]` 且仅显示为候选，不得伪装为已验证。Agent、设置页和 daemon 都引用同一目录，不维护第二份运行时枚举或能力表。
 
 本规格一次完成三种目标运行时的接入，但每种运行时必须独立通过兼容性验收后才能删除对应旧 backend。
 
@@ -35,7 +37,8 @@ ACP 官方 Agents 列表将 Claude Agent 与 Codex CLI 明确标为通过 adapte
 - 实现统一 `AcpBackend`、stdio transport、ACP client callback 和事件映射。
 - 建立声明式 Agent Catalog，记录 launcher、原生/适配器交付方式、版本与已验证能力。
 - 接入 OpenCode、Claude 和 Codex。
-- 支持新会话、可用时恢复会话、流式文本、思考、工具事件、计划、权限请求、取消、错误和完成状态。
+- 支持持久 ACP 连接、多会话、会话亲和、新会话、恢复、流式文本、思考、工具事件、计划、权限请求、取消、错误和完成状态。
+- 结构化 MCP 作为 Agent 工作生命周期主路径；CLI 作为通用接口和逃生仓；二者调用统一 CommandService。
 - 保持 daemon、ContextManager、A2A 与任务编排只依赖内部 `AgentBackend` 契约。
 - 为三种运行时分别完成安装、认证、会话、取消、权限、工具与错误恢复验证。
 - 验收通过后删除三个 bespoke backend 及手工能力矩阵。
@@ -51,13 +54,15 @@ ACP 官方 Agents 列表将 Claude Agent 与 Codex CLI 明确标为通过 adapte
 ## 4. 目标架构
 
 ```text
-daemon / dispatch / A2A / ContextManager
+Durable EventQueue / Invocation Pipeline
                     │
                     ▼
-           AgentBackend（内部稳定契约）
+       ManagedAgentRuntimeSupervisor
+       lifecycle + generation + backoff/circuit
                     │
                     ▼
-              AcpBackend（唯一实现）
+              AgentWorkerPool
+       persistent ACP clients + session affinity
                     │
           ACP JSON-RPC over stdio
           ┌─────────┼──────────┐
@@ -67,6 +72,10 @@ daemon / dispatch / A2A / ContextManager
                     │          │
                     ▼          ▼
               Claude SDK   Codex App Server
+
+Agent ── structured MCP ─┐
+Agent ── ath CLI fallback ├─> CommandService ─> domain fact + receipt
+Web/Desktop command API ─┘
 ```
 
 框架只理解 ACP 与内部 `AgentEvent`。启动差异只存在于 Catalog，不进入 daemon 分支。
@@ -100,20 +109,36 @@ interface AgentCatalogEntry {
 
 ### 5.2 AcpBackend
 
-`AcpBackend` 负责：
+`AcpBackend` / persistent worker 负责：
 
-1. 根据 Catalog 通过 `cross-spawn` 直接启动 ACP agent；跨平台 shim 解析属于该唯一 backend 的内部实现，不另设透传 wrapper。
+1. 根据 Catalog 通过 `cross-spawn` 启动 ACP worker；跨平台 shim 解析属于该唯一 backend 的内部实现，不另设透传 wrapper。
 2. 完成初始化与认证协商。
 3. 创建或恢复 session。
 4. 提交 ContextManager 产出的 prompt/context。
 5. 将 ACP update 映射为内部 `AgentEvent`。
 6. 在 backend 边界保证事件流恰好包含一个终止 `done`；daemon 只消费该统一事件，不再次包装或补写终止事件。
 7. 处理 permission、cancel、进程退出、超时和协议错误。
-8. 关闭连接并回收子进程。
+8. turn 结束只释放 worker slot，不关闭健康连接；只有 transport/protocol failure、熔断、配置 generation 变化或 shutdown 才替换/回收子进程。
 
 daemon 不解析任何厂商专有 stdout，不判断某个厂商支持哪些参数。
 
-### 5.3 事件映射
+### 5.3 Managed Runtime
+
+- Runtime key 是 `agentId + projectId + runtimeNodeId`；同一 key 只有一个 supervisor owner。
+- 生命周期为 `stopped | starting | listening | waking | ready | degraded | failed | stopping`，每次期望状态或配置变化递增 generation；迟到的旧 generation 启动结果必须丢弃。
+- `ensureReady` 使用 singleflight。worker pool 允许部分 ready；一个 slot 失败不能阻塞健康 slot 接单。
+- worker 进程保持 ACP initialize 后的连接并承载多个 session；lane 优先使用已有 session 的 worker。
+- application/agent response failure 保留 worker；stdio、协议、进程退出和 hard timeout 替换 worker。
+- 每个 slot 使用有界指数退避和 circuit breaker；事件在 waking/degraded 时留在 Durable EventQueue，不提前 ACK。
+- Invocation-scoped MCP grant 不得随 persistent session 永久保存。每轮依据当前 WorkContract 重签、校验并在终态或取消时撤销。
+
+### 5.4 Agent 命令接口
+
+结构化 MCP 是 Agent 主路径，按 WorkContract 动态提供单意图生命周期工具。所有工具调用 CommandService 并返回统一 `CommandReceipt`。`ath` CLI 使用相同 handler，负责完整命令覆盖、自动化、诊断以及 MCP 暂无 Schema 时的逃生，不拥有第二套写逻辑。
+
+Runtime 文本、tool stream 和 prompt response 都是 `RuntimeObservation`。prompt response 的 completed 只结束 Invocation；Task、Artifact、Gate、Release 的事实变化必须来自命令回执。正常结束但没有 accepted terminal receipt 的 Invocation 记录 `ended_without_outcome`。
+
+### 5.5 事件映射
 
 | ACP 事件 | 内部事件 |
 | --- | --- |
@@ -154,15 +179,15 @@ ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 ch
 - 子进程继承的环境变量采用白名单或现有安全环境策略。
 - 日志记录协议阶段、运行时、session/invocation 关联与错误码，不记录敏感请求正文。
 
-## 7. 迁移策略
+## 7. 实施策略
 
-本规格作为一次完整实施交付，内部按以下顺序降低回归风险：
+本规格直接替换现有 per-Invocation process 模型，不建立长期兼容路径：
 
 1. 建立 ACP 基础设施与 `src/test-helpers/acp/` 中的 mock agent 测试；测试 Adapter 不进入生产 server 模块树。
 2. 接入 OpenCode、Claude、Codex Catalog launcher。
-3. 让 daemon 通过同一选择器路由 ACP/legacy，并逐个运行兼容性套件。
-4. 某运行时通过验收后移除其 legacy 路径。
-5. 三者全部通过后删除 factory 分支、私有解析器与手工 CapabilitySet（Architecture Subtraction Round 17 完成最终清理）。
+3. 引入 supervisor 与 persistent worker pool，把现有 Durable Inbox 接入 per-lane queue。
+4. 将现有 per-Invocation ACP spawn 路径替换为 worker lease/session affinity。
+5. 将结构化 MCP outcome admission 与 CLI 收敛到 CommandService，删除平行写入口。
 
 这不是三期产品方案；所有步骤属于同一活动规格和同一次交付。临时 legacy 路径不得在规格完成后保留。
 
@@ -173,7 +198,8 @@ ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 ch
 - OpenCode、Claude、Codex 均通过各自真实运行时 smoke test。
 - daemon 对三者只有 ACP 路径。
 - bespoke `claude.ts`、`opencode.ts`、`codex.ts` 及其 factory 分支已删除。
-- session、cancel、permission、tool event、失败回收和进程退出有自动化测试。
+- persistent process、session affinity、partial readiness、cancel、permission、tool event、失败回收和进程退出有自动化测试。
+- MCP 与 CLI 通过同一 CommandService 返回等价 receipt；无 outcome 的 Invocation 不推进领域状态。
 - Catalog 中记录实际安装方式、固定版本和验证能力。
 - `architecture/cli-integration.md` 与 `docs/wiki/04-backend-daemon.md` 已同步。
 - 安装、类型检查、构建和相关测试通过。
@@ -204,3 +230,18 @@ ACP 是长生命周期 daemon 启动的外部进程边界，不能假设 adapter
 | ACP 能力与旧 CLI 行为不完全等价 | 以能力握手和真实 smoke test 为准；未过门禁不删除该 legacy backend |
 | permission 语义差异 | 统一映射到项目权限策略并覆盖拒绝、确认和无交互场景 |
 | 子进程泄漏或取消失效 | 为 cancel、超时、异常退出与 daemon shutdown 建立集成测试 |
+
+## 10. 实现真实性门禁（2026-08-24）
+
+本规格只以生产调用图验收，不以文件名、类名或孤立单元测试验收：
+
+1. daemon composition root 必须创建并长期持有 `ManagedAgentRuntimeSupervisor`；Supervisor 内部创建和替换 `AgentWorkerPool`。
+2. 同一健康 worker 必须跨至少两个 Invocation 保持同一 ACP transport；测试需证明第二轮没有再次 spawn/initialize。
+3. conversation lane 必须优先命中已有 runtime session 的 worker；跨 lane 可并行、同 lane 串行。
+4. Runtime 未 ready、partial ready、worker crash、cancel、rotate、hard timeout 与 shutdown 必须走同一个有界状态机并产生稳定 reason code。
+5. 生产调用图中不再存在 per-Invocation `spawn → initialize → prompt → kill` 路径；旧路径删除而不是由 feature flag 长期保留。
+6. Agent Profile 的运行状态只能读取脱敏的 observed snapshot；配置值不得伪装成在线、ready 或 running。
+
+当前实现基线：daemon 已长期持有 `AcpRuntimeDriver`、`ManagedRuntimeSupervisor` 与 persistent `AgentWorkerPool`；健康 turn 只归还 worker lease，不销毁 ACP transport。generation 变化会撤销旧 grant，但必须保留刚签发的当前 Invocation token；shutdown 与所有 desired-state transition 串行，并禁止 shutdown 后重启。Windows Job Object、绑定 Node 与安装签名仍是桌面发布门，不影响这一 runtime ownership 事实。
+
+Prepared runtime config 具有显式 usable 状态。stop、启动失败或 restart 未达到 `acceptingWork` 后必须置为不可用；后续 prepare 不得因 fingerprint 相同而复用已 cleanup 的认证目录，必须重新 prepare 并 reconfigure。Custom Catalog 在读取时也重新执行当前秘密参数策略，历史文件不能绕过新版本校验。

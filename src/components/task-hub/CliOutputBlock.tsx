@@ -176,10 +176,9 @@ export function CliOutputBlock({ events, isStreaming, streamText }: CliOutputBlo
 
   const toolCallEvents = events.filter((e) => e.type === 'tool_use');
   const errorCount = events.filter((e) => e.type === 'error').length;
-  const activeTool = isStreaming ? toolCallEvents[toolCallEvents.length - 1] : undefined;
   const needsCollapse = events.length > 5;
   const visibleEvents = bodyExpanded ? events : events.slice(-5);
-  const previewToolCalls = toolCallEvents.slice(-3);
+  const latestToolCall = toolCallEvents[toolCallEvents.length - 1];
 
   const handleToggle = () => {
     setExpandedPreference(!expanded);
@@ -190,90 +189,46 @@ export function CliOutputBlock({ events, isStreaming, streamText }: CliOutputBlo
   };
 
   return (
-    <div className="mt-2 mb-1 overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] shadow-[var(--shadow-md)]">
+    <div className="mb-1 mt-2 overflow-hidden rounded-lg border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))]">
       <button
         type="button"
         onClick={handleToggle}
-        className="w-full bg-[linear-gradient(135deg,hsl(var(--bg-card)),hsl(var(--bg-muted)))] px-3 py-2.5 text-left transition hover:bg-[hsl(var(--bg-card-hover))]"
+        className="w-full px-2.5 py-2 text-left transition-colors hover:bg-[hsl(var(--bg-muted))]"
       >
         <div className="flex items-center gap-2">
           <span className="text-[hsl(var(--text-tertiary))]">
             {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           </span>
-          <span
-            className={cn(
-              'flex h-6 w-6 items-center justify-center rounded-md border',
-              isStreaming
-                ? 'border-[hsl(var(--status-pending-border))] bg-[hsl(var(--status-pending-bg))]'
-                : 'border-[hsl(var(--status-done-border))] bg-[hsl(var(--status-done-bg))]',
-            )}
-          >
-            {isStreaming ? (
-              <Activity className="w-3.5 h-3.5 animate-pulse text-[hsl(var(--status-pending))]" />
-            ) : (
-              <Terminal className="w-3.5 h-3.5 text-[hsl(var(--status-done))]" />
-            )}
+          {isStreaming
+            ? <Activity className="size-3.5 shrink-0 animate-pulse text-[hsl(var(--status-pending))]" />
+            : <Terminal className="size-3.5 shrink-0 text-[hsl(var(--text-tertiary))]" />}
+          <span className="shrink-0 text-[10px] font-semibold text-[hsl(var(--text-secondary))]">运行记录</span>
+          <span className={cn(
+            'shrink-0 text-[9px] font-medium',
+            isStreaming ? 'text-[hsl(var(--status-pending))]' : 'text-[hsl(var(--status-done))]',
+          )}>
+            {isStreaming ? '运行中' : '已完成'}
           </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold tracking-wide text-[hsl(var(--text-primary))]">CLI Trace</span>
-              <span
-                className={cn(
-                  'rounded-full px-1.5 py-0.5 text-[9px] font-bold',
-                  isStreaming
-                    ? 'bg-[hsl(var(--status-pending-bg))] text-[hsl(var(--status-pending))]'
-                    : 'bg-[hsl(var(--status-done-bg))] text-[hsl(var(--status-done))]',
-                )}
-              >
-                {isStreaming ? '运行中' : '已完成'}
-              </span>
-              {errorCount > 0 && (
-                <span className="rounded-full bg-[hsl(var(--status-blocked-bg))] px-1.5 py-0.5 text-[9px] font-bold text-[hsl(var(--status-blocked))]">
-                  {errorCount} 错误
-                </span>
-              )}
-            </div>
-            <div className="mt-0.5 truncate font-mono text-[10px] text-[hsl(var(--text-tertiary))]">
-              {events.length} 条事件
-              {activeTool ? ` · 当前：${extractLabel(activeTool.label)}` : toolCallEvents.length > 0 ? ` · ${toolCallEvents.length} 次工具调用` : ''}
-            </div>
-          </div>
+          <span className="shrink-0 text-[9px] text-[hsl(var(--text-tertiary))]">
+            {toolCallEvents.length > 0 ? `${toolCallEvents.length} 次工具调用` : `${events.length} 条事件`}
+          </span>
+          {!expanded && latestToolCall && (
+            <span className="min-w-0 flex-1 truncate font-mono text-[9px] text-[hsl(var(--text-tertiary))]">
+              {extractLabel(latestToolCall.label)}
+              {extractPrimaryArg(latestToolCall.detail) ? ` · ${extractPrimaryArg(latestToolCall.detail)}` : ''}
+            </span>
+          )}
+          {expanded && <span className="min-w-0 flex-1" />}
+          {errorCount > 0 && (
+            <span className="shrink-0 rounded-full bg-[hsl(var(--status-blocked-bg))] px-1.5 py-0.5 text-[9px] font-semibold text-[hsl(var(--status-blocked))]">
+              {errorCount} 错误
+            </span>
+          )}
         </div>
       </button>
 
-      {!expanded && previewToolCalls.length > 0 && (
-        <div
-          data-testid="cli-trace-preview"
-          className="border-t border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-muted))] px-3 py-2"
-        >
-          <div className="space-y-1.5">
-            {previewToolCalls.map((event, index) => {
-              const label = extractLabel(event.label);
-              const primaryArg = extractPrimaryArg(event.detail);
-              const isActive = isStreaming && index === previewToolCalls.length - 1;
-              return (
-                <div key={event.id} className="flex min-w-0 items-center gap-2 text-[10px]">
-                  <ToolGlyph label={label} tone={isActive ? 'active' : 'done'} />
-                  <span className="shrink-0 font-semibold text-[hsl(var(--text-secondary))]">{label}</span>
-                  {primaryArg && (
-                    <span className="min-w-0 flex-1 truncate font-mono text-[hsl(var(--text-tertiary))]">
-                      {primaryArg}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {toolCallEvents.length > previewToolCalls.length && (
-            <div className="mt-1.5 text-[9px] text-[hsl(var(--text-tertiary))]">
-              另有 {toolCallEvents.length - previewToolCalls.length} 次调用，展开查看全部
-            </div>
-          )}
-        </div>
-      )}
-
       {expanded && (
-        <div className="border-t border-[hsl(var(--border-subtle))] bg-[linear-gradient(180deg,hsl(var(--bg-muted)),hsl(var(--bg-card)))]">
+        <div className="border-t border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))]">
           <div className="space-y-2 p-2.5">
             {visibleEvents.map((event) => (
               <ToolRow

@@ -120,7 +120,7 @@ describe('SQLite Foundation', () => {
         VALUES ('group-2','work-1',2,'outcome-1')
       `).run()).toThrow();
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 91 });
+        .toEqual({ version: 109 });
     } finally {
       legacyDb.close();
     }
@@ -151,7 +151,7 @@ describe('SQLite Foundation', () => {
         'source_outcome_id',
       ]));
       expect(collidedDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 91 });
+        .toEqual({ version: 109 });
     } finally {
       collidedDb.close();
     }
@@ -178,6 +178,45 @@ describe('SQLite Foundation', () => {
       v: number;
     };
     expect(row.v).toBeGreaterThanOrEqual(1);
+  });
+
+  it('merges trailing-separator project identities without orphaning a workspace', () => {
+    const older = '2026-08-20T00:00:00.000Z';
+    const newer = '2026-08-21T00:00:00.000Z';
+    db.prepare('DELETE FROM _schema_version WHERE version=96').run();
+    db.prepare('INSERT INTO project (id,name,root_path,created_at,updated_at) VALUES (?,?,?,?,?)')
+      .run('project-path-winner', 'Repo', 'C:/Repo', older, older);
+    db.prepare('INSERT INTO project (id,name,root_path,created_at,updated_at) VALUES (?,?,?,?,?)')
+      .run('project-path-duplicate', 'Repo duplicate', 'c:/repo/', newer, newer);
+    const insertConversation = db.prepare(`
+      INSERT INTO conversation (
+        id,title,status,priority,project_path,use_worktree,created_at,updated_at,
+        project_id,workspace_kind
+      ) VALUES (?,?,'active','p2',?,0,?,?,?,?)
+    `);
+    insertConversation.run(
+      'workspace-path-winner', 'Repo', 'C:/Repo', older, older,
+      'project-path-winner', 'project_workspace',
+    );
+    insertConversation.run(
+      'workspace-path-duplicate', 'Repo duplicate', 'c:/repo/', newer, newer,
+      'project-path-duplicate', 'project_workspace',
+    );
+
+    applyMigrations(db);
+
+    expect(db.prepare(`
+      SELECT id,root_path FROM project
+      WHERE lower(rtrim(root_path, '/\\'))='c:/repo'
+    `).all()).toEqual([{ id: 'project-path-winner', root_path: 'C:/Repo' }]);
+    expect(db.prepare(`
+      SELECT project_id,workspace_kind,COUNT(*) AS count FROM conversation
+      WHERE id IN ('workspace-path-winner','workspace-path-duplicate')
+      GROUP BY project_id,workspace_kind ORDER BY workspace_kind
+    `).all()).toEqual([
+      { project_id: 'project-path-winner', workspace_kind: 'historical_workstream', count: 1 },
+      { project_id: 'project-path-winner', workspace_kind: 'project_workspace', count: 1 },
+    ]);
   });
 
   it('removes retired HTTP bridge runtime nodes and their live bindings', () => {
@@ -696,7 +735,7 @@ describe('SQLite Foundation', () => {
         WHERE id='legacy-action'
       `).get()).toEqual({ type: 'activate', attempt_count: 0, max_attempts: 3 });
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 91 });
+        .toEqual({ version: 109 });
       expect(() => legacyDb.prepare(`
         INSERT INTO delivery_control_action (
           id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
@@ -870,7 +909,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 91 });
+      .toEqual({ version: 109 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -948,7 +987,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 91 });
+          .toEqual({ version: 109 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

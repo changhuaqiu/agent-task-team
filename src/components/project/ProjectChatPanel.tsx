@@ -1,7 +1,6 @@
 'use client';
 
 import { GlobalChatRoom } from '@/components/task-hub/GlobalChatRoom';
-import { AgentBar } from '@/components/task-hub/AgentBar';
 import { AutonomousDeliveryPanel } from './AutonomousDeliveryPanel';
 import { DeliveryWorkspaceOverview } from './DeliveryWorkspaceOverview';
 import { PackageOpen } from 'lucide-react';
@@ -27,9 +26,9 @@ export function ProjectChatPanel({
           <div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-[hsl(var(--bg-muted))] text-[hsl(var(--text-tertiary))]">
             <PackageOpen className="size-5" />
           </div>
-          <h2 className="mt-4 text-base font-medium text-[hsl(var(--text-primary))]">从一个交付开始</h2>
+          <h2 className="mt-4 text-base font-medium text-[hsl(var(--text-primary))]">从项目工作开始</h2>
           <p className="mt-2 text-sm leading-6 text-[hsl(var(--text-secondary))]">
-            新建交付后，目标、验收、当前工作和团队活动会集中显示在这里。
+            创建工作后，目标、验收、执行进度和团队活动会集中显示在这里。
           </p>
         </div>
       </section>
@@ -57,12 +56,11 @@ export function ProjectChatPanel({
         surface === 'activity' ? 'flex' : 'hidden',
       )} data-testid="delivery-activity-surface">
         <div className="shrink-0 border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] px-5 py-3">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
             <div>
               <div className="text-sm font-semibold text-[hsl(var(--text-primary))]">团队活动</div>
               <div className="mt-0.5 text-[11px] text-[hsl(var(--text-tertiary))]">围绕当前交付的讨论、工作变化和交接记录</div>
             </div>
-            <AgentBar />
           </div>
         </div>
         <div className="min-h-0 flex-1" data-testid="project-chat-viewport">

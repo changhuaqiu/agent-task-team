@@ -10,10 +10,19 @@ export type ChatTimelineItem =
       id: string;
       kind: 'activity';
       message: ChatMessage;
+      repeatCount: number;
     };
 
 function isSystemActivity(message: ChatMessage): boolean {
   return message.intent === 'task_status' || message.agentId === 'system';
+}
+
+function activityCollapseKey(message: ChatMessage): string | undefined {
+  if (message.metadata?.commandId || message.metadata?.receiptId || message.metadata?.factType) return undefined;
+  const kind = typeof message.metadata?.kind === 'string' ? message.metadata.kind : 'activity';
+  const subject = message.referencedTaskId
+    ?? (typeof message.metadata?.taskId === 'string' ? message.metadata.taskId : 'project');
+  return `${kind}:${subject}:${message.content.trim()}`;
 }
 
 function selectInvocationProjection(messages: ChatMessage[]): ChatMessage[] {
@@ -38,7 +47,24 @@ export function projectChatTimeline(messages: ChatMessage[]): ChatTimelineItem[]
 
   for (const message of messages) {
     if (isSystemActivity(message)) {
-      items.push({ id: `activity:${message.id}`, kind: 'activity', message });
+      const collapseKey = activityCollapseKey(message);
+      const previous = items.at(-1);
+      const elapsed = previous?.kind === 'activity'
+        ? Date.parse(message.timestamp) - Date.parse(previous.message.timestamp)
+        : Number.POSITIVE_INFINITY;
+      if (
+        collapseKey
+        && previous?.kind === 'activity'
+        && activityCollapseKey(previous.message) === collapseKey
+        && Number.isFinite(elapsed)
+        && elapsed >= 0
+        && elapsed <= 10 * 60 * 1000
+      ) {
+        previous.message = message;
+        previous.repeatCount += 1;
+      } else {
+        items.push({ id: `activity:${message.id}`, kind: 'activity', message, repeatCount: 1 });
+      }
       continue;
     }
 

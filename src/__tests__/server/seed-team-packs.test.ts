@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '@/server/db';
 import { teamPackRepo } from '@/server/repositories/team-pack-repo';
 import { seedTeamPacks } from '@/server/seed-team-packs';
+import { seedPresetAgents } from '@/server/db/seed-agents';
 import type Database from 'better-sqlite3';
 
 let db: Database.Database;
@@ -9,6 +10,7 @@ let db: Database.Database;
 beforeEach(() => {
   db = createTestDb();
   setTestDb(db);
+  seedPresetAgents();
 });
 
 afterEach(() => {
@@ -17,14 +19,23 @@ afterEach(() => {
 });
 
 describe('seedTeamPacks', () => {
+  it('seeds structured Agent responsibilities independently from free-text instructions', () => {
+    expect(db.prepare('SELECT id,responsibility FROM agents ORDER BY id').all()).toEqual([
+      { id: 'dk', responsibility: 'reviewer' },
+      { id: 'luigi', responsibility: 'implementer' },
+      { id: 'mario', responsibility: 'coordinator' },
+      { id: 'peach', responsibility: 'reviewer' },
+    ]);
+  });
+
   it('marks a default team as managed on the first seed', () => {
     seedTeamPacks();
 
     expect(teamPackRepo.getByName('default-team')?.isPreset).toBe(true);
   });
 
-  it('upgrades an existing default Luigi role to the full-stack implementation card', () => {
-    const pack = teamPackRepo.create({
+  it('removes historical role capability snapshots while reconciling the preset', () => {
+    const pack = teamPackRepo.seedLegacy({
       name: 'default-team',
       displayName: '默认团队',
       description: 'Legacy default team',
@@ -74,14 +85,15 @@ describe('seedTeamPacks', () => {
     seedTeamPacks();
 
     const luigi = teamPackRepo.getById(pack.id)?.roles.find((role) => role.id === 'luigi');
-    expect(luigi?.roleCardId).toBe('preset-frontend');
-    expect(luigi?.roleCardSnapshot?.sourceRoleCardId).toBe('preset-frontend');
-    expect(luigi?.roleCardSnapshot?.allowedActions).toContain('can_modify_code');
-    expect(luigi?.roleCardSnapshot?.allowedActions).not.toContain('can_propose_only');
+    expect(luigi).toMatchObject({ id: 'luigi', required: true });
+    expect(db.prepare(`SELECT role_card_id,role_card_snapshot,account_ids,skill_ids
+      FROM team_pack_role WHERE pack_id=? AND role_id='luigi'`).get(pack.id)).toEqual({
+      role_card_id: null, role_card_snapshot: null, account_ids: null, skill_ids: null,
+    });
   });
 
-  it('reconciles a stale six-role preset while preserving role bindings', () => {
-    const pack = teamPackRepo.create({
+  it('reconciles a stale six-role preset without preserving Team-owned capability bindings', () => {
+    const pack = teamPackRepo.seedLegacy({
       name: 'default-team',
       displayName: '旧默认团队',
       description: 'Legacy six-role team',
@@ -109,10 +121,10 @@ describe('seedTeamPacks', () => {
     expect(reconciled.roles.map((role) => role.id)).toEqual(['dk', 'luigi', 'mario', 'peach']);
     expect(reconciled.workflow.states?.map((state) => state.name)).toEqual(['planning', 'implementing', 'quality_gate', 'merge_verify', 'done']);
     expect(JSON.stringify(reconciled.communicationMatrix)).not.toMatch(/toad|yoshi/);
-    expect(reconciled.roles.find((role) => role.id === 'mario')?.accountIds).toEqual(['acct-mario']);
-    expect(reconciled.roles.find((role) => role.id === 'mario')?.skillIds).toEqual(['skill-plan']);
-    expect(reconciled.roles.find((role) => role.id === 'mario')?.roleCardSnapshot?.persona?.voice).toContain('沉稳');
-    expect(reconciled.roles.find((role) => role.id === 'mario')?.roleCardSnapshot?.persona?.voice).not.toContain('走！');
+    expect(db.prepare(`SELECT role_card_id,role_card_snapshot,account_ids,skill_ids
+      FROM team_pack_role WHERE pack_id=? AND role_id='mario'`).get(pack.id)).toEqual({
+      role_card_id: null, role_card_snapshot: null, account_ids: null, skill_ids: null,
+    });
     expect(reconciled.isPreset).toBe(true);
   });
 });

@@ -1,7 +1,9 @@
 // src/server/agent/types.ts
 
 // --- Unified event types ---
-export type EngineId = 'claude' | 'opencode' | 'codex';
+import type { RuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
+
+export type EngineId = RuntimeCliEngine;
 
 export type AgentEventType =
   | 'text'

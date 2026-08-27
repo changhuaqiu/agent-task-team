@@ -2,143 +2,107 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ProjectWorkspace } from '@/components/project/ProjectWorkspace';
-import { useTaskHubStore } from '@/store/taskHubStore';
+import { useTaskHubStore, type WorkspaceProject } from '@/store/taskHubStore';
+import type { Task } from '@/store/taskStore';
 
 vi.mock('@/components/project/ProjectSidebar', () => ({
-  ProjectSidebar: ({
-    navigation,
-    activeSurface,
-    onOpenOverview,
-    onSelectDelivery,
-  }: {
-    navigation: Array<{ deliveries: Array<{ id: string; title: string }> }>;
+  ProjectSidebar: ({ activeSurface, projects, onOpenActivity, onOpenAgents, onOpenProjects, onSelectProject }: {
     activeSurface: string;
-    onOpenOverview: () => void;
-    onSelectDelivery: (id: string) => void;
-  }) => (
-    <aside data-testid="project-sidebar" data-surface={activeSurface}>
-      <button type="button" onClick={onOpenOverview}>交付总览</button>
-      {navigation.flatMap((project) => project.deliveries).map((delivery) => (
-        <button key={delivery.id} type="button" onClick={() => onSelectDelivery(delivery.id)}>{delivery.title}</button>
-      ))}
-    </aside>
-  ),
+    projects: WorkspaceProject[];
+    onOpenActivity: () => void;
+    onOpenAgents: () => void;
+    onOpenProjects: () => void;
+    onSelectProject: (project: WorkspaceProject) => void;
+  }) => <aside data-testid="project-sidebar" data-surface={activeSurface}>
+    <button type="button" onClick={onOpenActivity}>收件箱</button>
+    <button type="button" onClick={onOpenAgents}>Agents</button>
+    <button type="button" onClick={onOpenProjects}>Projects</button>
+    {projects.map((project) => <button key={project.id} type="button" onClick={() => onSelectProject(project)}>{project.name}</button>)}
+  </aside>,
 }));
 vi.mock('@/components/project/ProjectsOverview', () => ({
-  ProjectsOverview: ({ navigation }: { navigation: unknown[] }) => (
-    <section data-testid="projects-overview">
-      {navigation.length === 0 && <p>使用右上角“新建交付”选择项目目录</p>}
-    </section>
-  ),
+  ProjectsOverview: ({ lens, onOpenTask }: { lens: string; onOpenTask: (taskId: string) => void }) => <section data-testid="projects-overview" data-lens={lens}><button type="button" onClick={() => onOpenTask('task-bravo')}>打开跨项目工作</button></section>,
 }));
-vi.mock('@/components/project/ProjectChatPanel', () => ({
-  ProjectChatPanel: ({ surface }: { surface: string }) => <section data-testid="collaboration-workspace" data-surface={surface}/>,
-}));
-vi.mock('@/components/project/ProjectRightPanel', () => ({
-  ProjectRightPanel: () => <aside data-testid="project-right-panel"/>,
-}));
-vi.mock('@/components/project/ProjectEvaluationWorkspace', () => ({
-  ProjectEvaluationWorkspace: ({ conversationId }: { conversationId?: string }) =>
-    <section data-testid="evaluation-workspace">{conversationId}</section>,
+vi.mock('@/components/agent/AgentsDirectory', () => ({ AgentsDirectory: () => <section data-testid="agents-directory" /> }));
+vi.mock('@/components/project/ProjectObjectWorkspace', () => ({
+  ProjectObjectWorkspace: ({ project }: { project: WorkspaceProject }) => <section data-testid="project-object-workspace">{project.name}</section>,
 }));
 vi.mock('@/components/project/AgentObservabilityDrawerHost', () => ({
-  AgentObservabilityDrawerHost: () => <aside data-testid="observability-drawer-host"/>,
+  AgentObservabilityDrawerHost: () => <aside data-testid="observability-drawer-host" />,
 }));
 
 afterEach(cleanup);
 
+const projects: WorkspaceProject[] = [
+  { id: 'alpha', name: 'Alpha', rootPath: 'C:/projects/alpha', workspaceConversationId: 'workspace-alpha', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' },
+  { id: 'bravo', name: 'Bravo', rootPath: 'C:/projects/bravo', workspaceConversationId: 'workspace-bravo', createdAt: '2026-08-23T00:00:00.000Z', updatedAt: '2026-08-23T00:00:00.000Z' },
+];
+
+function resetWorkspace(selectedConversationId: string | null = null) {
+  useTaskHubStore.setState({ selectedConversationId, projects, conversations: [], tasks: [], blockersByConversation: {}, chatMessagesByConversation: {} });
+}
+
+const crossProjectTask: Task = {
+  id: 'task-bravo', conversationId: 'workspace-bravo', phaseId: '', title: 'Bravo work',
+  description: '', status: 'proposed', agentId: 'builder', dependencies: [], artifacts: [],
+  createdAt: '2026-08-25T00:00:00.000Z', updatedAt: '2026-08-25T00:00:00.000Z', revision: 1,
+};
+
 describe('ProjectWorkspace', () => {
-  it('switches the same selected delivery across overview, activity, and evaluation surfaces', async () => {
-    useTaskHubStore.setState({
-      selectedConversationId: 'conv-platform',
-      conversations: [{
-        id: 'conv-platform', title: '平台内建评估', goal: '同一项目上下文',
-        status: 'active', priority: 'p1', projectPath: '',
-        breakdownStatus: 'none', createdAt: '2026-07-19T00:00:00.000Z',
-        updatedAt: '2026-07-19T00:00:00.000Z',
-      }],
-    });
-    render(<ProjectWorkspace />);
-    expect(screen.getByTestId('projects-overview')).toBeDefined();
-    fireEvent.click(screen.getByRole('button', { name: '平台内建评估' }));
-    expect(screen.getByTestId('collaboration-workspace')).toBeDefined();
-    expect(screen.getByTestId('collaboration-workspace').getAttribute('data-surface')).toBe('overview');
-    expect(screen.queryByTestId('evaluation-workspace')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '活动' }));
-    expect(screen.getByTestId('collaboration-workspace').getAttribute('data-surface')).toBe('activity');
-    fireEvent.click(screen.getByRole('button', { name: '评估' }));
-    expect(screen.getByTestId('collaboration-workspace').parentElement?.className).toContain('hidden');
-    expect((await screen.findByTestId('evaluation-workspace')).textContent).toBe('conv-platform');
-    expect(screen.getByTestId('project-sidebar')).toBeDefined();
+  it('uses activity, agents, and project lenses instead of delivery surfaces', () => {
+    resetWorkspace();
+    render(<ProjectWorkspace onAddProject={vi.fn()} />);
+    expect(screen.getByTestId('projects-overview').getAttribute('data-lens')).toBe('activity');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Agents' })[0]);
+    expect(screen.getByTestId('agents-directory')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Projects' }));
+    expect(screen.getByTestId('projects-overview').getAttribute('data-lens')).toBe('projects');
+  });
+
+  it('keeps global content and context inside one bounded workspace frame', () => {
+    resetWorkspace();
+    render(<ProjectWorkspace onAddProject={vi.fn()} />);
+
+    const frame = screen.getByTestId('global-workspace-frame');
+    expect(frame.className).toContain('max-w-[1680px]');
+    expect(frame.className).toContain('[&>main>div]:!max-w-none');
+    expect(frame.className).toContain('[&>main>div]:!w-full');
+    expect(frame.contains(screen.getByTestId('projects-overview'))).toBe(true);
+    expect(frame.contains(screen.getByRole('complementary', { name: '工作区上下文' }))).toBe(true);
+  });
+
+  it('opens a selected project object directly', () => {
+    resetWorkspace();
+    render(<ProjectWorkspace onAddProject={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Bravo' }));
+    expect(useTaskHubStore.getState().selectedConversationId).toBe('workspace-bravo');
+    expect(screen.getByTestId('project-sidebar').getAttribute('data-surface')).toBe('project');
+    expect(screen.getByTestId('project-object-workspace').textContent).toBe('Bravo');
+  });
+
+  it('opens a project selected by an external create flow', () => {
+    resetWorkspace();
+    render(<ProjectWorkspace onAddProject={vi.fn()} />);
+    act(() => useTaskHubStore.getState().setSelectedConversationId('workspace-alpha'));
+    expect(screen.getByTestId('project-sidebar').getAttribute('data-surface')).toBe('project');
+    expect(screen.getByTestId('project-object-workspace').textContent).toBe('Alpha');
+  });
+
+  it('keeps observability outside the primary object surfaces', () => {
+    resetWorkspace();
+    render(<ProjectWorkspace onAddProject={vi.fn()} />);
     expect(screen.getByTestId('observability-drawer-host')).toBeDefined();
+    expect(screen.queryByText(/新建交付/)).toBeNull();
   });
 
-  it('selects a delivery inside its named project and opens the delivery surface', () => {
-    useTaskHubStore.setState({
-      selectedConversationId: 'conv-alpha',
-      conversations: [
-        {
-          id: 'conv-alpha', title: 'Alpha delivery', goal: 'Alpha goal',
-          status: 'active', priority: 'p1', projectPath: 'C:/projects/alpha',
-          breakdownStatus: 'none', createdAt: '2026-08-23T00:00:00.000Z',
-          updatedAt: '2026-08-23T00:00:00.000Z',
-        },
-        {
-          id: 'conv-bravo', title: 'Bravo delivery', goal: 'Bravo goal',
-          status: 'active', priority: 'p1', projectPath: 'C:/projects/bravo',
-          breakdownStatus: 'none', createdAt: '2026-08-23T01:00:00.000Z',
-          updatedAt: '2026-08-23T01:00:00.000Z',
-        },
-      ],
-      tasks: [],
-      blockersByConversation: {},
-      chatMessagesByConversation: {},
-    });
+  it('switches conversation scope and selected Work atomically from global lenses', () => {
+    resetWorkspace('workspace-alpha');
+    useTaskHubStore.setState({ tasks: [crossProjectTask] });
+    render(<ProjectWorkspace onAddProject={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '收件箱' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开跨项目工作' }));
 
-    render(<ProjectWorkspace />);
-    fireEvent.click(screen.getByRole('button', { name: 'Bravo delivery' }));
-
-    expect(useTaskHubStore.getState().selectedConversationId).toBe('conv-bravo');
-    expect(screen.getByTestId('project-sidebar').getAttribute('data-surface')).toBe('delivery');
-    expect(screen.getByTestId('collaboration-workspace')).toBeDefined();
-  });
-
-  it('opens a delivery selected by an external create flow after the overview mounted', () => {
-    useTaskHubStore.setState({
-      selectedConversationId: null,
-      conversations: [{
-        id: 'conv-created', title: '刚创建的交付', goal: '创建后直接进入',
-        status: 'active', priority: 'p1', projectPath: 'C:/projects/created',
-        breakdownStatus: 'none', createdAt: '2026-08-23T00:00:00.000Z',
-        updatedAt: '2026-08-23T00:00:00.000Z',
-      }],
-      tasks: [],
-      blockersByConversation: {},
-      chatMessagesByConversation: {},
-    });
-
-    render(<ProjectWorkspace />);
-    expect(screen.getByTestId('projects-overview')).toBeDefined();
-
-    act(() => useTaskHubStore.getState().setSelectedConversationId('conv-created'));
-
-    expect(screen.getByTestId('project-sidebar').getAttribute('data-surface')).toBe('delivery');
-    expect(screen.getByTestId('collaboration-workspace')).toBeDefined();
-  });
-
-  it('renders one empty-state guidance and no delivery-only panels with zero data', () => {
-    useTaskHubStore.setState({
-      selectedConversationId: null,
-      conversations: [],
-      tasks: [],
-      blockersByConversation: {},
-      chatMessagesByConversation: {},
-    });
-
-    render(<ProjectWorkspace />);
-
-    expect(screen.getAllByText('使用右上角“新建交付”选择项目目录')).toHaveLength(1);
-    expect(screen.queryByTestId('collaboration-workspace')).toBeNull();
-    expect(screen.queryByTestId('project-right-panel')).toBeNull();
+    expect(useTaskHubStore.getState().selectedConversationId).toBe('workspace-bravo');
+    expect(useTaskHubStore.getState().selectedTaskId).toBe('task-bravo');
   });
 });

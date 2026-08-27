@@ -11,6 +11,10 @@ function productionTypeScriptFiles(directory: string): string[] {
   return readdirSync(resolve(process.cwd(), directory)).flatMap((name) => {
     const relative = `${directory}/${name}`;
     const absolute = resolve(process.cwd(), relative);
+    // Other suites create and remove temporary fixtures under src/__tests__ while
+    // Vitest runs files concurrently. A directory entry may disappear between
+    // readdir and stat, and it is not part of the production surface anyway.
+    if (!existsSync(absolute)) return [];
     if (statSync(absolute).isDirectory()) return productionTypeScriptFiles(relative);
     return /\.tsx?$/.test(relative) && !/\.test\.tsx?$/.test(relative) ? [relative] : [];
   });
@@ -126,7 +130,7 @@ describe('runtime ownership architecture', () => {
     expect(productionTypeScriptFiles('src').filter((path) => retiredProgressCard.test(source(path)))).toEqual([]);
   });
 
-  it('keeps browser Agent identity free of duplicate RoleCard facts', () => {
+  it('keeps browser Agent identity owned entirely by Agent Definition', () => {
     const agentStore = source('src/store/agentStore.ts');
     const agentInterface = agentStore.match(/export interface Agent \{([\s\S]*?)\n\}/)?.[1] ?? '';
     expect(agentInterface).not.toMatch(/^\s*role(?:Label)?:/m);
@@ -134,7 +138,7 @@ describe('runtime ownership architecture', () => {
     const retiredRoleProjection = /\bAgentRole\b|\broleLabel\b|\bROLE_(?:LABEL_)?MAP\b/;
     expect(productionTypeScriptFiles('src').filter((path) => retiredRoleProjection.test(source(path))))
       .toEqual([]);
-    expect(taskHubStore).toContain('getAgentRoleCard: (agentId: string) => RoleCard | undefined');
+    expect(taskHubStore).not.toContain('getAgentRoleCard');
     for (const consumer of [
       'src/components/task-hub/AgentBar.tsx',
       'src/components/task-hub/AgentRosterModal.tsx',
@@ -142,8 +146,10 @@ describe('runtime ownership architecture', () => {
       'src/components/task-hub/AgentMentionPopup.tsx',
       'src/components/task-hub/TaskDetailPanel.tsx',
     ]) {
-      expect(source(consumer)).toContain('getAgentRoleCard');
+      expect(source(consumer)).not.toMatch(/RoleCard|getAgentRoleCard|roleCard/);
     }
+    expect(source('src/lib/team-runtime/types.ts')).not.toMatch(/RoleCard|roleCard/);
+    expect(productionTypeScriptFiles('src').filter((path) => path.includes('/components/role-card/'))).toEqual([]);
   });
 
   it('keeps Team Runtime initial assignment as a direct derived value', () => {
@@ -355,16 +361,15 @@ describe('runtime ownership architecture', () => {
     expect(renderer).not.toContain("@/lib/human-command");
   });
 
-  it('projects the compatibility Conversation model once above workspace panels', () => {
+  it('keeps Project, Agent, and workspace lenses as explicit top-level modules', () => {
     const workspace = source('src/components/project/ProjectWorkspace.tsx');
-    const chat = source('src/components/project/ProjectChatPanel.tsx');
-    const right = source('src/components/project/ProjectRightPanel.tsx');
     const sidebar = source('src/components/project/ProjectSidebar.tsx');
-    expect(workspace).toContain('projectDeliveryWorkspace({');
-    expect(workspace).toContain('projectDeliveryNavigation({');
-    expect(chat).not.toContain('projectDeliveryWorkspace');
-    expect(right).not.toContain('projectDeliveryWorkspace');
-    expect(sidebar).not.toContain('type Conversation');
+    expect(workspace).toContain('<ProjectsOverview');
+    expect(workspace).toContain('<AgentsDirectory');
+    expect(workspace).toContain('<ProjectObjectWorkspace');
+    expect(workspace).not.toContain('projectDeliveryWorkspace');
+    expect(sidebar).toContain("export type WorkspaceSurface = 'activity' | 'agents' | 'projects' | 'project'");
+    expect(sidebar).not.toContain('Delivery');
   });
 
   it('routes every production domain trigger through CollaborationKernel', () => {
@@ -464,9 +469,9 @@ describe('runtime ownership architecture', () => {
       "socket.on('dispatch.receipt'",
       "socket.on('command:error'",
     ];
-    const files = productionTypeScriptFiles('src');
+    const files = productionTypeScriptFiles('src').map((path) => ({ path, contents: source(path) }));
     for (const marker of forbidden) {
-      expect(files.filter((path) => source(path).includes(marker)), marker).toEqual([]);
+      expect(files.filter((file) => file.contents.includes(marker)).map((file) => file.path), marker).toEqual([]);
     }
   });
 
@@ -519,10 +524,11 @@ describe('runtime ownership architecture', () => {
     );
   });
 
-  it('keeps agent execution on the ACP backend without a tmux CLI bypass', () => {
+  it('keeps production agent execution on the supervised persistent ACP runtime without a tmux CLI bypass', () => {
     const runtimeDriver = source('src/server/agent-runtime/acp-runtime-driver.ts');
-    expect(runtimeDriver).toContain('loadCatalog().find');
-    expect(runtimeDriver).toContain('createBackend(entry');
+    expect(runtimeDriver).toContain('this.catalog.find');
+    expect(runtimeDriver).toContain('ManagedAcpRuntime.start');
+    expect(source('src/server/agent-runtime/managed-acp-runtime.ts')).toContain('PersistentAcpWorker');
     expect(daemon).toContain('acpRuntimeDriver.prepareTurn');
     expect(daemon).not.toContain('ATH_TMUX_ENABLED');
     expect(daemon).not.toContain("transport: 'tmux'");
@@ -530,10 +536,15 @@ describe('runtime ownership architecture', () => {
     expect(productionTypeScriptFiles('src/server').filter((path) => forbiddenBypass.test(source(path)))).toEqual([]);
   });
 
-  it('keeps cross-platform process spawning inside the sole ACP backend', () => {
+  it('keeps production cross-platform spawning inside ACP adapter boundaries', () => {
     const serverFiles = productionTypeScriptFiles('src/server');
     expect(serverFiles.filter((path) => /from ['"]cross-spawn['"]/.test(source(path))))
-      .toEqual(['src/server/agent/acp/acpBackend.ts']);
+      .toEqual([
+        'src/server/agent/acp/acpBackend.ts',
+        'src/server/agent-runtime/persistent-acp-worker.ts',
+      ]);
+    expect(daemon).not.toContain('new AcpBackend');
+    expect(daemon).not.toContain('cross-spawn');
     const retiredSpawnWrapper = /\bspawnCli\b|agent\/cliBridge|agent\\cliBridge/;
     expect(serverFiles.filter((path) => retiredSpawnWrapper.test(source(path)))).toEqual([]);
   });
@@ -815,12 +826,9 @@ describe('runtime ownership architecture', () => {
     const production = productionTypeScriptFiles('src').map((path) => source(path)).join('\n');
     expect(production).not.toMatch(/\binterface\s+SecurityScanner\b/);
     expect(production).not.toMatch(/\bsecurityScanner\.scan\b/);
-    expect(source('src/server/security-scanner.ts')).toContain(
-      'export function scanRoleCardContent',
-    );
-    expect(source('src/server/role-card-import.ts')).toContain(
-      'scanRoleCardContent(parsed.soulContent)',
-    );
+    expect(existsSync(resolve(process.cwd(), 'src/server/role-card-import.ts'))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), 'src/pages/api/role-cards/import.ts'))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), 'src/pages/api/team-packs/[packId]/roles/[roleId].ts'))).toBe(false);
   });
 
   it('keeps ACP mapping, permission, and session diagnostics behind formal interfaces', () => {
@@ -955,10 +963,8 @@ describe('runtime ownership architecture', () => {
 
     expect(source('src/pages/api/team-packs/[packId].ts')).not.toContain('interface UpdateInput');
     expect(source('src/components/task-hub/AgentBindingPanel.tsx')).not.toContain('agentName: string');
-    expect(source('src/components/role-card/RoleCardListPage.tsx')).not.toContain('onClose: () => void');
-    expect(source('src/lib/agent-context/layers/roleLayer.ts')).toMatch(
-      /buildRoleLayer\(roleCard\?: RoleCard\)/,
-    );
+    expect(existsSync(resolve(process.cwd(), 'src/components/role-card/RoleCardListPage.tsx'))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), 'src/lib/agent-context/layers/roleLayer.ts'))).toBe(false);
 
     const outboxSource = source('src/server/platform-events/durable-effect-outbox.ts');
     expect(outboxSource).not.toMatch(/private fail\([\s\S]*?registration:/);

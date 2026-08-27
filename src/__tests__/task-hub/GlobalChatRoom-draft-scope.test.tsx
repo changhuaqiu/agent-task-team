@@ -9,7 +9,13 @@ vi.mock('@/hooks/useAutoScroll', () => ({
   useAutoScroll: () => ({ isAtBottom: true, scrollToBottom: vi.fn() }),
 }));
 vi.mock('@/components/task-hub/ChatFilterBar', () => ({ ChatFilterBar: () => null }));
-vi.mock('@/components/task-hub/AgentMentionPopup', () => ({ AgentMentionPopup: () => null }));
+vi.mock('@/components/task-hub/AgentMentionPopup', () => ({
+  AgentMentionPopup: ({ inputValue, onSelect }: { inputValue: string; onSelect: (agentId: string) => void }) => (
+    inputValue.endsWith('@')
+      ? <button type="button" onClick={() => onSelect('mario')}>提及 Mario</button>
+      : null
+  ),
+}));
 vi.mock('@/components/task-hub/A2APossessionStrip', () => ({ A2APossessionStrip: () => null }));
 vi.mock('@/components/ui/EmojiPickerButton', () => ({ EmojiPickerButton: () => null }));
 
@@ -48,6 +54,7 @@ describe('GlobalChatRoom draft scope', () => {
       selectedProjectId: 'project-a',
       chatMessagesByConversation: {},
       runtimeRefreshInProgress: false,
+      activeAgentIds: ['mario'],
     });
   });
 
@@ -59,7 +66,7 @@ describe('GlobalChatRoom draft scope', () => {
 
   it('keeps independent drafts for each delivery and restores them after switching', () => {
     render(<GlobalChatRoom />);
-    const input = screen.getByRole('textbox', { name: '向团队补充要求' }) as HTMLTextAreaElement;
+    const input = screen.getByRole('textbox', { name: '发消息给团队' }) as HTMLTextAreaElement;
     input.focus();
     fireEvent.change(input, { target: { value: 'command for project A', selectionStart: 21 } });
 
@@ -81,7 +88,7 @@ describe('GlobalChatRoom draft scope', () => {
       });
     });
     expect(input.value).toBe('');
-    expect((screen.getByTitle('请先选择或新建一个交付') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTitle('请先选择或添加一个项目') as HTMLButtonElement).disabled).toBe(true);
 
     act(() => {
       useTaskHubStore.setState({
@@ -98,13 +105,104 @@ describe('GlobalChatRoom draft scope', () => {
     expect(input.value).toBe('command for project B');
   });
 
+  it('keeps internal routing guidance out of the composer and addresses Agents through mention', () => {
+    render(<GlobalChatRoom />);
+
+    expect(screen.queryByText(/#TASK-000/)).toBeNull();
+    expect(screen.queryByText(/自动接手/)).toBeNull();
+    expect(screen.getByPlaceholderText('发消息给团队…')).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: '提及 Agent' }));
+    fireEvent.click(screen.getByRole('button', { name: '提及 Mario' }));
+    expect((screen.getByRole('textbox', { name: '发消息给团队' }) as HTMLTextAreaElement).value)
+      .toBe('@mario ');
+    expect(screen.getByRole('button', { name: '已触达 Mario，继续添加 Agent' })).toBeDefined();
+  });
+
+  it('keeps Shift+Enter for a newline while mention candidates are visible', () => {
+    render(<GlobalChatRoom />);
+    const input = screen.getByRole('textbox', { name: '发消息给团队' }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: '@m', selectionStart: 2 } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+
+    expect(input.value).toBe('@m');
+  });
+
+  it('lets Enter submit when an open mention query has no candidates', async () => {
+    const fetchSpy = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const command = JSON.parse(String(init?.body));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          receipt: {
+            idempotencyKey: command.idempotencyKey,
+            commandType: command.type,
+            projectPath: command.projectPath,
+            deliveryId: command.deliveryId,
+            status: 'accepted',
+            duplicate: false,
+            messageId: 'message-unknown-mention',
+            targetAgentIds: ['mario'],
+            recordedAt: stamp,
+          },
+        }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    render(<GlobalChatRoom />);
+    const input = screen.getByRole('textbox', { name: '发消息给团队' }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: '@unknown 请处理', selectionStart: 8 } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await act(async () => { await Promise.resolve(); });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let an open mention picker from another Project swallow Enter', async () => {
+    const fetchSpy = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const command = JSON.parse(String(init?.body));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          receipt: {
+            idempotencyKey: command.idempotencyKey,
+            commandType: command.type,
+            projectPath: command.projectPath,
+            deliveryId: command.deliveryId,
+            status: 'accepted',
+            duplicate: false,
+            messageId: 'message-project-b',
+            targetAgentIds: ['mario'],
+            recordedAt: stamp,
+          },
+        }),
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    render(<GlobalChatRoom />);
+    const input = screen.getByRole('textbox', { name: '发消息给团队' }) as HTMLTextAreaElement;
+
+    act(() => useTaskHubStore.setState({ selectedConversationId: 'project-b', selectedProjectId: 'project-b' }));
+    fireEvent.change(input, { target: { value: 'Project B 消息', selectionStart: 12 } });
+    act(() => useTaskHubStore.setState({ selectedConversationId: 'project-a', selectedProjectId: 'project-a' }));
+    fireEvent.click(screen.getByRole('button', { name: '提及 Agent' }));
+    act(() => useTaskHubStore.setState({ selectedConversationId: 'project-b', selectedProjectId: 'project-b' }));
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await act(async () => { await Promise.resolve(); });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchSpy.mock.calls[0][1]?.body)).deliveryId).toBe('project-b');
+  });
+
   it('cannot submit to an arbitrary existing delivery when none is selected', async () => {
     useTaskHubStore.setState({ selectedConversationId: null, selectedProjectId: 'default' });
     render(<GlobalChatRoom />);
 
-    const input = screen.getByRole('textbox', { name: '向团队补充要求' }) as HTMLTextAreaElement;
+    const input = screen.getByRole('textbox', { name: '发消息给团队' }) as HTMLTextAreaElement;
     expect(input.disabled).toBe(true);
-    expect((screen.getByTitle('请先选择或新建一个交付') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTitle('请先选择或添加一个项目') as HTMLButtonElement).disabled).toBe(true);
 
     await act(async () => {
       await useTaskHubStore.getState().addChatMessage({ agentId: 'human', content: 'must stay unscoped' });
@@ -121,13 +219,13 @@ describe('GlobalChatRoom draft scope', () => {
       await useTaskHubStore.getState().addChatMessage({ agentId: 'human', content: 'must use the delivery dialog' });
     });
     expect(useTaskHubStore.getState().conversations).toEqual([]);
-    expect(screen.getByText('选择或新建一个交付后，可在这里向团队补充要求。')).toBeDefined();
+    expect(screen.getByText('选择或添加一个项目后，可在这里向团队提出目标。')).toBeDefined();
   });
 
   it('fills a selected delivery draft from an empty-state suggestion', () => {
     render(<GlobalChatRoom />);
     fireEvent.click(screen.getByRole('button', { name: '补充背景…' }));
-    expect((screen.getByRole('textbox', { name: '向团队补充要求' }) as HTMLTextAreaElement).value)
+    expect((screen.getByRole('textbox', { name: '发消息给团队' }) as HTMLTextAreaElement).value)
       .toBe('补充背景：');
   });
 
@@ -153,7 +251,7 @@ describe('GlobalChatRoom draft scope', () => {
       } as Response;
     }));
     render(<GlobalChatRoom />);
-    const input = screen.getByRole('textbox', { name: '向团队补充要求' }) as HTMLTextAreaElement;
+    const input = screen.getByRole('textbox', { name: '发消息给团队' }) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: '继续处理', selectionStart: 4 } });
     fireEvent.click(screen.getByTitle('发送消息'));
 
@@ -198,14 +296,20 @@ describe('GlobalChatRoom draft scope', () => {
     });
     expect(screen.getByTestId('chat-quote-preview').textContent).toContain('引用回复 Mario');
 
-    const input = screen.getByRole('textbox', { name: '向团队补充要求' });
+    const input = screen.getByRole('textbox', { name: '发消息给团队' });
     fireEvent.change(input, { target: { value: '同意，继续', selectionStart: 5 } });
     fireEvent.click(screen.getByTitle('发送消息'));
 
     await act(async () => { await Promise.resolve(); });
     expect(useTaskHubStore.getState().chatMessagesByConversation['project-a'])
       .toContainEqual(expect.objectContaining({
-        content: '> 引用 Mario：先完成事件投影\n\n同意，继续',
+        content: '同意，继续',
+        metadata: expect.objectContaining({
+          replyToMessageId: 'source-1',
+          threadRootId: 'source-1',
+          replyAuthor: 'Mario',
+          replyPreview: '先完成事件投影',
+        }),
       }));
     expect(screen.queryByTestId('chat-quote-preview')).toBeNull();
   });
@@ -234,13 +338,13 @@ describe('GlobalChatRoom draft scope', () => {
     });
     vi.stubGlobal('fetch', fetchSpy);
     render(<GlobalChatRoom />);
-    const input = screen.getByRole('textbox', { name: '向团队补充要求' });
+    const input = screen.getByRole('textbox', { name: '发消息给团队' });
     fireEvent.change(input, { target: { value: '继续处理', selectionStart: 4 } });
     fireEvent.click(screen.getByTitle('发送消息'));
 
     expect((await screen.findByRole('alert')).textContent)
       .toContain('当前交付没有可接手要求的团队成员');
-    expect((screen.getByRole('textbox', { name: '向团队补充要求' }) as HTMLTextAreaElement).value)
+    expect((screen.getByRole('textbox', { name: '发消息给团队' }) as HTMLTextAreaElement).value)
       .toBe('继续处理');
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 

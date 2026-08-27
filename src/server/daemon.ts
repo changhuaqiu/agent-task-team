@@ -30,6 +30,7 @@ import { isSkillTool } from './skill-tool-router';
 import { registerAcpSkillMcpGrant, resolveAcpMcpLoopbackOrigin } from './acp-skill-mcp';
 import { resolveNonWorktreeExecutionCwd, stableWorkdirTaskKey, WorkdirManager } from './workdir-manager';
 import { getDb } from './db';
+import { agentDefinitionRepo } from './agents/agent-definition-repo';
 import { registerDesktopServiceDrain } from './desktop-service-lifecycle';
 import { DispatchGateway } from './control-plane/dispatch-gateway';
 import { runtimeNodeRepo } from './repositories/runtime-node-repo';
@@ -76,6 +77,9 @@ import { registerDeliveryEffectAdapters } from './autonomous-delivery/delivery-e
 import { deliveryAdvancementQueue } from './autonomous-delivery/advancement-queue';
 import { registerAutonomousDeliveryE2EDriver } from './testing/autonomous-delivery-e2e-driver';
 import { ProjectViewPublisher } from './project-view/project-view-publisher';
+import { AutomationRuntime } from './automations';
+import { commandService } from './command-kernel/service';
+import type { MessageRow } from './repositories/message-repo';
 import {
   renderWorkContractInstruction,
   workContractToolNames,
@@ -88,6 +92,7 @@ import {
   DirectedAgentRuntime,
   RuntimeOwnershipFence,
   RuntimeOwnershipLostError,
+  registerAgentRuntimeControl,
   isRuntimeOwnershipLost,
   type AgentRuntimeDispatchContext,
 } from './agent-runtime';
@@ -95,9 +100,19 @@ import {
 type AgentActivityStatus = 'running' | 'awaiting_children' | 'idle';
 
 const ENGINE_COMMAND: Record<RuntimeCliEngine, string> = {
+  goose: 'goose',
   opencode: 'opencode',
   claude: 'claude',
   codex: 'codex',
+  'buzz-agent': 'buzz-agent',
+  devin: 'devin',
+  cursor: 'cursor-agent',
+  omp: 'omp',
+  grok: 'grok',
+  kimi: 'kimi',
+  amp: 'amp-acp',
+  hermes: 'hermes-acp',
+  openclaw: 'openclaw',
 };
 
 /** Default CLI idle timeout (ms). Configurable via CLI_TIMEOUT_MS env. 0 = disabled. */
@@ -179,6 +194,7 @@ export default function registerDaemon(io: IOServer) {
   });
   const dispatchGateway = new DispatchGateway();
   const acpRuntimeDriver = new AcpRuntimeDriver();
+  registerAgentRuntimeControl(io, acpRuntimeDriver, agentProcesses);
   const agentSessions = new AgentSessionLifecycle(acpRuntimeDriver);
   // Deferred until the ACP execution backend has finished constructing its local dependencies.
   // eslint-disable-next-line prefer-const
@@ -283,8 +299,31 @@ export default function registerDaemon(io: IOServer) {
   });
   registerDeliveryEffectAdapters(effectOutbox);
 
+  const publishProjectedMessage = (message: MessageRow) => {
+    projectViewPublisher.publish(message.conversation_id, {
+      type: 'chat.message.persisted',
+      delivery: 'durable',
+      actor: {
+        type: message.sender_id === 'human'
+          ? 'user'
+          : message.sender_id === 'system' ? 'system' : 'agent',
+        id: message.sender_id,
+      },
+      subject: message.invocation_id
+        ? { type: 'invocation', id: message.invocation_id }
+        : { type: 'message', id: message.id },
+      eventId: `message:${message.id}`,
+      correlationId: message.invocation_id ?? message.id,
+      causationId: `message:${message.id}`,
+      payload: { message },
+    });
+  };
   startPlatformEventRuntime({
     io,
+    automation: new AutomationRuntime({
+      onMessagePosted: publishProjectedMessage,
+      executeCommand: (command) => commandService.execute(command),
+    }),
     onA2AProjected: (snapshot) => {
       projectViewPublisher.publish(snapshot.conversationId, {
         type: 'a2a.snapshot',
@@ -297,25 +336,7 @@ export default function registerDaemon(io: IOServer) {
         payload: { snapshot },
       });
     },
-    onMessageProjected: (message) => {
-      projectViewPublisher.publish(message.conversation_id, {
-        type: 'chat.message.persisted',
-        delivery: 'durable',
-        actor: {
-          type: message.sender_id === 'human'
-            ? 'user'
-            : message.sender_id === 'system' ? 'system' : 'agent',
-          id: message.sender_id,
-        },
-        subject: message.invocation_id
-          ? { type: 'invocation', id: message.invocation_id }
-          : { type: 'message', id: message.id },
-        eventId: `message:${message.id}`,
-        correlationId: message.invocation_id ?? message.id,
-        causationId: `message:${message.id}`,
-        payload: { message },
-      });
-    },
+    onMessageProjected: publishProjectedMessage,
     onObservabilityUpdated: (projectId, invocationId) => {
       io.to(projectId).emit('observability:updated', {
         projectId,
@@ -444,6 +465,8 @@ export default function registerDaemon(io: IOServer) {
       let primaryCommand = 'unknown';
       let runtimeConfigDir: string | undefined;
       const controlEnvelopeId = dispatch.envelopeId;
+      const sourceMessageId = plan.trigger.a2aHandoff?.sourceMessageIds?.[0]
+        ?? (plan.trigger.source === 'user' ? plan.trigger.id : undefined);
       let invocationTraceId = workContract?.correlationId ?? requestedTraceId;
       let rootObservationSpanId: string | undefined;
       let evaluationObservedDigest: string | undefined;
@@ -525,6 +548,7 @@ export default function registerDaemon(io: IOServer) {
             projectId: sessionConvId,
             receiptId,
             conversationId: sessionConvId,
+            sourceMessageId,
             taskId,
             targetAgentId: agentId,
             source: dispatchSource ?? 'user',
@@ -814,7 +838,7 @@ export default function registerDaemon(io: IOServer) {
           apiKey: cred?.apiKey,
           baseUrl: account?.baseUrl,
           models: account?.models,
-          defaultModel: account?.models?.[0],
+          defaultModel: plan.preferredModel ?? account?.models?.[0],
           systemPrompt: systemPrompt || undefined,
           skillPaths: projectSkillPaths,
           managedSkillNames: contextReport?.loadedSkills ?? [],
@@ -1193,16 +1217,25 @@ export default function registerDaemon(io: IOServer) {
       if (engine === 'codex' && rawTimeoutMs > 0 && rawTimeoutMs < 180_000) {
         console.warn(`[daemon] raising timeout ${rawTimeoutMs}ms → 180000ms for codex ACP startup`);
       }
-      const acpTurn = acpRuntimeDriver.prepareTurn({
+      const agentDefinition = agentDefinitionRepo.get(agentId);
+      const acpTurn = await acpRuntimeDriver.prepareTurn({
+        agentId,
+        projectId,
+        laneId: sessionConvId,
+        runtimeNodeId: 'local',
         engine,
         cwd: runtimeWd,
         env: executeEnv,
         systemPrompt: systemPrompt || undefined,
         resumeSessionId: effectiveSessionId || undefined,
         timeoutMs,
+        workerCount: agentDefinition?.parallelism ?? undefined,
+        workerNames: agentDefinition?.instance_name_pool,
         workContract,
         mcpServers: acpToolGrant ? [acpToolGrant.mcpServer] : [],
         autoApproveMcpToolNames: acpToolGrant?.autoApproveToolNames ?? [],
+        terminalMcpToolNames: acpToolGrant?.terminalToolNames ?? [],
+        currentGrantToken: acpToolGrant?.grantToken,
         onPermissionRequested: (request) => commitOwnedRuntimeEffect(
           () => runtimeEventCoordinator?.permissionRequested(request),
         ),
@@ -1616,6 +1649,7 @@ export default function registerDaemon(io: IOServer) {
                 projectId: receiptConversationId,
                 receiptId,
                 conversationId: receiptConversationId,
+                sourceMessageId,
                 taskId,
                 targetAgentId: agentId,
                 source: dispatchSource ?? 'user',
@@ -1715,15 +1749,16 @@ export default function registerDaemon(io: IOServer) {
   });
 
   // Graceful shutdown
-  const shutdown = () => {
+  const shutdown = async () => {
     agentInboxScheduler.stop();
     stopWorktreeGCScheduler();
     clearInterval(runtimeHealthTimer);
     autonomyGuardOwner.stop();
     deliveryTaskTruthReconciler.stop();
     agentProcesses.shutdown();
+    await acpRuntimeDriver.shutdown();
   };
   registerDesktopServiceDrain(shutdown);
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', () => { void shutdown(); });
+  process.on('SIGINT', () => { void shutdown(); });
 }

@@ -1,4 +1,4 @@
-import type { Blocker, Conversation } from '@/store/taskHubStore';
+import type { Blocker, Conversation, WorkspaceProject } from '@/store/taskHubStore';
 import type { Task } from '@/store/taskStore';
 import type { ChatMessage } from '@/store/types';
 import type { DeliveryRunSnapshot, DeliveryStage } from '@/server/autonomous-delivery/types';
@@ -21,6 +21,7 @@ export interface DeliveryAcceptanceEvidenceItem {
 }
 
 export interface DeliveryWorkspaceSource {
+  projects?: readonly WorkspaceProject[];
   conversations: readonly Conversation[];
   tasks: readonly Task[];
   blockersByConversation: Readonly<Record<string, readonly Blocker[]>>;
@@ -85,6 +86,7 @@ export interface DeliveryNavigationItem {
 
 export interface ProjectNavigationGroup {
   key: string;
+  projectId?: string;
   name: string;
   fullPath: string | null;
   deliveries: DeliveryNavigationItem[];
@@ -230,9 +232,13 @@ export function projectDeliveryWorkspace(
 }
 
 export function projectDeliveryNavigation(
-  source: Pick<DeliveryWorkspaceSource, 'conversations' | 'tasks' | 'blockersByConversation'>,
+  source: Pick<DeliveryWorkspaceSource, 'projects' | 'conversations' | 'tasks' | 'blockersByConversation'>,
 ): ProjectNavigationGroup[] {
   const groups = new Map<string, DeliveryNavigationItem[]>();
+  const projectsByPath = new Map(
+    (source.projects ?? []).map((project) => [project.rootPath.toLocaleLowerCase(), project]),
+  );
+  for (const project of source.projects ?? []) groups.set(project.rootPath, []);
   for (const conversation of source.conversations) {
     const tasks = source.tasks.filter((task) => task.conversationId === conversation.id);
     const item: DeliveryNavigationItem = {
@@ -242,7 +248,8 @@ export function projectDeliveryNavigation(
       status: conversation.status,
       autonomous: conversation.autonomous === true,
       projectPath: conversation.projectPath,
-      projectName: projectName(conversation.projectPath),
+      projectName: projectsByPath.get(conversation.projectPath.toLocaleLowerCase())?.name
+        ?? projectName(conversation.projectPath),
       updatedAt: conversation.updatedAt,
       work: {
         total: tasks.length,
@@ -259,13 +266,22 @@ export function projectDeliveryNavigation(
   return [...groups.entries()]
     .map(([key, deliveries]) => ({
       key,
-      name: key === '__ungrouped__' ? '未分类' : projectName(key),
+      projectId: projectsByPath.get(key.toLocaleLowerCase())?.id,
+      name: key === '__ungrouped__'
+        ? '未分类'
+        : projectsByPath.get(key.toLocaleLowerCase())?.name ?? projectName(key),
       fullPath: key === '__ungrouped__' ? null : key,
       deliveries: [...deliveries].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     }))
     .sort((left, right) => {
       if (left.key === '__ungrouped__') return 1;
       if (right.key === '__ungrouped__') return -1;
-      return (right.deliveries[0]?.updatedAt ?? '').localeCompare(left.deliveries[0]?.updatedAt ?? '');
+      const rightUpdated = right.deliveries[0]?.updatedAt
+        ?? projectsByPath.get(right.key.toLocaleLowerCase())?.updatedAt
+        ?? '';
+      const leftUpdated = left.deliveries[0]?.updatedAt
+        ?? projectsByPath.get(left.key.toLocaleLowerCase())?.updatedAt
+        ?? '';
+      return rightUpdated.localeCompare(leftUpdated);
     });
 }

@@ -347,7 +347,7 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
                   `结果收口恢复：任务 ${task.id}「${task.title}」的上一轮执行已经结束，但没有提交结构化结果。`,
                   '不要重新实现、运行命令、修改文件、重新验证或输出进度说明。',
                   recoveryReplyContext,
-                  '只根据上下文中的上一轮持久化回复与已有证据，立即调用一次 agent_submit_outcome：已完成则提交 submit_task_result/request_review；仍需工作则提交 continue_work；确有外部阻塞才提交 report_blocked/request_human_decision；确需其他角色执行具体动作才 handoff_to_agent。',
+                  '只根据上下文中的上一轮持久化回复与已有证据，立即调用一次对应的结构化生命周期工具：已完成用 task_submit_result/task_request_review；仍需工作用 work_continue；确有外部阻塞才用 work_report_blocked/work_request_human_decision；确需其他角色执行具体动作才用 work_handoff。',
                 ].join('\n')
               : action.type === 'retry'
                 ? `恢复任务 ${task.id}「${task.title}」。根据当前权威事实继续，不要复用旧 attempt 的结果。`

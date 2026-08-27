@@ -12,70 +12,21 @@ function mockRes() {
 }
 
 describe('/api/team-packs/[packId]', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
+  beforeEach(() => vi.restoreAllMocks());
+
+  it('returns the current Agent-ref projection', () => {
+    const team = { id: 'pack-1', roles: [{ id: 'planner', displayName: 'Planner', soul: '', required: true }] };
+    vi.spyOn(teamPackRepo, 'getById').mockReturnValue(team as any);
+    const res = mockRes();
+    handler({ method: 'GET', query: { packId: 'pack-1' } } as any, res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(team);
   });
 
-  it('materializes member snapshots', () => {
-    const pack = {
-      id: 'pack-1',
-      roles: [{ id: 'planner', displayName: '规划师', roleCardSnapshot: { displayName: '规划师' } }],
-    };
-    vi.spyOn(teamPackRepo, 'materializeRoleSnapshots').mockReturnValue(pack as any);
-
-    const req: any = {
-      method: 'POST',
-      query: { packId: 'pack-1' },
-      body: { action: 'materializeRoleSnapshots' },
-    };
+  it.each(['POST', 'PATCH', 'DELETE'])('disables direct %s writes', (method) => {
     const res = mockRes();
-
-    handler(req, res);
-
-    expect(teamPackRepo.materializeRoleSnapshots).toHaveBeenCalledWith('pack-1');
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(pack);
-  });
-
-  it('exports a self-contained team pack without mutating storage', () => {
-    const pack = {
-      id: 'pack-1',
-      roles: [{ id: 'planner', displayName: '规划师', roleCardSnapshot: { displayName: '规划师' } }],
-    };
-    vi.spyOn(teamPackRepo, 'getExportById').mockReturnValue(pack as any);
-
-    const req: any = {
-      method: 'GET',
-      query: { packId: 'pack-1', export: '1' },
-      body: {},
-    };
-    const res = mockRes();
-
-    handler(req, res);
-
-    expect(teamPackRepo.getExportById).toHaveBeenCalledWith('pack-1');
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith(pack);
-  });
-
-  it('patches editable team pack fields', () => {
-    const update = vi.spyOn(teamPackRepo, 'update').mockReturnValue(undefined);
-    const req: any = {
-      method: 'PATCH',
-      query: { packId: 'pack-1' },
-      body: {
-        displayName: 'Edited Pack',
-        description: 'After',
-        teamMode: 'parallel',
-        roles: [{ id: 'writer', displayName: '撰稿人', soul: '# 撰稿人', required: true }],
-      },
-    };
-    const res = mockRes();
-
-    handler(req, res);
-
-    expect(update).toHaveBeenCalledWith('pack-1', req.body);
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({ ok: true });
+    handler({ method, query: { packId: 'pack-1' }, body: {} } as any, res);
+    expect(res.status).toHaveBeenCalledWith(410);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ reasonCode: 'use_product_command' }));
   });
 });

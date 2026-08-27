@@ -77,7 +77,7 @@ describe('runtime tool registration boundary', () => {
     expect(prompt).toContain('平台会等待这些子代理在本轮内收敛');
     expect(prompt).toContain('不要调用 SendMessage');
     expect(prompt).toContain('提交 handoff 后立即结束');
-    expect(prompt).toContain('record_gate_decision');
+    expect(prompt).toContain('gate_record_decision');
     expect(prompt).toContain('Task Graph 自动唤醒 quality gate owner');
     expect(prompt).toContain('不为确认、总结或礼貌回复 @ 请求来源');
     expect(prompt).not.toContain('禁止用这些 CLI 原生协作工具创建子 agent');

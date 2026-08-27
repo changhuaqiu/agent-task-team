@@ -75,12 +75,13 @@ export function SkillLibrary() {
         {/* List header */}
         <div className="flex items-center justify-between px-3 py-3 border-b border-[hsl(var(--border))]">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-            Skills ({skillEntries.length})
+            技能（{skillEntries.length}）
           </span>
           <button
             onClick={() => setImportOpen(true)}
             className="p-1.5 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--accent))] hover:bg-[hsl(var(--accent-soft))] transition-colors"
-            title="Import skill"
+            title="导入技能"
+            aria-label="导入技能"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
@@ -95,12 +96,12 @@ export function SkillLibrary() {
           ) : skillEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-8 px-3 text-center">
               <Package className="w-6 h-6 text-[hsl(var(--text-tertiary))] opacity-40" />
-              <p className="text-[11px] text-[hsl(var(--text-tertiary))]">No skills yet</p>
+              <p className="text-[11px] text-[hsl(var(--text-tertiary))]">还没有技能</p>
               <button
                 onClick={() => setImportOpen(true)}
                 className="text-[11px] font-medium text-[hsl(var(--accent))] hover:underline"
               >
-                Import your first skill
+                导入第一个技能
               </button>
             </div>
           ) : (

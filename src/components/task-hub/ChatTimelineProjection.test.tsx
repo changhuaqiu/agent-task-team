@@ -1,10 +1,18 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { ChatMessage } from '@/store/taskHubStore';
+import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
 import { ChatMessageItem } from './ChatMessageItem';
+import { ChatActivityNotice } from './ChatActivityNotice';
 import { projectChatTimeline } from './chatTimelineProjection';
+
+beforeEach(() => {
+  useTaskHubStore.setState({
+    selectedConversationId: 'conversation-1',
+    dispatchReceiptsByConversation: {},
+  });
+});
 
 afterEach(cleanup);
 
@@ -56,6 +64,19 @@ describe('projectChatTimeline', () => {
     expect(timeline.map((item) => item.kind)).toEqual(['activity', 'activity']);
   });
 
+  it('collapses repeated observation noise but keeps command facts distinct', () => {
+    const timeline = projectChatTimeline([
+      message({ id: 'sync-1', agentId: 'system', content: '“测试”有新活动', metadata: { kind: 'task.synced', taskId: 'work-1' } }),
+      message({ id: 'sync-2', agentId: 'system', content: '“测试”有新活动', timestamp: '2026-07-30T02:32:00.000Z', metadata: { kind: 'task.synced', taskId: 'work-1' } }),
+      message({ id: 'fact-1', agentId: 'system', content: '工作已创建', timestamp: '2026-07-30T02:33:00.000Z', metadata: { factType: 'work.created', commandId: 'cmd-1' } }),
+      message({ id: 'fact-2', agentId: 'system', content: '工作已创建', timestamp: '2026-07-30T02:34:00.000Z', metadata: { factType: 'work.created', commandId: 'cmd-2' } }),
+    ]);
+
+    expect(timeline).toHaveLength(3);
+    expect(timeline[0]).toMatchObject({ kind: 'activity', repeatCount: 2, message: { id: 'sync-2' } });
+    expect(timeline.slice(1).map((item) => item.kind === 'activity' && item.repeatCount)).toEqual([1, 1]);
+  });
+
   it('shows only an active provisional response while durable rows overlap it', () => {
     const timeline = projectChatTimeline([
       message({ id: 'live', agentId: 'mario', invocationId: 'inv-live', content: '实时内容', isStreaming: true }),
@@ -67,6 +88,114 @@ describe('projectChatTimeline', () => {
 });
 
 describe('ChatMessageItem invocation surface', () => {
+  it('retains acknowledgements for every message in the visible hydration window', () => {
+    const visibleMessages = Array.from({ length: 60 }, (_, index) => message({
+      id: `human-${index}`,
+      agentId: 'human',
+      content: `消息 ${index}`,
+    }));
+    useTaskHubStore.setState({
+      chatMessagesByConversation: { 'conversation-1': visibleMessages },
+      dispatchReceiptsByConversation: {},
+    });
+
+    for (let index = 0; index < visibleMessages.length; index += 1) {
+      useTaskHubStore.getState().recordDispatchReceipt({
+        projectId: 'conversation-1',
+        receiptId: `env-${index}:acknowledged`,
+        conversationId: 'conversation-1',
+        sourceMessageId: `human-${index}`,
+        targetAgentId: 'mario',
+        phase: 'acknowledged',
+        createdAt: `2026-07-30T02:${String(index).padStart(2, '0')}:00.000Z`,
+      });
+    }
+
+    expect(useTaskHubStore.getState().dispatchReceiptsByConversation['conversation-1']).toHaveLength(60);
+    expect(useTaskHubStore.getState().dispatchReceiptsByConversation['conversation-1'][0].sourceMessageId)
+      .toBe('human-0');
+
+    useTaskHubStore.getState().recordDispatchReceipt({
+      projectId: 'conversation-1',
+      receiptId: 'env-human-0-newer:acknowledged',
+      conversationId: 'conversation-1',
+      sourceMessageId: 'human-0',
+      targetAgentId: 'mario',
+      phase: 'acknowledged',
+      createdAt: '2026-07-30T03:00:00.000Z',
+    });
+    const retained = useTaskHubStore.getState().dispatchReceiptsByConversation['conversation-1'];
+    expect(retained).toHaveLength(60);
+    expect(retained.some((receipt) => receipt.receiptId === 'env-human-0-newer:acknowledged')).toBe(true);
+
+    const tiedAt = '2026-07-30T04:00:00.000Z';
+    useTaskHubStore.getState().recordDispatchReceipt({
+      projectId: 'conversation-1', receiptId: 'env-tied:sent', conversationId: 'conversation-1',
+      sourceMessageId: 'human-1', targetAgentId: 'mario', phase: 'sent', createdAt: tiedAt,
+    });
+    useTaskHubStore.getState().recordDispatchReceipt({
+      projectId: 'conversation-1', receiptId: 'env-tied:acknowledged', conversationId: 'conversation-1',
+      sourceMessageId: 'human-1', targetAgentId: 'mario', phase: 'acknowledged', createdAt: tiedAt,
+    });
+    expect(useTaskHubStore.getState().dispatchReceiptsByConversation['conversation-1'])
+      .toContainEqual(expect.objectContaining({ receiptId: 'env-tied:acknowledged', phase: 'acknowledged' }));
+    expect(useTaskHubStore.getState().dispatchReceiptsByConversation['conversation-1'])
+      .toContainEqual(expect.objectContaining({ receiptId: 'env-tied:sent', phase: 'sent' }));
+
+    useTaskHubStore.getState().recordDispatchReceipt({
+      projectId: 'conversation-1', receiptId: 'env-newer-progress:sent', conversationId: 'conversation-1',
+      sourceMessageId: 'human-1', targetAgentId: 'mario', phase: 'sent',
+      createdAt: '2026-07-30T05:00:00.000Z',
+    });
+    const withNewerProgress = useTaskHubStore.getState().dispatchReceiptsByConversation['conversation-1'];
+    expect(withNewerProgress).toContainEqual(expect.objectContaining({ receiptId: 'env-tied:acknowledged' }));
+    expect(withNewerProgress).toContainEqual(expect.objectContaining({ receiptId: 'env-newer-progress:sent' }));
+
+    render(<ChatMessageItem message={message({ id: 'human-1', agentId: 'human', content: '请继续处理' })} />);
+    expect(screen.getByLabelText('Mario 已收到')).toBeDefined();
+  });
+
+  it('shows one Agent reaction only after an authoritative acknowledgement for this message', () => {
+    useTaskHubStore.setState({
+      dispatchReceiptsByConversation: {
+        'conversation-1': [
+          {
+            projectId: 'conversation-1', receiptId: 'env-1:sent', conversationId: 'conversation-1',
+            sourceMessageId: 'human-1', targetAgentId: 'mario', phase: 'sent', createdAt: '2026-07-30T02:30:01.000Z',
+          },
+          {
+            projectId: 'conversation-1', receiptId: 'env-1:acknowledged', conversationId: 'conversation-1',
+            sourceMessageId: 'human-1', targetAgentId: 'mario', phase: 'acknowledged', createdAt: '2026-07-30T02:30:02.000Z',
+          },
+          {
+            projectId: 'conversation-1', receiptId: 'env-2:acknowledged', conversationId: 'conversation-1',
+            sourceMessageId: 'another-message', targetAgentId: 'peach', phase: 'acknowledged', createdAt: '2026-07-30T02:30:03.000Z',
+          },
+        ],
+      },
+    });
+
+    render(<ChatMessageItem message={message({ id: 'human-1', agentId: 'human', content: '@mario 请处理' })} />);
+
+    expect(screen.getByTestId('agent-acknowledgements').children).toHaveLength(1);
+    expect(screen.getByLabelText('Mario 已收到').textContent).toBe('⭐');
+    expect(screen.queryByLabelText('Peach 已收到')).toBeNull();
+  });
+
+  it('does not treat requested or sent receipts as Agent acknowledgement', () => {
+    useTaskHubStore.setState({
+      dispatchReceiptsByConversation: {
+        'conversation-1': [{
+          projectId: 'conversation-1', receiptId: 'env-1:sent', conversationId: 'conversation-1',
+          sourceMessageId: 'human-1', targetAgentId: 'mario', phase: 'sent', createdAt: '2026-07-30T02:30:01.000Z',
+        }],
+      },
+    });
+
+    render(<ChatMessageItem message={message({ id: 'human-1', agentId: 'human', content: '请处理' })} />);
+    expect(screen.queryByTestId('agent-acknowledgements')).toBeNull();
+  });
+
   it('folds progress, keeps the final answer visible, and exposes tool calls in a compact trace', () => {
     const segments = [
       message({ id: 'progress', agentId: 'peach', invocationId: 'inv-review', content: '正在核对文件' }),
@@ -83,11 +212,10 @@ describe('ChatMessageItem invocation surface', () => {
 
     expect(screen.getByText('评审完成，证据已确认。')).toBeDefined();
     expect(screen.getByTestId('agent-progress-details').hasAttribute('open')).toBe(false);
-    const traceToggle = screen.getByRole('button', { name: /CLI Trace.*2 条事件.*2 次工具调用/ });
+    const traceToggle = screen.getByRole('button', { name: /运行记录.*已完成.*2 次工具调用.*Read/ });
     expect(traceToggle).toBeDefined();
-    expect(screen.getByTestId('cli-trace-preview')).toBeDefined();
-    expect(screen.getByText('Write')).toBeDefined();
-    expect(screen.getByText('Read')).toBeDefined();
+    expect(screen.queryByTestId('cli-trace-preview')).toBeNull();
+    expect(screen.queryByText('Write')).toBeNull();
     fireEvent.click(traceToggle);
     expect(screen.getByText('Write')).toBeDefined();
     expect(screen.getByText('Read')).toBeDefined();
@@ -130,5 +258,17 @@ describe('ChatMessageItem invocation surface', () => {
     expect(narrative.className).toContain('overflow-hidden');
     fireEvent.click(screen.getByRole('button', { name: '展开完整回复' }));
     expect(narrative.className).not.toContain('overflow-hidden');
+  });
+});
+
+describe('ChatActivityNotice fact surface', () => {
+  it('renders accepted command events as facts instead of observation pills', () => {
+    render(<ChatActivityNotice message={message({
+      id: 'fact-work', agentId: 'system', content: '工作“事件投影”已创建',
+      referencedTaskId: 'work-1', metadata: { factType: 'work.created', commandId: 'cmd-1' },
+    })} />);
+    expect(screen.getByTestId('command-fact-card')).toBeDefined();
+    expect(screen.getByText('工作已登记')).toBeDefined();
+    expect(screen.getByRole('button', { name: '打开工作' })).toBeDefined();
   });
 });

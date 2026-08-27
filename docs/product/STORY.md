@@ -2,7 +2,7 @@
 topics: [product-story, user-outcomes, optimization, evidence]
 doc_kind: product-story
 created: 2026-08-02
-updated: 2026-08-23
+updated: 2026-08-28
 ---
 
 # Agent Task Hub 产品故事
@@ -25,6 +25,80 @@ updated: 2026-08-23
 
 ---
 
+## 2026-08-25：Project 成为持续协作空间，Agent 也终于有稳定的桌面运行内核
+
+### 原来的处境
+
+用户本质上在多个产品空间里与多个 Agent 长期协作，但页面要求先理解并创建“交付”，项目、任务、聊天、评审和产物入口
+彼此竞争；Agent 又只是页面或设置中的一组配置，执行进程按轮次临时启动。页面断开、会话复用、权限和结果提交之间缺少
+稳定边界，因而“能触发”不等于“能稳定运行并形成正式结果”。
+
+### 优化后的变化
+
+- Workspace 以收件箱、Project、Work、Review、Artifact 为稳定对象面；Project 默认进入持续协作流，不再先创建 Delivery；
+- Project 内只创建工作或发起评审，评估和诊断收进次级入口但仍可到达；全局只保留一个“添加项目”主流程；
+- 创建工作和发起评审都等待权威回执；被拒绝或失败时保留弹窗与输入并原位提示，不再以关闭弹窗伪装成功；
+- Agent 成为完整的一等能力对象，直接拥有身份、工作指令、技能、权限、OpenCode/Claude/Codex 运行环境和活动/信息/运行/频道/技能视图；不再先创建角色素材再装配 Agent；
+- Automation 可通过正式命令创建 Work，并以持久 Decision 等待用户批准/拒绝后继续；定义代码可复制/导入但不会携带项目身份或运行历史；
+- Release 成为 Project 中按需创建的已验证结果快照，只有所选 Work/Review 通过权威检查后才能发布，不再要求先创建交付容器；
+- Settings 只管理模型账号、运行环境和共享 Skills；Agent Team 只选择真实 Agent identity，成员缺失时明确拒绝运行，不复制 persona、账号、Skill 或 Runtime 快照；
+- Agent 创建默认继承本机运行环境；协作条会把这一状态明确显示为“使用运行环境的登录状态”，不会因为没有单独绑定账号而误报为不可运行；
+- `@Mario 开始处理` 现在只会让协调者接住目标、拆解并分派，不会因为附近存在一个未分配 Work 就直接修改代码；Agent 的主要职责成为 Definition 中可见、可编辑的结构化事实，普通 Human/A2A 消息没有 Task 或服务端独立工作 subject 时只能进入规划。
+- daemon 长期持有受监管 ACP Worker，按 lane 排队并复用健康 transport；每轮重新签发最小 MCP 权限，正式工作必须用
+  已接纳的结构化终态回执结束，单纯文本或进程退出不会伪造完成；
+- 结构化 MCP 是 Agent 主路径，`ath` CLI 使用同一命令回执作为通用接口和逃生仓；
+- Project 回复不再把引用内容拼进正文：服务端校验 `replyToMessageId` 的 Project 作用域并派生稳定 `threadRootId`，消息流与 Inbox 使用同一 Thread 身份；
+- 收件箱不再把 `Read`、`Bash` 或结构化 MCP 调用当成跨 Project 更新；工具调用与结果只保留在对应 Agent 回复的运行记录中，正式阻塞或待决策事实仍可进入“需要处理”；
+- Agent 接球、派发和交接不再插在聊天内容之间或占用输入器附近；它们固定在 Project 视图导航下方的顶部状态栏，“查看记录”向下覆盖展开，不改变消息视口和输入器高度；
+- 重复的同步/运行活动在短时间内合并为一条带次数的摘要，`work.created`、`review.created` 和评审结论则从 domain event 单独投影为“已确认事实”卡；
+- Skill 导入与其他创建器统一：失败保留输入、关闭脏草稿前确认，用户界面不再混用英文操作文案；
+- Project 内新增完整 Automation 对象面：用户从卡片浏览行为，用同一个创建/编辑器选择事件、条件、定时或手动触发，再顺序添加“通知项目/交给 Agent”；创建默认关闭，启用、立即运行和每次运行记录都可在原卡片完成；
+- Project“产物”不再要求用户或 Agent 维护第二套创建表单：成功文件写入会自动出现为“处理中”，随工作结果提交的同一引用原位升级为“已登记”；最近产物和真相源会自动进入下一次 Agent 上下文，接力者不靠聊天记忆寻找结果；
+- Automation Run 现在冻结触发时的 Definition revision、Trigger 与 Actions；运行记录可展开每一步的状态、时间、输出和错误，永久失败可重试同一个 Run，后续编辑不会改变排队中的执行内容；
+- Tauri Host 在窗口显示前完成随机 loopback Service、secret/protocol/build/PID 握手；关闭窗口不终止工作，重复启动只恢复同一窗口。
+
+### 已验证的效果
+
+- 对 Buzz v0.5.18 原生 EXE 与本地源码逐项审计了 Inbox、Channels、Agent 创建/资料、Settings/Compute、Projects、Tasks、
+  Reviews、Workflows 与 CLI/ACP/EventQueue/AgentPool；学习的是其产品定位下的对象、引用、事件和运行时边界，没有照搬
+  其尚未持久化审批恢复的 Workflow 缺陷；
+- 在真实 Agent Task Hub EXE 中逐项点击 Project、收件箱、Agents、Agent Team、模型账号和 Runtime Catalog；验证了 Agent/Team/自定义 ACP 的渐进创建表单，以及 Work、Review、Artifact、评估实验室和运行诊断等 Project 对象入口；
+- 通过桌面 UI 实际创建一条 Work，首次提交暴露历史错误 `artifacts: {}` 会让 Renderer 调用 `.map` 崩溃；修正后命令写入 `[]`，hydration 与 socket 投影对非数组旧值 fail-soft，重启最新 EXE 后同一错误数据也能正常显示；
+- 通过 Project 协作流实际发送 `@Mario` 消息，统一事件链创建 Invocation，经 Codex ACP Worker 执行并调用结构化生命周期工具；WebSocket 超时后自动回退 HTTPS，最终在同一个 Agent 回复对象返回“桌面协作链路已收到”，诊断投影记录完成状态、1184 tokens、工具调用和约 139 秒耗时；
+- 针对 Mario 误实现事故增加了真实 `HumanCommandService → A2A → AgentInbox → InvocationPlanner` 回归：同一个 Project 中先创建未分配 Work，再发送原始“@mario 看到消息了吧，开始处理吧”，最终合同固定为 coordinator/planning、`allowCodeChanges=false` 且没有任务提交出口；同链路的无 Task `@luigi 开始处理` 也保持 planning。Task 在准入后改派会于签约事务失败关闭；Claude ACP worker 另有 Session Mode 回归，验证 planning/default 每轮显式重置且 setMode 失败时不发送 prompt。
+- Windows 原生 Host 的冷启动、Service PID、关闭隐藏、单实例恢复和最终窗口渲染通过；自包含 Service 无 junction，也未携带
+  `.ath` 用户事实库或旧 bundle；
+- 最终原生 EXE 逐项复核 Workspace Activity、Review 筛选、Project/Review 计数、全局 Work 打开详情、Agents/Profile、独立 Runtime 与 Runtime Catalog；待评审在所有镜头统一显示为 1，正式 Review 作为独立活动事实出现；
+- 在真实页面中，连续 36 条同义“测试有新活动”只显示为一条 `×36` 摘要；Skill 导入输入测试地址后关闭会出现“继续编辑/放弃改动”，选择继续编辑并清空后未产生导入数据；
+- 在真实 3103 页面逐项打开 Settings、Agent 信息、新建 Agent、Agent Teams 和新建团队：设置导航只有模型账号/运行环境/技能，Agent 信息明确显示“指令来源：Agent 自身”，创建器没有角色素材选择，团队创建只提供已有 Agent 多选；
+- 在真实 3103 Project 页面创建“手动验收通知”，确认保存后为未启用；显式启用并立即运行后，旧 daemon 中的 pending Run 在重启后被耐久 Dispatcher 自动恢复为已完成，运行历史和 Project 协作流分别出现终态与通知，页面控制台无错误；
+- Automation Command 完整信封幂等、Definition 版本历史/激活水位、Run snapshot、事件去重、schedule claim、循环隔离、临时失败 durable replay、AgentInbox、消息触发、API 与页面逐步 trace/重试均有回归；最终全量 259 个测试文件通过、2 个跳过，1871 项测试通过、2 项跳过；Next production build 通过并仅保留既有 9 条动态文件追踪警告；
+- Agent Definition ownership 架构门禁、Runtime Prompt、Task 通知、评估快照和旧自主控制面完成回归；全量 255 个测试文件通过、2 个跳过，1859 项测试通过、2 项跳过；Next production build 通过并仅保留既有动态文件追踪警告；
+- Artifact Ledger 的服务端投影与上下文定向测试覆盖成功写入、未完成/只读/越界过滤、Project 隔离、传统 Task 与直接 A2A Outcome 的同 ref 正式证据升级、`.ath` 内部状态过滤和 briefing 注入；页面组件测试覆盖两种状态、筛选、搜索、来源 Agent 映射、复制引用以及不存在“创建产物”入口。
+- 在真实桌面数据中先复现“验收结果已结构化接纳但产物为 0”：该结果来自 A2A WorkContract 而非传统 Task，证据没有 `task_artifact_ref`。修正后同一历史数据库无需迁移即可投影出 `ACCEPTANCE-REPORT-TASK-001.md`、测试与 live DB 证据，并明确归属 Luigi；Project 产物页不再显示空态。
+- 结构化回复、Thread 聚合、活动折叠和事实卡相关 36 项定向测试通过；本轮全量回归 1870 项通过、2 项跳过，唯一失败是旧 evaluation 恢复测试仍断言 schema 101，修正为当前 103 后该测试及相关回归通过；Next production build 通过并保留既有动态文件追踪警告。
+- TypeScript、受影响文件 ESLint、Next production build 与最终代码审查（0 Critical / 0 Important）通过；全量 253 个测试文件中 251 通过、2 跳过，1851 项测试通过、2 跳过；Rust release build 通过。最终桌面 Renderer build 为 `desktop-build-992ae195b3db1c55cc3bbeabee9bdbbe`。
+
+- Agent 接球/派发/交接状态栏已进一步从输入器下方提升到 Project 视图导航正下方；在最终原生 EXE 中确认“⚡ Luigi · 未接纳 / Agent 启动失败”位于主内容上方，“查看记录”从顶部状态栏向下覆盖展开，消息区与输入器均不移动。相关组件 10 项测试通过；全量 264 个测试文件中 262 通过、2 跳过，1879 项测试通过、2 项跳过；TypeScript、受影响文件 ESLint、Next production build 与 Rust release build 通过。Renderer build 为 `desktop-build-6654ba9c70269c5955edccb3f0421008`。
+- 在修正前的真实 EXE 收件箱中复现了 `Read`、`Bash`、`Write` 和生命周期 MCP 的独立条目；最终 EXE 对同一持久数据完成对账后已无“使用工具”条目，Work、Agent 更新和人的消息仍在。Workspace Inbox 与 Runtime Trace 定向回归 7/7 通过，全量 264 个测试文件中 262 通过、2 跳过，1879 项测试通过、2 项跳过；TypeScript、受影响文件 ESLint、Next production build 与 Rust release build 通过，Renderer build 为 `desktop-build-710b6313bda05f51ee05a109f34acfc3`。
+
+### 仍然保留的边界
+
+Task、Artifact、Gate 和 Release 还没有全部迁入 Product Command Kernel，因此尚不能宣称“所有领域写入只有一个
+CommandService”；当前桌面开发版仍依赖系统 Node，renderer session 尚未覆盖所有兼容 HTTP/WebSocket，Host crash 的
+整棵进程树约束、托盘、deep link、MSI/签名和自动更新仍属于发布门禁。
+Thread 详情侧栏、精确消息深链、提醒/草稿 Inbox 类型和 Release 创建仍未完成；Automation 首批动作只覆盖项目通知与 AgentInbox，调用任意已注册 Product Command 和持久人工 Gate 将在后续切片扩展。Buzz 原生窗口当前还有用户未保存的 Agent 草稿，未获确认前不会为了继续点验而放弃它。
+Artifact Ledger 当前只识别 ACP 标准化工具事件中的路径字段与 patch header；Shell 内部发生但 Runtime 未结构化报告的文件写入不会被猜测为产物，PR/Review 外部真相源的自动发现仍待接入对应 owner。
+
+### 设计与实现依据
+
+- [Buzz 全功能与创建逻辑审计](ux/2026-08-16-delivery-workspace-refactor.md)
+- [统一事件与 Agent Runtime](../technical/execution/unified-event-agent-runtime.md)
+- [桌面 Host 目标架构](../technical/execution/desktop-host-target-architecture.md)
+- [命令驱动交付规格](../../specs/command-driven-delivery/spec.md)
+
+---
+
 ## 2026-08-23：团队活动终于像一个持续工作的协作现场
 
 ### 原来的处境
@@ -35,7 +109,7 @@ updated: 2026-08-23
 
 - Delivery 固定提供“概览 / 活动 / 评估”三个 surface；活动获得完整纵向空间，切换 surface 不改变当前 Delivery，也不销毁活动现场；
 - 每个 Delivery 有独立本地草稿，切换交付或刷新页面后恢复自己的内容，不再把 A 的要求带到 B；
-- 引用回复先显示来源、摘要和取消入口，发送后保存可见引用文本；在尚无权威 reply relation 前不伪造线程关系；
+- 引用回复先显示来源、摘要和取消入口；该轮当时只保存可见引用文本，现已由 2026-08-25 的结构化 Thread relation 替代；
 - 用户上翻时保持阅读位置，新活动出现时提供“回到最新”入口，自己发送成功后回到底部；
 - 消息操作在鼠标悬停、键盘聚焦和触屏场景都可发现，输入区改为稳定的底部 composer。
 
@@ -48,7 +122,7 @@ updated: 2026-08-23
 
 ### 仍然保留的边界
 
-当前引用回复是可见文本协议，还没有服务端 `reply_to` 关系，因此不提供跳转原消息或真正 Thread；“新活动”只表示当前打开时间线的瞬态阅读位置，不是跨设备未读状态。活动交互借鉴 Buzz/Telegram 的连续时间线原则，没有复制品牌、视觉资产或把 Project/Delivery 改造成频道。
+本条记录的是当时边界；服务端 `replyToMessageId/threadRootId` 与持久 Inbox 未读投影已在 2026-08-25 补齐。Thread 详情侧栏和精确消息深链仍未完成。活动交互借鉴 Buzz/Telegram 的连续时间线原则，没有复制品牌、视觉资产或把 Project 改造成频道。
 
 ### 设计与实现依据
 
@@ -162,6 +236,48 @@ Project 的持久化兼容表名，但用户与新协作契约使用 Project/Del
 - [唤醒恢复实施归档](../archive/specs/wakeup-recovery/spec.md)
 - [群聊任务图与状态投影](../technical/execution/group-chat-task-graph.md)
 - [统一 ACP 执行链](../technical/execution/opencode-integration-executable-chain.md)
+
+---
+
+## 2026-08-24：Project、Agent 与结果终于回到各自的位置
+
+### 原来的处境
+
+用户同时在多个产品空间里协作，但页面仍要求先理解 Conversation、Delivery、Runtime、账号和团队角色的拼装关系。Project 被塞进旧交付树，Agent 在设置页以一排执行下拉框出现，聊天与运行结束又很容易被误读成正式结果。Agent 触发不稳定时，用户既不知道“谁在工作”，也不知道结果是否真正进入任务、产物和评审事实。
+
+### 优化后的变化
+
+- 全局导航固定为工作动态、Agents 和 Projects；Workspace 的动态、项目、工作、评审、产物是同一事实集的不同镜头；
+- Project 是可创建的长期目录和协作边界，进入后直接看到常驻消息与事实流，底部输入可以立即触发 Agent；工作、评审和产物是同一事实集的正式镜头，不再创建空 Delivery，也不再先打开协作侧栏；
+- Agent 成为一级对象：Directory、Profile、活动、运行、频道、工作指令、Skills、账号、模型和工作权限在同一个对象里管理；不存在独立角色素材或团队能力层。活动来自真实消息与 Invocation，运行页不伪造尚未接通的 supervisor 状态；Agent Team 只选择 Agent 与协作关系，Settings 只保留模型账号、运行环境和共享 Skills；
+- Activity 使用稳定 Agent 显示身份，内部唤醒文本和任务 id 不再混入工作事实流；全页只有一个“添加项目”主操作；
+- Project 创建、Agent 结构化 outcome 和 `ath` CLI 开始复用同一 CommandService / CommandReceipt；Runtime 文本与进程完成仍不能改变领域事实；
+- Managed Runtime 在订阅就绪前不接单，同一 lane 不会因亲和 Worker 忙碌而切到另一 Worker 并发执行，旧 lease 也不能释放新 turn；持久 Inbox 对每个执行 lane 设置容量上限；
+- Work、Review 与 Agent Team 都成为 Project 中可创建、可打开、可追踪的正式对象，不再借用 Delivery 容器表达一次工作；Project 内创建 Work 直接进入统一 `work.create` Command handler；Agent Team 只引用真实 Agent，缺少成员或有效 Catalog Runtime 时整体拒绝；
+- Project 不再被部署时的 Team 成员快照锁死：右侧上下文可以直接添加已有 Agent，Team 只提供初始成员；添加后的 Agent 立即进入同一 Project roster，聊天 `@`、默认接手、任务通知和 Runtime 不再各自维护成员名单；
+- Project 的工作镜头不再用四张统计卡、产物卡和完成口径卡包围任务，而是按生命周期分组显示可扫描的 WorkItem 行；页面只有一个创建入口，整行打开统一详情。列表、详情、编辑、状态、进度请求、删除、请求中/错误态和重试幂等键全部以 `conversationId + taskId` 定域，不同 Project 出现相同任务 ID 时不会互相选中或改错对象；
+- Runtime Catalog 同时提供 13 个内建 ACP Harness 和受约束的自定义 ACP 创建；Catalog 不保存秘密环境值，修改/删除会注销旧实例。Agent Profile 的发消息、按 Project 停止和重启连接真实项目事件与 Runtime Supervisor，失败后的 observed state、原因码和需要人工恢复的队列不会被绿色成功提示掩盖。
+
+### 已验证的效果
+
+- 在本地 Buzz Desktop v0.5.18 EXE 中沿真实“消息触发 → ACP session → tool command → CLI 写回 → 同流回复”完成只读复核，并以同版本源码交叉核对 Projects、AgentPool、EventQueue、ACP、CLI 与 MCP；这次复核推翻了此前只看对象页得出的“聊天应按需打开”判断；
+- 新增组件回归直接证明 Project 首屏挂载 Agent 列、连续消息流与 embedded composer，页面不再存在“与 Agent 协作”抽屉按钮；Agent Profile 首屏能从真实消息投影展示 Invocation、工具活动与 Project 频道，并保留 Agent 对象编辑；
+- TypeScript、Next.js production build 与全量 Vitest 通过：251 个测试文件、1836 项通过，2 个文件/2 项按既有条件跳过；生产构建仍报告既有的动态文件追踪范围警告，但未阻断产物。Tauri release 需要在最终桌面验收前按本轮源代码重新构建。
+- 在新构建的本地 Windows EXE 中逐项验证 Project 协作流、Work 详情、Agent Team 投影、Agent Profile 发消息、ACP Runtime observed state、停止/重启、失败原因码、Runtime Catalog、自定义 ACP 创建/不可用状态/删除确认以及 Project 失败队列入口。真实 Codex ACP 重启在本机配置下失败时，页面显示 `failed · 0/0` 与 `runtime_start_failed`，没有再宣告重启成功。
+- 在 build `desktop-build-31c3ae613f0424f3fb31f0b727349c8a` 的 release EXE 中进入“验收测试项目 → 工作”，真实看到 2 个开放工作按“进行中”分组、唯一“创建工作”入口和带可访问状态名称的整行对象；点击“验收：Project 与 workspace 原子创建”打开现有任务详情对话框。Store 与相关 Project/Task Detail 回归共 18 个文件、99 项通过，TypeScript、相关 ESLint、Next.js production build 与独立复审通过，复审结论为 Critical 0、Important 0、Ready to merge。
+- 在 build `desktop-build-63d10aad569cab32ff0f0054cc8f8388` 的 release EXE 中为“验收测试项目”加入 Peach，刷新后的右侧 Project 上下文稳定显示 Mario、Luigi、Peach；打开聊天 `@ Agent` 候选也同时显示三者。真实桌面验收发现并修正了旧 `activeAgentIds` 对 Project roster 的二次过滤，验证后收起候选并清空草稿，未发送测试消息。
+
+### 仍然保留的边界
+
+CommandService 已接入结构化 outcome、Project、Review 和 Agent Team 创建/部署，Task、Artifact、Gate、Release 等其余公共写入口仍需逐步进入 registry。历史 Platform Event 的 `project_id` 仍受 Conversation 外键约束，Project workspace conversation 是暂时的事件兼容边界；在新 Project identity 迁移完成前不能把它描述成最终统一数据模型。桌面 Host 已能打包、启动和拥有本地 Service，但 Windows Job Object 级的完整 ACP/vendor/MCP 子进程树终止语义仍是目标状态。订阅 first-match 过滤器的约束已冻结在设计中，当前触发主链仍以显式提及和既有授权规则为准，尚未交付可配置的订阅规则产品面。
+本轮完成并验证的是 release EXE；MSI 安装器、签名与分发仍属于发布门，不把未生成的安装包写成已交付效果。
+
+### 设计与实现依据
+
+- [交付工作区前端决策](ux/2026-08-16-delivery-workspace-refactor.md)
+- [统一事件、身份与 Agent Runtime](../technical/execution/unified-event-agent-runtime.md)
+- [命令驱动交付规格](../../specs/command-driven-delivery/spec.md)
+- [ACP Runtime 接入规格](../../specs/acp-runtime-integration/spec.md)
 
 ---
 

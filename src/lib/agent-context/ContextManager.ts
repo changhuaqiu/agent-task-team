@@ -1,12 +1,10 @@
 // src/lib/agent-context/ContextManager.ts
 
-import type { RoleCard } from '@/types/roleCard';
 import type { ChatMessage } from '@/store/types';
 import type { RuntimeAgent } from '@/lib/team-runtime';
 import type { TeamPack } from '@/types/teamPack';
 import { ContextBudget } from './ContextBudget';
 import { composeWithBudget, type BudgetPart, type ContextTier } from './BudgetGuard';
-import { buildRoleLayer } from './layers/roleLayer';
 import { buildProjectLayer } from './layers/projectLayer';
 import { buildProjectStatusLayer } from './layers/projectStatusLayer';
 import { buildCollaborationLayer } from './layers/collaborationLayer';
@@ -41,7 +39,6 @@ export type {
 
 // Provider 层（P1 只返回 mock，预留接口）
 export interface ContextProviders {
-  getRoleCard(agentId: string): Promise<RoleCard | undefined>;
   getMessages(conversationId: string, limit?: number): Promise<ChatMessage[]>;
   getTask(taskId: string): Promise<{
     id: string;
@@ -66,6 +63,12 @@ export interface ContextRequest {
   taskId?: string;                 // 主循环 dispatch 时带
   deliveryRunId?: string;          // 自主交付路径显式绑定，避免误取历史 Run
   rawPrompt: string;
+  /** Display identity from Agent Definition. */
+  agentName?: string;
+  /** Canonical identity and working policy from Agent Definition. */
+  agentInstructions?: string;
+  /** Optional execution archetype derived from Agent Definition policy. */
+  agentArchetype?: ContextArchetype;
   trigger: ContextTrigger;
   /** Explicit Team Harness scenario. Omit to use the legacy trigger resolver. */
   scenario?: ContextScenario;
@@ -78,7 +81,7 @@ export interface ContextRequest {
     partial?: boolean;
   };
   isFirstWake: boolean;
-  budgetOverride?: ContextBudget;  // 默认从 RoleCard / 项目配置推导
+  budgetOverride?: ContextBudget;
   project?: { id: string; name: string; path: string }; // P1 项目信息
   /** Exact platform tool names registered in the current runtime transport. */
   registeredToolNames?: string[];
@@ -198,7 +201,6 @@ export class ContextManager {
     const observedAt = (this.options.now?.() ?? new Date()).toISOString();
 
     // Provider 层：取原料（只读）
-    const roleCard = await this.providers.getRoleCard(req.agentId);
     const messages = await this.providers.getMessages(req.conversationId, 10);
     if (req.project?.id && req.project.id !== req.conversationId) {
       throw new Error(`context_scope_mismatch: project ${req.project.id}`);
@@ -220,7 +222,7 @@ export class ContextManager {
     const teamPack = await this.providers.getTeamPack(req.agentId);
     const runtimeRoster = await this.providers.getRuntimeRoster(req.conversationId);
     const scenario = resolveScenario(req);
-    const archetype = resolveArchetype(roleCard);
+    const archetype = resolveArchetype(req.agentArchetype);
     const teamLogEnvelope = await this.providers.getTeamLogEnvelope?.(
       req.conversationId,
       req.agentId,
@@ -249,9 +251,7 @@ export class ContextManager {
           required: skill.required,
           config: skill.config,
         }))
-      : providedSkills.length
-        ? providedSkills
-        : (roleCard?.capabilities?.skills ?? []).map(skillName => ({ name: skillName, content: '' }));
+      : providedSkills;
     const declaredTools = extractToolsFromSkills(skillSummaries);
     const tools = filterRegisteredTools(declaredTools, req.registeredToolNames);
     // Semantic scenarios and session bootstrap are orthogonal. Legacy callers
@@ -267,7 +267,6 @@ export class ContextManager {
       bootstrapIdentity,
       agentId: req.agentId,
       conversationId: req.conversationId,
-      roleCard,
       messages,
       task,
       tasks,
@@ -293,7 +292,10 @@ export class ContextManager {
         : '';
 
       systemPrompt = [
-        buildRoleLayer(roleCard),
+        [
+          `## Agent 身份\n名称：${req.agentName?.trim() || req.agentId}`,
+          `## Agent 工作指令\n${req.agentInstructions?.trim() || '按当前工作合同、协作协议和已分配 Skills 完成工作。'}`,
+        ].join('\n\n'),
         getDirective(scenario, archetype, 'situation') === 'include'
           ? buildProjectLayer(req.project ?? { name: '', path: '', id: '' })
           : '',

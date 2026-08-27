@@ -64,7 +64,7 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  *    (`process.exit(1)`) — so `AcpBackend`'s `close` handler fires with an
  *    abnormal exit and resolves `failed`. (Task 9 failure-recovery test.)
  */
-export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'startup_abort' | 'flood' | 'large' | 'wrong_session' | 'empty_once' | 'empty_silent' | 'fresh_session_recovery' | 'thinking_only' | 'tool_result_only' | 'tool_result_silent' | 'tool_only' | 'tool_silent' | 'mcp_echo' | 'session_meta_echo' | 'prompt_echo' | 'platform_mcp_permission';
+export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'startup_abort' | 'flood' | 'large' | 'wrong_session' | 'empty_once' | 'empty_silent' | 'fresh_session_recovery' | 'thinking_only' | 'tool_result_only' | 'tool_result_silent' | 'tool_only' | 'tool_silent' | 'terminal_command_only' | 'mcp_echo' | 'session_meta_echo' | 'session_mode_echo' | 'prompt_echo' | 'platform_mcp_permission';
 
 /** How long the "slow" scenario blocks mid-turn before completing. */
 const SLOW_BLOCK_MS = 60_000;
@@ -99,6 +99,7 @@ export function createMockAgentApp(
   let sessionCount = 0;
   let sessionMcpServers: acp.McpServer[] = [];
   let sessionMeta: unknown;
+  let sessionMode: string | undefined;
   return acp
     .agent({ name: 'mock-acp-agent' })
     .onRequest(acp.methods.agent.initialize, () => ({
@@ -136,7 +137,13 @@ export function createMockAgentApp(
     // daemon mode switches (session/setMode) don't hit method-not-found.
     // These are no-ops for the scripted turn; real cooperative cancellation
     // is a later concern.
-    .onRequest(acp.methods.agent.session.setMode, () => ({}))
+    .onRequest(acp.methods.agent.session.setMode, (ctx) => {
+      if (process.env.MOCK_ACP_SET_MODE_FAIL === 'true') {
+        throw new Error('mock set mode failed');
+      }
+      sessionMode = ctx.params.modeId;
+      return {};
+    })
     .onNotification(acp.methods.agent.session.cancel, () => {})
     .onRequest(acp.methods.agent.session.prompt, async (ctx) => {
       promptCount += 1;
@@ -160,6 +167,14 @@ export function createMockAgentApp(
         await upd({
           sessionUpdate: 'agent_message_chunk',
           content: { type: 'text', text: JSON.stringify(sessionMeta ?? null) },
+        });
+        return { stopReason: 'end_turn' };
+      }
+
+      if (scenario === 'session_mode_echo') {
+        await upd({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: sessionMode ?? 'unset' },
         });
         return { stopReason: 'end_turn' };
       }
@@ -234,7 +249,7 @@ export function createMockAgentApp(
 
       // 1. Opening agent message. Tool-only scenarios deliberately omit all
       // text on the first turn so the harness completion invariant is tested.
-      if (scenario !== 'tool_only' && scenario !== 'tool_silent') {
+      if (scenario !== 'tool_only' && scenario !== 'tool_silent' && scenario !== 'terminal_command_only') {
         await upd({
           sessionUpdate: 'agent_message_chunk',
           content: { type: 'text', text: '开始' },
@@ -291,6 +306,8 @@ export function createMockAgentApp(
 
       const activeToolCall = scenario === 'platform_mcp_permission'
         ? { ...TOOL_CALL, title: 'mcp__agent-task-team__task_create' }
+        : scenario === 'terminal_command_only'
+          ? { ...TOOL_CALL, title: 'task_submit_result' }
         : TOOL_CALL;
 
       // 2. Tool call created (pending).
@@ -326,6 +343,21 @@ export function createMockAgentApp(
         sessionUpdate: 'tool_call_update',
         toolCallId: TOOL_CALL_ID,
         status: toolStatus,
+        ...(scenario === 'terminal_command_only' ? {
+          rawOutput: {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                commandId: 'outcome-1',
+                status: 'applied',
+                eventIds: ['event-1'],
+                evidenceRefs: ['artifact:sha'],
+                result: { outcomeId: 'outcome-1', exitAccepted: true },
+                recordedAt: '2026-08-23T12:00:00.000Z',
+              }),
+            }],
+          },
+        } : {}),
       });
 
       if (scenario === 'platform_mcp_permission') {
@@ -336,7 +368,7 @@ export function createMockAgentApp(
       }
 
       // 5. Closing agent message.
-      if (scenario !== 'tool_only' && scenario !== 'tool_silent') {
+      if (scenario !== 'tool_only' && scenario !== 'tool_silent' && scenario !== 'terminal_command_only') {
         await upd({
           sessionUpdate: 'agent_message_chunk',
           content: { type: 'text', text: '完成' },
@@ -380,8 +412,10 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       || envScenario === 'tool_result_silent'
       || envScenario === 'tool_only'
       || envScenario === 'tool_silent'
+      || envScenario === 'terminal_command_only'
       || envScenario === 'mcp_echo'
       || envScenario === 'session_meta_echo'
+      || envScenario === 'session_mode_echo'
       || envScenario === 'prompt_echo'
       || envScenario === 'platform_mcp_permission'
       ? envScenario

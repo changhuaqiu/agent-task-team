@@ -11,9 +11,6 @@ vi.mock('@/components/task-hub/GlobalChatRoom', () => ({
   GlobalChatRoom: () => <div data-testid="global-chat-room" />,
 }));
 
-vi.mock('@/components/task-hub/AgentBar', () => ({
-  AgentBar: () => <div data-testid="agent-bar" />,
-}));
 
 vi.mock('@/components/project/AutonomousDeliveryPanel', () => ({
   AutonomousDeliveryPanel: () => <div data-testid="autonomous-delivery-panel" />,
@@ -33,11 +30,11 @@ function workspaceView(deliveryRunSnapshot?: DeliveryRunSnapshot) {
 }
 
 describe('ProjectChatPanel', () => {
-  it('renders one delivery empty state without mounting team activity', () => {
+  it('renders one project-work empty state without mounting team activity', () => {
     render(<ProjectChatPanel view={null} />);
 
     expect(screen.getByTestId('delivery-empty-state')).toBeDefined();
-    expect(screen.getByText('从一个交付开始')).toBeDefined();
+    expect(screen.getByText('从项目工作开始')).toBeDefined();
     expect(screen.queryByTestId('agent-bar')).toBeNull();
     expect(screen.queryByTestId('global-chat-room')).toBeNull();
   });

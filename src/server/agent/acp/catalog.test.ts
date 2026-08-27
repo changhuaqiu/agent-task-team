@@ -11,10 +11,10 @@ import { loadCatalog, createBackend, resolveCatalogLauncher, validateCatalog } f
 import { AcpBackend } from './acpBackend';
 
 describe('AgentCatalog (loadCatalog + createBackend)', () => {
-  it('loadCatalog returns the 3 seed entries with correct delivery + launcher', () => {
+  it('loadCatalog returns built-in and preset ACP entries with correct launchers', () => {
     const entries = loadCatalog();
 
-    expect(entries).toHaveLength(3);
+    expect(entries).toHaveLength(13);
 
     const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
 
@@ -46,15 +46,20 @@ describe('AgentCatalog (loadCatalog + createBackend)', () => {
     expect(codex.launcher.args).toEqual(['-y', '@agentclientprotocol/codex-acp@1.1.2']);
     expect(codex.launcher.version).toBe('1.1.2'); // locked version
 
-    // Every entry has verifiedCapabilities (at least initialize from T1 probe).
+    // Every entry exposes the same capability field. Presets stay empty until
+    // a real-runtime probe verifies them on this product.
     for (const e of entries) {
       expect(Array.isArray(e.verifiedCapabilities)).toBe(true);
-      expect(e.verifiedCapabilities).toContain('initialize');
     }
+    for (const id of ['opencode', 'claude', 'codex']) {
+      expect(byId[id].verifiedCapabilities).toContain('initialize');
+    }
+    expect(byId['openclaw'].launcher).toEqual({ command: 'openclaw', args: ['acp'] });
+    expect(byId['cursor'].launcher).toEqual({ command: 'cursor-agent', args: ['acp'] });
   });
 
   it('rejects duplicate ids and adapter launchers that are not actually pinned', () => {
-    const entry = loadCatalog()[1];
+    const entry = loadCatalog().find((candidate) => candidate.id === 'claude')!;
     expect(() => validateCatalog([entry, entry])).toThrow(/duplicate id/);
     expect(() => validateCatalog([{
       ...entry,

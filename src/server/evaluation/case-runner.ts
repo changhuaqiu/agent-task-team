@@ -172,11 +172,7 @@ export class EvaluationCaseRunner {
           title: `[评估] ${String(execution.case_key)} / ${String(execution.variant)}`,
           description: casePrompt(execution),
           agent_id: agentId,
-          artifacts: {
-            evaluationExecutionId: execution.id,
-            caseId: execution.case_id,
-            variant: execution.variant,
-          },
+          artifacts: [],
         },
       });
     }

@@ -129,8 +129,7 @@ export function EmojiPickerButton({
             placementStyles[placement],
           )}
         >
-          {/* Pixel-warm design system: border-2 + offset shadow */}
-          <div className="rounded-[var(--radius-lg)] border-2 border-[hsl(var(--text-primary))] shadow-[3px_3px_0px_hsl(var(--text-primary))] overflow-hidden">
+          <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] shadow-xl shadow-black/10">
             <EmojiPicker
               onEmojiClick={handleEmojiClick}
               emojiStyle={NATIVE_EMOJI_STYLE}

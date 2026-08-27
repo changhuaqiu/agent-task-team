@@ -1,10 +1,12 @@
 import { getDb } from '../db/index';
-import { loadAllRoleCards } from '../db/roleCardQueries';
 import { generateSortableId } from './sortable-id';
-import type { TeamPack, TeamPackRole, CreateTeamPackInput } from '@/types/teamPack';
-import type { RoleCard } from '@/types/roleCard';
-import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
-import { materializeTeamPack, materializeTeamRoleSnapshot } from '../team-pack-role-snapshot';
+import type {
+  AgentTeamDefinitionInput,
+  LegacyTeamPackSeedInput,
+  TeamPack,
+  TeamPackCommunicationMatrix,
+  TeamPackWorkflow,
+} from '@/types/teamPack';
 
 // ──────────────────────────────────────────────
 // Types
@@ -51,6 +53,17 @@ interface TeamPackRoleRow {
 // ──────────────────────────────────────────────
 
 function rowToTeamPack(row: TeamPackRow, roles: TeamPackRoleRow[]): TeamPack {
+  const db = getDb();
+  const resolvedRoles = roles.flatMap((role) => {
+    const agent = db.prepare('SELECT name FROM agents WHERE id=?').get(role.role_id) as { name: string } | undefined;
+    return agent ? [{ id: role.role_id, displayName: agent.name, required: role.required === 1 }] : [];
+  });
+  const memberIds = new Set(resolvedRoles.map((role) => role.id));
+  const workflow = projectWorkflowToMembers(JSON.parse(row.workflow) as TeamPackWorkflow, memberIds);
+  const communicationMatrix = projectMatrixToMembers(
+    JSON.parse(row.communication_matrix) as TeamPackCommunicationMatrix,
+    memberIds,
+  );
   return {
     id: row.id,
     specVersion: 'team-pack/0.1',
@@ -63,37 +76,56 @@ function rowToTeamPack(row: TeamPackRow, roles: TeamPackRoleRow[]): TeamPack {
     tags: row.tags ? JSON.parse(row.tags) : [],
     category: row.category,
     teamMode: row.team_mode as 'pipeline' | 'parallel' | 'hub_spoke' | 'custom',
-    workflow: JSON.parse(row.workflow),
-    communicationMatrix: JSON.parse(row.communication_matrix),
+    workflow,
+    communicationMatrix,
     sharedContext: row.shared_context ? JSON.parse(row.shared_context) : undefined,
     rules: row.rules ? JSON.parse(row.rules) : undefined,
     source: row.source ? JSON.parse(row.source) : undefined,
     isPreset: row.is_preset === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    roles: roles.map(r => ({
-      id: r.role_id,
-      displayName: r.display_name,
-      soul: r.soul,
-      required: r.required === 1,
-      description: r.description ?? undefined,
-      roleCardId: r.role_card_id ?? undefined,
-      roleCardSnapshot: r.role_card_snapshot ? JSON.parse(r.role_card_snapshot) : undefined,
-      accountIds: r.account_ids ? JSON.parse(r.account_ids) : undefined,
-      skillIds: r.skill_ids ? JSON.parse(r.skill_ids) : undefined,
+    // Historical role/card/capability columns stay in SQLite for migration
+    // compatibility only. Current projections resolve identity from Agent.
+    roles: resolvedRoles,
+    revision: ((db.prepare(`SELECT MAX(aggregate_version) AS revision FROM platform_event
+      WHERE aggregate_type='agent_team' AND aggregate_id=?`).get(row.id) as { revision?: number | null } | undefined)?.revision ?? 1),
+  };
+}
+
+function projectWorkflowToMembers(workflow: TeamPackWorkflow, memberIds: Set<string>): TeamPackWorkflow {
+  if (workflow.type === 'linear') {
+    return {
+      ...workflow,
+      steps: (workflow.steps ?? []).filter((step) => memberIds.has(step.role)),
+    };
+  }
+  const states = (workflow.states ?? []).filter((state) => memberIds.has(state.role));
+  const stateNames = new Set(states.map((state) => state.name));
+  return {
+    ...workflow,
+    states: states.map((state) => ({
+      ...state,
+      transitions: state.transitions.filter((transition) => (
+        stateNames.has(transition.from) && stateNames.has(transition.to)
+      )),
     })),
   };
 }
 
-function loadSnapshotSourceCards(): RoleCard[] {
-  const cards = new Map<string, RoleCard>();
-  for (const card of PRESET_ROLE_CARDS) cards.set(card.id, card);
-  try {
-    for (const card of loadAllRoleCards()) cards.set(card.id, card);
-  } catch {
-    // Test databases and early migrations may not have role card rows yet.
-  }
-  return [...cards.values()];
+function projectMatrixToMembers(
+  matrix: TeamPackCommunicationMatrix,
+  memberIds: Set<string>,
+): TeamPackCommunicationMatrix {
+  return Object.fromEntries(Object.entries(matrix).flatMap(([agentId, routes]) => {
+    if (!memberIds.has(agentId)) return [];
+    return [[agentId, {
+      canSendTo: routes.canSendTo.filter((targetId) => memberIds.has(targetId)),
+      canReceiveFrom: routes.canReceiveFrom.filter((targetId) => memberIds.has(targetId)),
+      ...(routes.canEscalateTo
+        ? { canEscalateTo: routes.canEscalateTo.filter((targetId) => memberIds.has(targetId)) }
+        : {}),
+    }]];
+  }));
 }
 
 // ──────────────────────────────────────────────
@@ -101,7 +133,7 @@ function loadSnapshotSourceCards(): RoleCard[] {
 // ──────────────────────────────────────────────
 
 export const teamPackRepo = {
-  create(input: CreateTeamPackInput): TeamPack {
+  seedLegacy(input: LegacyTeamPackSeedInput): TeamPack {
     const id = generateSortableId('tp');
     const now = new Date().toISOString();
     const db = getDb();
@@ -130,9 +162,7 @@ export const teamPackRepo = {
       now
     );
 
-    const sourceCards = loadSnapshotSourceCards();
     for (const inputRole of input.roles) {
-      const role = materializeTeamRoleSnapshot(inputRole, sourceCards, now);
       db.prepare(
         `INSERT INTO team_pack_role (
           id, pack_id, role_id, display_name, soul, required, description,
@@ -142,15 +172,15 @@ export const teamPackRepo = {
       ).run(
         generateSortableId('tpr'),
         id,
-        role.id,
-        role.displayName,
-        role.soul,
-        role.required ? 1 : 0,
-        role.description ?? null,
-        role.roleCardId ?? null,
-        role.roleCardSnapshot ? JSON.stringify(role.roleCardSnapshot) : null,
-        role.accountIds ? JSON.stringify(role.accountIds) : null,
-        role.skillIds ? JSON.stringify(role.skillIds) : null,
+        inputRole.id,
+        inputRole.displayName,
+        '',
+        inputRole.required ? 1 : 0,
+        null,
+        null,
+        null,
+        null,
+        null,
         now
       );
     }
@@ -183,7 +213,7 @@ export const teamPackRepo = {
     });
   },
 
-  update(id: string, updates: Partial<CreateTeamPackInput>): void {
+  reconcileLegacySeed(id: string, updates: Partial<LegacyTeamPackSeedInput>): void {
     const db = getDb();
     const now = new Date().toISOString();
     const applyUpdate = db.transaction(() => {
@@ -213,9 +243,7 @@ export const teamPackRepo = {
 
     if (updates.roles !== undefined) {
       db.prepare('DELETE FROM team_pack_role WHERE pack_id = ?').run(id);
-      const sourceCards = loadSnapshotSourceCards();
       for (const inputRole of updates.roles) {
-        const role = materializeTeamRoleSnapshot(inputRole, sourceCards, now);
         db.prepare(
           `INSERT INTO team_pack_role (
             id, pack_id, role_id, display_name, soul, required, description,
@@ -225,15 +253,15 @@ export const teamPackRepo = {
         ).run(
           generateSortableId('tpr'),
           id,
-          role.id,
-          role.displayName,
-          role.soul,
-          role.required ? 1 : 0,
-          role.description ?? null,
-          role.roleCardId ?? null,
-          role.roleCardSnapshot ? JSON.stringify(role.roleCardSnapshot) : null,
-          role.accountIds ? JSON.stringify(role.accountIds) : null,
-          role.skillIds ? JSON.stringify(role.skillIds) : null,
+          inputRole.id,
+          inputRole.displayName,
+          '',
+          inputRole.required ? 1 : 0,
+          null,
+          null,
+          null,
+          null,
+          null,
           now
         );
       }
@@ -246,60 +274,33 @@ export const teamPackRepo = {
     getDb().prepare('DELETE FROM team_pack WHERE id = ?').run(id);
   },
 
-  // ── Role Management ──────────────────────
-
-  updateRoleConfig(
-    packId: string,
-    roleId: string,
-    patch: Pick<Partial<TeamPackRole>, 'roleCardId' | 'roleCardSnapshot' | 'accountIds' | 'skillIds'>,
-  ): TeamPackRole | undefined {
-    const sets: string[] = [];
-    const values: unknown[] = [];
-
-    if (patch.roleCardId !== undefined) {
-      sets.push('role_card_id = ?');
-      values.push(patch.roleCardId ?? null);
-    }
-    if (patch.roleCardSnapshot !== undefined) {
-      sets.push('role_card_snapshot = ?');
-      values.push(patch.roleCardSnapshot ? JSON.stringify(patch.roleCardSnapshot) : null);
-    }
-    if (patch.accountIds !== undefined) {
-      sets.push('account_ids = ?');
-      values.push(JSON.stringify(patch.accountIds));
-    }
-    if (patch.skillIds !== undefined) {
-      sets.push('skill_ids = ?');
-      values.push(JSON.stringify(patch.skillIds));
-    }
-    if (sets.length === 0) {
-      return teamPackRepo.getById(packId)?.roles.find((role) => role.id === roleId);
-    }
-
-    values.push(packId, roleId);
-    getDb().prepare(`UPDATE team_pack_role SET ${sets.join(', ')} WHERE pack_id = ? AND role_id = ?`).run(...values);
-    return teamPackRepo.getById(packId)?.roles.find((role) => role.id === roleId);
+  createFromAgentRefs(input: AgentTeamDefinitionInput): TeamPack {
+    const agents = new Map((getDb().prepare('SELECT id,name FROM agents').all() as Array<{ id: string; name: string }>)
+      .map((agent) => [agent.id, agent]));
+    return teamPackRepo.seedLegacy({
+      ...input,
+      roles: input.members.map((member) => {
+        const agent = agents.get(member.agentId);
+        if (!agent) throw new Error(`agent_team_member_not_found:${member.agentId}`);
+        return { id: agent.id, displayName: agent.name, soul: '', required: member.required !== false };
+      }),
+    });
   },
 
-  materializeRoleSnapshots(packId: string): TeamPack | undefined {
-    const pack = teamPackRepo.getById(packId);
-    if (!pack) return undefined;
-
-    const sourceCards = loadSnapshotSourceCards();
-    const materialized = materializeTeamPack(pack, sourceCards);
-    const db = getDb();
-    for (const role of materialized.roles) {
-      db.prepare(
-        'UPDATE team_pack_role SET role_card_snapshot = ? WHERE pack_id = ? AND role_id = ?',
-      ).run(JSON.stringify(role.roleCardSnapshot), packId, role.id);
-    }
-    return teamPackRepo.getById(packId);
-  },
-
-  getExportById(packId: string): TeamPack | undefined {
-    const pack = teamPackRepo.getById(packId);
-    if (!pack) return undefined;
-    return materializeTeamPack(pack, loadSnapshotSourceCards());
+  updateFromAgentRefs(id: string, input: AgentTeamDefinitionInput): TeamPack {
+    const agents = new Map((getDb().prepare('SELECT id,name FROM agents').all() as Array<{ id: string; name: string }>)
+      .map((agent) => [agent.id, agent]));
+    teamPackRepo.reconcileLegacySeed(id, {
+      ...input,
+      roles: input.members.map((member) => {
+        const agent = agents.get(member.agentId);
+        if (!agent) throw new Error(`agent_team_member_not_found:${member.agentId}`);
+        return { id: agent.id, displayName: agent.name, soul: '', required: member.required !== false };
+      }),
+    });
+    const team = teamPackRepo.getById(id);
+    if (!team) throw new Error('agent_team_not_found');
+    return team;
   },
 
 };

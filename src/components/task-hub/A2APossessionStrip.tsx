@@ -1,8 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, GitBranch, ShieldAlert, UserRoundCheck } from 'lucide-react';
-import { useTaskHubStore, type A2APossessionView, type DispatchReceipt } from '@/store/taskHubStore';
+import { ChevronDown, GitBranch, ShieldAlert } from 'lucide-react';
+import {
+  compareDispatchReceipts,
+  useTaskHubStore,
+  type A2APossessionView,
+  type DispatchReceipt,
+} from '@/store/taskHubStore';
 import type { Agent } from '@/store/agentStore';
 import { cn } from '@/lib/utils';
 
@@ -17,6 +22,10 @@ function agentLabel(agentId: string | undefined, roster: Agent[]) {
 
 function statusLabel(status: A2APossessionView['handoffs'][number]['status']) {
   switch (status) {
+    case 'drafted':
+      return '已生成交接草案';
+    case 'validated':
+      return '交接已校验';
     case 'offered':
       return '已发起交接';
     case 'accepted':
@@ -55,6 +64,36 @@ function receiptPhaseLabel(phase: DispatchReceipt['phase']) {
   }
 }
 
+const RECEIPT_REASON_LABELS: Record<string, string> = {
+  a2a_no_available_agent: '当前没有可接手的 Agent',
+  runtime_start_failed: 'Agent 启动失败',
+  runtime_node_missing: 'Agent 运行环境不可用',
+  runtime_unreachable: 'Agent 暂时无法连接',
+  runtime_profile_missing: 'Agent 未配置运行环境',
+  runtime_transport_lost: 'Agent 连接已中断',
+  dependency_unavailable: '依赖服务暂时不可用',
+  human_decision_requested: '等待你的决定',
+  agent_reported_blocked: 'Agent 报告无法继续',
+  cancelled: '本次运行已取消',
+};
+
+function receiptReasonLabel(reasonCode: string | undefined) {
+  if (!reasonCode) return undefined;
+  return RECEIPT_REASON_LABELS[reasonCode] ?? 'Agent 暂时未能接手';
+}
+
+const INTERNAL_REASON_CODE = /^[a-z][a-z0-9]*(?:[_:.-][a-z0-9]+)+$/;
+
+function handoffReasonLabel(reason: string | undefined) {
+  if (!reason) return undefined;
+  if (!INTERNAL_REASON_CODE.test(reason)) return reason;
+  if (RECEIPT_REASON_LABELS[reason]) return RECEIPT_REASON_LABELS[reason];
+  if (reason.startsWith('runtime_')) return 'Agent 运行环境暂时不可用';
+  if (reason.startsWith('human_')) return '等待你的处理';
+  if (reason.startsWith('agent_')) return 'Agent 暂时无法继续';
+  return '本次交接未能完成';
+}
+
 function formatTime(timestamp: string) {
   return new Date(timestamp).toLocaleTimeString('zh-CN', {
     hour: '2-digit',
@@ -63,110 +102,123 @@ function formatTime(timestamp: string) {
   });
 }
 
-export function A2APossessionStrip() {
+export function A2APossessionStrip({ conversationId }: { conversationId: string }) {
+  return <ConversationPossessionStrip key={conversationId} conversationId={conversationId} />;
+}
+
+function ConversationPossessionStrip({ conversationId }: { conversationId: string }) {
   const [expanded, setExpanded] = useState(false);
-  const a2a = useTaskHubStore((state) => state.getA2AForSelectedConversation());
-  const dispatchReceipts = useTaskHubStore((state) => {
-    const id = state.selectedConversationId;
-    return id ? state.dispatchReceiptsByConversation[id] ?? EMPTY_DISPATCH_RECEIPTS : EMPTY_DISPATCH_RECEIPTS;
+  const a2a = useTaskHubStore((state) => state.a2aByConversation[conversationId]);
+  const dispatchReceipts = useTaskHubStore(
+    (state) => state.dispatchReceiptsByConversation[conversationId] ?? EMPTY_DISPATCH_RECEIPTS,
+  );
+  const roster = useTaskHubStore((state) => state.agentRoster);
+
+  const records = [
+    ...(a2a?.handoffs ?? []).map((handoff) => ({
+      kind: 'handoff' as const,
+      id: handoff.id,
+      timestamp: handoff.timestamp,
+      handoff,
+    })),
+    ...dispatchReceipts.map((receipt) => ({
+      kind: 'receipt' as const,
+      id: receipt.receiptId,
+      timestamp: receipt.createdAt,
+      receipt,
+    })),
+  ].sort((left, right) => {
+    const timestampOrder = Date.parse(right.timestamp) - Date.parse(left.timestamp);
+    if (timestampOrder !== 0) return timestampOrder;
+    if (left.kind === 'receipt' && right.kind === 'receipt') {
+      return compareDispatchReceipts(right.receipt, left.receipt);
+    }
+    if (left.kind !== right.kind) return left.kind === 'receipt' ? -1 : 1;
+    return right.id.localeCompare(left.id);
   });
-  const roster = useTaskHubStore((state) => state.getEffectiveRoster());
+  const latestRecord = records[0];
+  if (!latestRecord) return null;
 
-  const latestReceipt = dispatchReceipts[dispatchReceipts.length - 1];
-  if ((!a2a || a2a.handoffs.length === 0) && !latestReceipt) return null;
-
-  const latest = a2a?.handoffs[a2a.handoffs.length - 1];
-  const holders = a2a?.currentHolderIds.map((agentId) => agentLabel(agentId, roster)) ?? [];
-  const holder = holders.length > 0
-    ? holders.join('、')
-    : agentLabel(latestReceipt?.targetAgentId, roster);
+  const latest = latestRecord.kind === 'handoff' ? latestRecord.handoff : undefined;
+  const latestReceipt = latestRecord.kind === 'receipt' ? latestRecord.receipt : undefined;
+  const holder = latestReceipt
+    ? agentLabel(latestReceipt.targetAgentId, roster)
+    : (a2a?.currentHolderIds.map((agentId) => agentLabel(agentId, roster)).join('、') || 'Agent');
   const from = agentLabel(latest?.fromAgentId, roster);
   const to = agentLabel(latest?.toAgentId, roster);
-  const receiptTarget = agentLabel(latestReceipt?.targetAgentId, roster);
-  const isBlocked = latest?.status === 'blocked'
-    || latest?.status === 'timeout'
-    || latest?.status === 'rejected'
-    || latest?.status === 'error'
-    || latestReceipt?.phase === 'rejected';
-  const timeline = a2a ? [...a2a.handoffs].reverse() : [];
-  const receiptTimeline = [...dispatchReceipts].reverse().slice(0, 8);
-  const recordCount = timeline.length + receiptTimeline.length;
+  const isBlocked = latest
+    ? latest.status === 'blocked'
+      || latest.status === 'timeout'
+      || latest.status === 'rejected'
+      || latest.status === 'error'
+    : latestReceipt?.phase === 'rejected';
+  const recordCount = records.length;
 
   return (
     <div
       className={cn(
-        'rounded-[6px] border-2 bg-[hsl(var(--bg-card))] px-3 py-2 shadow-[2px_2px_0px_hsl(var(--border))]',
-        isBlocked ? 'border-amber-400/60' : 'border-[hsl(var(--accent))]/40'
+        'relative z-20 shrink-0 border-b px-3 text-[10px]',
+        isBlocked
+          ? 'border-amber-400/50 bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-300'
+          : 'border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] text-[hsl(var(--text-secondary))]',
       )}
       role="status"
       aria-live="polite"
+      data-testid="a2a-status-bar"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <UserRoundCheck className="w-3.5 h-3.5 text-[hsl(var(--accent))]" />
-            <span className="text-[10px] font-bold text-[hsl(var(--text-tertiary))]">当前持球</span>
-            <span className="text-[11px] font-bold text-[hsl(var(--text-primary))]">{holder}</span>
-          </div>
-          {latest && (
-            <div className="flex items-center gap-1.5 min-w-0">
-              {isBlocked ? (
-                <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
-              ) : (
-                <GitBranch className="w-3.5 h-3.5 text-[hsl(var(--accent))]" />
-              )}
-              <span className="text-[10px] font-bold text-[hsl(var(--text-tertiary))]">{statusLabel(latest.status)}</span>
-              <span className="text-[11px] text-[hsl(var(--text-secondary))] truncate">
-                {from} → {to}
-              </span>
-            </div>
-          )}
-          {latestReceipt && (
-            <div className="flex items-center gap-1.5 min-w-0">
-              {latestReceipt.phase === 'rejected' ? (
-                <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
-              ) : (
-                <GitBranch className="w-3.5 h-3.5 text-[hsl(var(--accent))]" />
-              )}
-              <span className="text-[10px] font-bold text-[hsl(var(--text-tertiary))]">派发回执</span>
-              <span className="text-[11px] text-[hsl(var(--text-secondary))] truncate">
-                {receiptPhaseLabel(latestReceipt.phase)} → {receiptTarget}
-              </span>
-            </div>
-          )}
+      <div className="flex h-8 min-w-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {isBlocked
+            ? <ShieldAlert className="size-3.5 shrink-0" />
+            : <GitBranch className="size-3.5 shrink-0 text-[hsl(var(--text-tertiary))]" />}
+          <span className="truncate font-medium" data-testid="a2a-status-summary">
+            {latest
+              ? `${from} → ${to} · ${statusLabel(latest.status)}`
+              : `${holder} · ${receiptPhaseLabel(latestReceipt!.phase)}`}
+          </span>
         </div>
         {recordCount > 1 && (
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            className="shrink-0 flex items-center gap-1 rounded-[4px] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-muted))] px-2 py-0.5 text-[10px] font-bold text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] hover:border-[hsl(var(--text-primary))]"
+            className="inline-flex h-6 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-[9px] text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--text-primary))]"
             aria-expanded={expanded}
+            aria-label="查看 Agent 交接记录"
           >
-            记录 {recordCount}
-            <ChevronDown className={cn('w-3 h-3 transition-transform', expanded && 'rotate-180')} />
+            查看记录
+            <ChevronDown className={cn('size-3 transition-transform', expanded && 'rotate-180')} />
           </button>
         )}
       </div>
-      {latest?.reason && (
-        <div className="mt-1 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">
-          {latest.reason}
+      {(handoffReasonLabel(latest?.reason) || receiptReasonLabel(latestReceipt?.reasonCode)) && isBlocked && (
+        <div className="border-t border-amber-400/20 py-1.5 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">
+          {handoffReasonLabel(latest?.reason) || receiptReasonLabel(latestReceipt?.reasonCode)}
         </div>
       )}
-      {expanded && (
-        <div className="mt-2 border-t border-[hsl(var(--border-subtle))] pt-2">
-          <div className="flex flex-col gap-1.5">
-            {timeline.map((handoff, index) => {
-              const blocked = handoff.status === 'blocked'
-                || handoff.status === 'timeout'
-                || handoff.status === 'rejected'
-                || handoff.status === 'error';
+      {expanded && recordCount > 1 && (
+        <div
+          className="absolute left-1/2 top-full z-50 mt-2 max-h-72 w-[min(560px,calc(100%-24px))] -translate-x-1/2 overflow-y-auto rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--bg-elevated))] p-2.5 shadow-xl"
+          data-testid="a2a-record-popover"
+        >
+          <div className="mb-2 px-2 text-[10px] font-semibold text-[hsl(var(--text-secondary))]">Agent 交接记录</div>
+          <div className="flex flex-col gap-1">
+            {records.map((record, index) => {
+              const handoff = record.kind === 'handoff' ? record.handoff : undefined;
+              const receipt = record.kind === 'receipt' ? record.receipt : undefined;
+              const blocked = handoff
+                ? handoff.status === 'blocked'
+                  || handoff.status === 'timeout'
+                  || handoff.status === 'rejected'
+                  || handoff.status === 'error'
+                : receipt?.phase === 'rejected';
+              const reason = handoffReasonLabel(handoff?.reason) ?? receiptReasonLabel(receipt?.reasonCode);
               return (
                 <div
-                  key={handoff.id}
-                  className="grid grid-cols-[52px_1fr] gap-2 rounded-[4px] bg-[hsl(var(--bg-muted))] px-2 py-1.5"
+                  key={`${record.kind}:${record.id}`}
+                  className="grid grid-cols-[52px_1fr] gap-2 rounded-lg px-2 py-1.5 hover:bg-[hsl(var(--bg-muted))]"
                 >
                   <div className="text-[9px] font-bold tabular-nums text-[hsl(var(--text-tertiary))]">
-                    {formatTime(handoff.timestamp)}
+                    {formatTime(record.timestamp)}
                   </div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -174,15 +226,17 @@ export function A2APossessionStrip() {
                         'text-[10px] font-bold',
                         blocked ? 'text-amber-500' : index === 0 ? 'text-[hsl(var(--accent))]' : 'text-[hsl(var(--text-secondary))]'
                       )}>
-                        {statusLabel(handoff.status)}
+                        {handoff ? statusLabel(handoff.status) : `派发回执: ${receiptPhaseLabel(receipt!.phase)}`}
                       </span>
                       <span className="text-[10px] text-[hsl(var(--text-secondary))] truncate">
-                        {agentLabel(handoff.fromAgentId, roster)} → {agentLabel(handoff.toAgentId, roster)}
+                        {handoff
+                          ? `${agentLabel(handoff.fromAgentId, roster)} → ${agentLabel(handoff.toAgentId, roster)}`
+                          : `${agentLabel(receipt!.targetAgentId, roster)}${receipt!.taskId ? ` / ${receipt!.taskId}` : ''}`}
                       </span>
                     </div>
-                    {handoff.reason && (
+                    {reason && blocked && (
                       <div className="mt-0.5 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">
-                        {handoff.reason}
+                        {reason}
                       </div>
                     )}
                   </div>
@@ -190,42 +244,6 @@ export function A2APossessionStrip() {
               );
             })}
           </div>
-          {receiptTimeline.length > 0 && (
-            <div className="mt-2 flex flex-col gap-1.5">
-              {receiptTimeline.map((receipt, index) => {
-                const failed = receipt.phase === 'rejected';
-                return (
-                  <div
-                    key={receipt.receiptId}
-                    className="grid grid-cols-[52px_1fr] gap-2 rounded-[4px] bg-[hsl(var(--bg-muted))] px-2 py-1.5"
-                  >
-                    <div className="text-[9px] font-bold tabular-nums text-[hsl(var(--text-tertiary))]">
-                      {formatTime(receipt.createdAt)}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span className={cn(
-                          'text-[10px] font-bold',
-                          failed ? 'text-amber-500' : index === 0 ? 'text-[hsl(var(--accent))]' : 'text-[hsl(var(--text-secondary))]'
-                        )}>
-                          派发回执: {receiptPhaseLabel(receipt.phase)}
-                        </span>
-                        <span className="text-[10px] text-[hsl(var(--text-secondary))] truncate">
-                          {agentLabel(receipt.targetAgentId, roster)}
-                          {receipt.taskId ? ` / ${receipt.taskId}` : ''}
-                        </span>
-                      </div>
-                      {receipt.reasonCode && (
-                        <div className="mt-0.5 text-[10px] leading-relaxed text-[hsl(var(--text-tertiary))]">
-                          {receipt.reasonCode}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
       )}
     </div>

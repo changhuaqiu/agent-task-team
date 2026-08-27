@@ -12,9 +12,12 @@ const nextConfig: NextConfig = {
   ],
   outputFileTracingExcludes: {
     '/*': [
+      '.ath/**/*',
       'src/test-helpers/**/*',
       'src/**/*.test.ts',
       'src/**/*.test.tsx',
+      'src-tauri/gen/**/*',
+      'src-tauri/target/**/*',
     ],
   },
   allowedDevOrigins: [

@@ -117,6 +117,37 @@ describe('HumanCommandService', () => {
     expect(db.prepare('SELECT COUNT(*) count FROM agent_inbox_item').get()).toEqual({ count: 1 });
   });
 
+  it('persists a validated reply relation and derives one stable thread root', () => {
+    const rootId = db.prepare(`
+      INSERT INTO chat_message (
+        id,conversation_id,task_id,sender_type,sender_id,content,content_type,
+        mentions,intent,metadata,visibility,invocation_id,created_at
+      ) VALUES ('root-message','delivery-1',NULL,'agent','mario','原始结论','text',NULL,'general',NULL,'public',NULL,?)
+      RETURNING id
+    `).get(NOW.toISOString()) as { id: string };
+    const service = new HumanCommandService({
+      db,
+      now: () => NOW,
+      resolveRuntime: () => runtime(['mario']),
+    });
+
+    const first = service.submit(command({
+      idempotencyKey: 'reply-1', content: '第一层回复', replyToMessageId: rootId.id,
+    }));
+    const second = service.submit(command({
+      idempotencyKey: 'reply-2', content: '第二层回复', replyToMessageId: first.messageId,
+    }));
+    const rows = db.prepare(`
+      SELECT id,metadata FROM chat_message WHERE id IN (?,?) ORDER BY created_at,id
+    `).all(first.messageId, second.messageId) as Array<{ id: string; metadata: string }>;
+    const metadata = rows.map((row) => JSON.parse(row.metadata));
+
+    expect(metadata).toMatchObject([
+      { replyToMessageId: 'root-message', threadRootId: 'root-message', replyPreview: '原始结论' },
+      { replyToMessageId: first.messageId, threadRootId: 'root-message', replyPreview: '第一层回复' },
+    ]);
+  });
+
   it('rejects reusing an idempotency key for a different command', () => {
     const service = new HumanCommandService({
       db,

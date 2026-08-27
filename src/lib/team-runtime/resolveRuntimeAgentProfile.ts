@@ -31,9 +31,9 @@ export function resolveRuntimeAgentProfile(
     execution: {
       engine,
       accountId: enabledAccount?.id,
+      preferredModel: agent.model,
     },
     prompt: {
-      roleCard: agent.roleCard,
       skills: agent.skills,
       teamPack: runtime.teamPack,
       roster: runtime.roster,

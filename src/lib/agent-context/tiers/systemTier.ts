@@ -8,13 +8,13 @@
 // session bootstrap are intentionally independent.
 
 import { buildCollaborationLayer } from '../layers/collaborationLayer';
-import { buildProtocolLayer, deriveRoleFromCard } from '../layers/protocolLayer';
+import { buildProtocolLayer } from '../layers/protocolLayer';
 import { buildBehaviorLayer } from '../layers/behaviorLayer';
 import { buildProtocolHint } from '../protocolHints';
 import type { TierRenderInput } from './tierContext';
 
 export function renderSystemTier({ ctx, push }: TierRenderInput): void {
-  const { req, roleCard, task } = ctx;
+  const { req, task } = ctx;
 
   // Stable collaboration contract. Dedup against the bootstrap channel:
   // assembleContext may bootstrap an explicit Team Harness scenario without
@@ -28,7 +28,7 @@ export function renderSystemTier({ ctx, push }: TierRenderInput): void {
   // Protocol hints per scenario (wakeup reason, dispatch intent, …).
   const protocol = buildProtocolLayer({
     agentId: req.agentId,
-    agentRole: deriveRoleFromCard(roleCard),
+    agentRole: req.agentArchetype ?? 'worker',
     hasTaskAssignment: !!task,
   });
   const protocolHint = buildProtocolHint(ctx.scenario, req.wakeup);

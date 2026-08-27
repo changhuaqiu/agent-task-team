@@ -267,4 +267,16 @@ export class PlatformEventLog {
     `).all(projectId, projectAgentId) as PlatformEventRow[];
     return rows.map((row) => fromRow(row));
   }
+
+  listDomainByProject(projectId: string, limit = 200): PlatformEvent[] {
+    const rows = (this.database ?? getDb()).prepare(`
+      SELECT * FROM (
+        SELECT * FROM platform_event
+        WHERE project_id = ? AND category = 'domain'
+        ORDER BY recorded_at DESC,id DESC
+        LIMIT ?
+      ) ORDER BY recorded_at ASC,id ASC
+    `).all(projectId, Math.max(1, Math.min(500, limit))) as PlatformEventRow[];
+    return rows.map((row) => fromRow(row));
+  }
 }

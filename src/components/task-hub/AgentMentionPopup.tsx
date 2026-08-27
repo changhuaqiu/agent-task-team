@@ -13,26 +13,16 @@ interface AgentMentionPopupProps {
 }
 
 export function AgentMentionPopup({ inputValue, cursorPosition, selectedIndex, onSelect, onClose }: AgentMentionPopupProps) {
-  const activeAgentIds = useTaskHubStore((s) => s.activeAgentIds);
-  const effectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster());
-  const getAgentRoleCard = useTaskHubStore((s) => s.getAgentRoleCard);
-
-  const activeAgents = effectiveRoster.filter((a) => activeAgentIds.includes(a.id));
+  const activeAgents = useTaskHubStore((s) => s.getAddressableRoster());
 
   // Extract the search text after @
   const textBeforeCursor = inputValue.slice(0, cursorPosition);
   const atMatch = textBeforeCursor.match(/@([\w\u4e00-\u9fff-]*)$/);
   const query = atMatch ? atMatch[1].toLowerCase() : '';
 
-  const filtered = activeAgents.filter((agent) => {
-    const roleCard = getAgentRoleCard(agent.id);
-    const displayName = roleCard?.displayName || '';
-    return (
-      agent.name.toLowerCase().includes(query) ||
-      agent.id.toLowerCase().includes(query) ||
-      displayName.toLowerCase().includes(query)
-    );
-  });
+  const filtered = activeAgents.filter((agent) => (
+    agent.name.toLowerCase().includes(query) || agent.id.toLowerCase().includes(query)
+  ));
 
   // Keyboard: only handle Escape here (navigation/select is handled by parent textarea)
   useEffect(() => {
@@ -49,45 +39,36 @@ export function AgentMentionPopup({ inputValue, cursorPosition, selectedIndex, o
   if (filtered.length === 0 || !atMatch) return null;
 
   return (
-    <div className="absolute bottom-full left-0 mb-1 z-50 min-w-[200px]">
-      <div className="border-2 border-[hsl(var(--text-primary))] rounded-[4px] bg-[hsl(var(--bg-elevated))] shadow-[3px_3px_0px_hsl(var(--text-primary))] overflow-hidden">
-        <div className="px-2 py-1 border-b border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))]">
-          <span className="text-[9px] font-bold tracking-widest uppercase text-[hsl(var(--text-tertiary))]">
-            选择 Agent
+    <div className="absolute bottom-full left-0 z-50 mb-2 min-w-[240px] max-w-[320px]">
+      <div className="overflow-hidden rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-elevated))] shadow-xl shadow-black/10">
+        <div className="border-b border-[hsl(var(--border-subtle))] px-3 py-2">
+          <span className="text-[10px] font-medium text-[hsl(var(--text-tertiary))]">
+            提及 Agent
           </span>
         </div>
-        <div className="py-1 max-h-[180px] overflow-y-auto scrollbar-thin">
-          {filtered.map((agent, i) => {
-            const roleCard = getAgentRoleCard(agent.id);
-            const displayName = roleCard?.displayName || '';
-
-            return (
+        <div className="max-h-[220px] overflow-y-auto p-1 scrollbar-thin">
+          {filtered.map((agent, i) => (
               <button
                 key={agent.id}
                 type="button"
                 onClick={() => onSelect(agent.id)}
                 className={cn(
-                  'w-full flex items-center gap-2 px-2.5 py-1.5 text-left transition-colors',
+                  'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors',
                   i === selectedIndex
                     ? 'bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]'
                     : 'text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-muted))]'
                 )}
               >
-                <span className="text-[13px]">{agent.emoji}</span>
-                <div className="flex flex-col min-w-0">
-                  <span className="text-[11px] font-bold">{agent.name}</span>
-                  {displayName && (
-                    <span className="text-[9px] text-[hsl(var(--text-tertiary))] truncate">
-                      {displayName}
-                    </span>
-                  )}
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--bg-muted))] text-[14px]">{agent.emoji}</span>
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-[12px] font-medium">{agent.name}</span>
+                  <span className="mt-0.5 flex items-center gap-1 text-[9px] text-[hsl(var(--text-tertiary))]">
+                    <span className={cn('size-1.5 rounded-full', agent.isOnline ? 'bg-emerald-500' : 'bg-[hsl(var(--text-tertiary))]')} />
+                    {agent.isOnline ? '可用' : '暂不可用'}
+                  </span>
                 </div>
-                <span className="ml-auto text-[9px] font-mono text-[hsl(var(--text-tertiary))]">
-                  @{agent.id}
-                </span>
               </button>
-            );
-          })}
+          ))}
         </div>
       </div>
     </div>

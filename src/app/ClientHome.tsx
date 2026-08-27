@@ -12,7 +12,7 @@ import { useShallow } from 'zustand/react/shallow';
 const TaskDetailPanel = dynamic(() => import('@/components/task-hub/TaskDetailPanel').then((mod) => mod.TaskDetailPanel));
 const AgentRosterModal = dynamic(() => import('@/components/task-hub/AgentRosterModal').then((mod) => mod.AgentRosterModal));
 const SettingsDrawer = dynamic(() => import('@/components/task-hub/SettingsDrawer').then((mod) => mod.SettingsDrawer));
-const ProjectCreateDialog = dynamic(() => import('@/components/project/ProjectCreateDialog').then((mod) => mod.ProjectCreateDialog));
+const ProjectAddDialog = dynamic(() => import('@/components/project/ProjectAddDialog').then((mod) => mod.ProjectAddDialog));
 
 export default function ClientHome() {
   const {
@@ -21,7 +21,6 @@ export default function ClientHome() {
     selectedTaskId,
     isRosterModalOpen,
     isSettingsOpen,
-    setSettingsOpen,
     connectDaemon,
     loadFromServer,
   } = useTaskHubStore(useShallow((s) => ({
@@ -30,11 +29,10 @@ export default function ClientHome() {
     selectedTaskId: s.selectedTaskId,
     isRosterModalOpen: s.isRosterModalOpen,
     isSettingsOpen: s.isSettingsOpen,
-    setSettingsOpen: s.setSettingsOpen,
     connectDaemon: s.connectDaemon,
     loadFromServer: s.loadFromServer,
   })));
-  const [isCreateDeliveryOpen, setCreateDeliveryOpen] = useState(false);
+  const [isAddProjectOpen, setAddProjectOpen] = useState(false);
 
   useEffect(() => {
     loadFromServer().then(() => connectDaemon());
@@ -46,10 +44,7 @@ export default function ClientHome() {
 
   return (
     <main className="h-dvh overflow-hidden bg-[hsl(var(--bg-app))] text-[hsl(var(--text-primary))] flex flex-col">
-      <WorkspaceAppChrome
-        onCreateDelivery={() => setCreateDeliveryOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
+      <WorkspaceAppChrome />
 
       {runtimeHydrationError && (
         <div
@@ -73,13 +68,17 @@ export default function ClientHome() {
         </div>
       )}
 
-      <ProjectWorkspace />
+      <ProjectWorkspace onAddProject={() => setAddProjectOpen(true)} />
 
       {/* ── Task Detail Drawer ── */}
       {selectedTaskId && <TaskDetailPanel />}
 
-      {isCreateDeliveryOpen && (
-        <ProjectCreateDialog open onClose={() => setCreateDeliveryOpen(false)} />
+      {isAddProjectOpen && (
+        <ProjectAddDialog
+          open
+          onClose={() => setAddProjectOpen(false)}
+          onCreated={(project) => useTaskHubStore.getState().setSelectedConversationId(project.workspaceConversationId)}
+        />
       )}
 
       {/* ── Agent Roster Modal ── */}

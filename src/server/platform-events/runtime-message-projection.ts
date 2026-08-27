@@ -4,6 +4,7 @@ import { invocationRepo } from '../repositories/invocation-repo';
 import { messageRepo, type MessageRow } from '../repositories/message-repo';
 import { sessionRepo } from '../repositories/session-repo';
 import type { PlatformEventHandler } from './dispatcher';
+import { PlatformEventLog } from './event-log';
 
 export interface RuntimeMessageProjectionOptions {
   db?: Database.Database;
@@ -50,6 +51,15 @@ export class RuntimeMessageProjection {
             sourceEventId: event.eventId,
             ...(content.metadata ?? {}),
           },
+        });
+        new PlatformEventLog({ db }).append({
+          type: 'chat.message.persisted', category: 'domain', projectId: event.projectId,
+          streamKey: `message:${messageId}`, aggregate: { type: 'message', id: messageId },
+          actor: { type: 'agent', id: projectAgentId }, subject: { type: 'message', id: messageId },
+          projectAgentId, invocationId,
+          correlationId: event.correlationId, causationId: event.eventId,
+          dedupeKey: `chat-message-persisted:${messageId}`,
+          payload: { messageId, content: content.text, senderId: projectAgentId, contentType: content.type },
         });
         const logicalSessionId = event.subject?.type === 'logical_session'
           ? event.subject.id

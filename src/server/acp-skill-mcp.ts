@@ -10,13 +10,17 @@ import { executeSkillTool, resetRateLimit, type ToolResult } from './skill-tool-
 import { isSkillTool } from './skill-tool-router';
 import type { AgentOutcomeType, WorkContract } from './work-contract/types';
 import { AGENT_OUTCOME_TYPES } from './work-contract/types';
-import {
-  AgentOutcomeIdempotencyConflictError,
-  workContractRepo,
-  type OutcomeAdmission,
-} from './work-contract/repository';
+import { workContractRepo } from './work-contract/repository';
 import { generateSortableId } from './repositories/sortable-id';
 import { workContractRuntimeToolNames } from './work-contract/dispatch-contract';
+import { asWorkSubmitOutcomeCommand, commandService } from './command-kernel/service';
+import { commandSucceeded } from './command-kernel/types';
+import {
+  AGENT_OUTCOME_TOOL_BY_TYPE,
+  AGENT_OUTCOME_TYPE_BY_TOOL,
+} from './work-contract/outcome-tools';
+
+export { AGENT_OUTCOME_TOOL_BY_TYPE } from './work-contract/outcome-tools';
 
 type SkillParameter = {
   name: string;
@@ -62,8 +66,6 @@ type StoredGrant = AcpSkillMcpScope & {
 
 const REGISTRY_KEY = Symbol.for('agent-task-team.acp-skill-mcp-grants');
 const DEFAULT_GRANT_TTL_MS = 45 * 60_000;
-export const AGENT_SUBMIT_OUTCOME_TOOL = 'agent_submit_outcome';
-
 function grantRegistry(): Map<string, StoredGrant> {
   const root = globalThis as typeof globalThis & { [REGISTRY_KEY]?: Map<string, StoredGrant> };
   root[REGISTRY_KEY] ??= new Map();
@@ -108,30 +110,29 @@ const TOOL_DEFINITIONS = new Map<string, AcpSkillToolDefinition>(
       }];
     }),
 );
-TOOL_DEFINITIONS.set(AGENT_SUBMIT_OUTCOME_TOOL, {
-  name: AGENT_SUBMIT_OUTCOME_TOOL,
-  description: 'Submit a structured candidate outcome under the current immutable WorkContract.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      outcome_type: {
-        type: 'string',
-        description: `One of: ${AGENT_OUTCOME_TYPES.join(', ')}`,
+for (const outcomeType of AGENT_OUTCOME_TYPES) {
+  const name = AGENT_OUTCOME_TOOL_BY_TYPE[outcomeType];
+  TOOL_DEFINITIONS.set(name, {
+    name,
+    description: `Submit the ${outcomeType} lifecycle command under the current immutable WorkContract.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        payload: { type: 'object', description: `Structured ${outcomeType} payload.` },
+        evidence_refs: {
+          type: 'array',
+          description: 'Immutable artifact, test, review, or trace references supporting this command.',
+        },
+        idempotency_key: {
+          type: 'string',
+          description: 'Stable key to make a repeated submission harmless.',
+        },
       },
-      payload: { type: 'object', description: 'Structured outcome payload.' },
-      evidence_refs: {
-        type: 'array',
-        description: 'Immutable artifact, test, review, or trace references supporting the outcome.',
-      },
-      idempotency_key: {
-        type: 'string',
-        description: 'Stable key to make a repeated submission harmless.',
-      },
+      required: ['payload', 'evidence_refs', 'idempotency_key'],
+      additionalProperties: false,
     },
-    required: ['outcome_type', 'payload', 'evidence_refs', 'idempotency_key'],
-    additionalProperties: false,
-  },
-});
+  });
+}
 
 export function listAcpSkillToolDefinitions(permittedTools: string[]): AcpSkillToolDefinition[] {
   return [...new Set(permittedTools)]
@@ -143,13 +144,25 @@ export function registerAcpSkillMcpGrant(
   scope: AcpSkillMcpScope,
   origin: string,
   ttlMs = DEFAULT_GRANT_TTL_MS,
-): { mcpServer: McpServer; autoApproveToolNames: string[]; revoke: () => void } | undefined {
+): {
+  mcpServer: McpServer;
+  autoApproveToolNames: string[];
+  terminalToolNames: string[];
+  /** Internal fencing identity; never serialize this value into events or diagnostics. */
+  grantToken: string;
+  revoke: () => void;
+} | undefined {
   const requestedTools = scope.workContract
-    ? workContractRuntimeToolNames(scope.permittedTools)
+    ? workContractRuntimeToolNames(
+        scope.permittedTools,
+        scope.workContract.allowedOutcomeTypes,
+      )
     : scope.permittedTools;
   const permittedTools = [...new Set([
     ...requestedTools.filter(isSkillTool),
-    ...(scope.workContract ? [AGENT_SUBMIT_OUTCOME_TOOL] : []),
+    ...(scope.workContract
+      ? scope.workContract.allowedOutcomeTypes.map((type) => AGENT_OUTCOME_TOOL_BY_TYPE[type])
+      : []),
   ])];
   if (permittedTools.length === 0) return undefined;
 
@@ -163,6 +176,7 @@ export function registerAcpSkillMcpGrant(
     expiresAt: Date.now() + Math.max(1, ttlMs),
   });
   return {
+    grantToken: token,
     mcpServer: {
       name: serverName,
       type: 'http',
@@ -173,6 +187,13 @@ export function registerAcpSkillMcpGrant(
       `mcp.${serverName}.${toolName}`,
       `mcp__${serverName}__${toolName}`,
     ]),
+    terminalToolNames: permittedTools
+      .filter((toolName) => AGENT_OUTCOME_TYPE_BY_TOOL.has(toolName))
+      .flatMap((toolName) => [
+        toolName,
+        `mcp.${serverName}.${toolName}`,
+        `mcp__${serverName}__${toolName}`,
+      ]),
     revoke: () => {
       grantRegistry().delete(token);
       resetRateLimit(rateLimitKey);
@@ -194,6 +215,25 @@ export function resolveAcpSkillMcpGrant(authorization: string | undefined): Stor
   return grant;
 }
 
+/** Fences every invocation grant owned by an Agent runtime before a generation change. */
+export function revokeAcpSkillMcpGrants(
+  agentId: string,
+  projectId?: string,
+  preserveToken?: string,
+): number {
+  const registry = grantRegistry();
+  let revoked = 0;
+  for (const [token, grant] of [...registry.entries()]) {
+    if (token === preserveToken) continue;
+    if (grant.agentId !== agentId) continue;
+    if (projectId && grant.projectId !== projectId && grant.conversationId !== projectId) continue;
+    registry.delete(token);
+    resetRateLimit(grant.rateLimitKey);
+    revoked += 1;
+  }
+  return revoked;
+}
+
 export async function executeAcpSkillMcpTool(
   grant: StoredGrant,
   toolName: string,
@@ -202,12 +242,13 @@ export async function executeAcpSkillMcpTool(
   if (!grant.permittedTools.includes(toolName)) {
     return { success: false, error: `Tool is not permitted for this invocation: ${toolName}` };
   }
-  if (toolName === AGENT_SUBMIT_OUTCOME_TOOL) {
+  const structuredOutcomeType = AGENT_OUTCOME_TYPE_BY_TOOL.get(toolName);
+  if (structuredOutcomeType) {
     const contract = grant.workContract;
     if (!contract) {
       return { success: false, error: 'work_contract_missing_for_invocation' };
     }
-    const outcomeType = input.outcome_type;
+    const outcomeType = structuredOutcomeType;
     const evidenceRefs = input.evidence_refs;
     const idempotencyKey = input.idempotency_key;
     if (
@@ -220,9 +261,7 @@ export async function executeAcpSkillMcpTool(
     ) {
       return { success: false, error: 'invalid_agent_outcome_input' };
     }
-    let admission: OutcomeAdmission;
-    try {
-      admission = workContractRepo.admitOutcome({
+    const receipt = commandService.execute(asWorkSubmitOutcomeCommand({
         outcomeId: generateSortableId('outcome'),
         idempotencyKey: idempotencyKey.trim(),
         contractId: contract.contractId,
@@ -238,20 +277,13 @@ export async function executeAcpSkillMcpTool(
         correlationId: contract.correlationId,
         causationId: contract.contractId,
         occurredAt: new Date().toISOString(),
-      });
-    } catch (error) {
-      if (error instanceof AgentOutcomeIdempotencyConflictError) {
-        return { success: false, error: error.reasonCode };
-      }
-      throw error;
-    }
-    return admission.status === 'rejected'
-      ? { success: false, error: admission.reasonCode, data: admission }
+      }));
+    return !commandSucceeded(receipt)
+      ? { success: false, error: receipt.reasonCode ?? receipt.status, data: receipt }
       : {
           success: true,
           data: {
-            ...admission,
-            exitAccepted: true,
+            ...receipt,
             instruction: 'The WorkContract exit is accepted. End this turn now; do not call another tool.',
           },
         };

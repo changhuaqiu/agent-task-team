@@ -235,7 +235,7 @@ describe('RepositoryControlSnapshotBuilder', () => {
       'agent-a',
       'attempt-outcome-recovery',
       undefined,
-      { executionMode: 'outcome_recovery', tools: ['agent_submit_outcome'] },
+      { executionMode: 'outcome_recovery', tools: ['task_submit_result'] },
     );
     const rejectedBeforeInvocation = new RepositoryControlSnapshotBuilder({
       db,
@@ -818,7 +818,7 @@ describe('RepositoryControlSnapshotBuilder', () => {
       goal: 'Record the prior review result',
       acceptanceCriteria: ['Record a decision'],
       role: { id: 'reviewer' },
-      permissions: { executionMode: 'outcome_recovery', tools: ['agent_submit_outcome'] },
+      permissions: { executionMode: 'outcome_recovery', tools: ['task_submit_result'] },
       authoritativeRefs: [`task:${task.id}`, `quality_gate:${requested.gate.id}`],
       authoritativeRevisions: { task: task.revision },
       contextSnapshotRef: 'context-gate-outcome-recovery',

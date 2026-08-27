@@ -617,7 +617,7 @@ inspectDelivery(deliveryId)
 
 ### 阶段 C：Governed Evolution
 
-目标：团队能力能够证明、灰度、发布和回退。
+目标：Agent 的技能与执行能力能够证明、灰度、发布和回退。
 
 - 将 Eval Proposal 接到 Skill/RoleCard 不可变候选版本；
 - 增加 shadow/probation/active/degraded 状态；

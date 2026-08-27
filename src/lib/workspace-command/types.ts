@@ -110,6 +110,7 @@ export interface CreateTaskCommand extends WorkspaceCommandBase {
   type: 'task.create';
   task: {
     id: string;
+    category?: 'issue' | 'change_request' | 'improvement';
     title: string;
     description?: string;
     agentId?: string;

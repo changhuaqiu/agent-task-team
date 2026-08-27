@@ -49,7 +49,7 @@ export function SkillDetail({ skill, loading, onDelete }: SkillDetailProps) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[hsl(var(--text-tertiary))]">
         <Package className="w-10 h-10 opacity-40" />
-        <p className="text-[13px] font-medium">Select a skill to view details</p>
+        <p className="text-[13px] font-medium">选择一个技能查看详情</p>
       </div>
     );
   }
@@ -88,7 +88,7 @@ export function SkillDetail({ skill, loading, onDelete }: SkillDetailProps) {
           <div className="flex items-center gap-2 mt-1.5">
             {skill.is_preset === 1 && (
               <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded-[var(--radius-sm)] bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))] border border-[hsl(var(--accent))]">
-                Preset
+                预置
               </span>
             )}
             <span className="text-[10px] text-[hsl(var(--text-tertiary))]">
@@ -123,7 +123,7 @@ export function SkillDetail({ skill, loading, onDelete }: SkillDetailProps) {
             ) : (
               <Trash2 className="w-3 h-3" />
             )}
-            {confirmDelete ? 'Confirm Delete' : 'Delete'}
+            {confirmDelete ? '再次点击确认删除' : '删除'}
           </button>
         )}
       </div>
@@ -134,7 +134,7 @@ export function SkillDetail({ skill, loading, onDelete }: SkillDetailProps) {
           SKILL.md
         </label>
         <pre className="px-4 py-3 text-[12px] leading-relaxed font-mono bg-[hsl(var(--bg-muted))] border border-[hsl(var(--border))] rounded-[var(--radius-md)] text-[hsl(var(--text-secondary))] whitespace-pre-wrap break-words overflow-x-auto max-h-[360px] overflow-y-auto scrollbar-thin">
-          {skill.content || '(empty)'}
+          {skill.content || '（空）'}
         </pre>
       </div>
 
@@ -142,7 +142,7 @@ export function SkillDetail({ skill, loading, onDelete }: SkillDetailProps) {
       {supportingFiles.length > 0 && (
         <div className="space-y-2">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-            Supporting Files ({supportingFiles.length})
+            附带文件（{supportingFiles.length}）
           </label>
           <div className="space-y-2">
             {supportingFiles.map((file) => (
@@ -160,7 +160,7 @@ export function SkillDetail({ skill, loading, onDelete }: SkillDetailProps) {
                 {/* File preview — truncated */}
                 <pre className="px-3 py-2 text-[11px] font-mono text-[hsl(var(--text-tertiary))] whitespace-pre-wrap break-words max-h-[120px] overflow-y-auto scrollbar-thin">
                   {file.content.length > 500
-                    ? file.content.slice(0, 500) + '\n... (truncated)'
+                    ? file.content.slice(0, 500) + '\n…（内容已截断）'
                     : file.content}
                 </pre>
               </div>

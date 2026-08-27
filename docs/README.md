@@ -93,6 +93,7 @@
 - `docs/product/ux/2026-05-15-group-chat-task-flow.md`
 - `docs/product/ux/2026-07-16-right-panel-ia-simplification.md`：项目右面板从 5 tab 精简为 2 tab（任务主视图 + 调试）的 IA 决策，含业务判断与技术约束
 - `docs/product/ux/2026-08-16-delivery-workspace-refactor.md`：以项目中的一次交付为主对象重构首页、导航、任务与调试层级，并规定外部参考的独立实现边界
+- `docs/product/ux/2026-08-25-buzz-product-journey-adoption.md`：从 Buzz 真实功能、创建逻辑和桌面连续性还原本产品的完整旅程、统一创建协议与实施顺序
 - `docs/product/ux/2026-07-19-evaluation-platform-workspace.md`：评估作为当前项目内建工作模式、而非外部系统或右侧栏附属页的 IA 决策
 - `docs/product/business/2026-05-01-engineering-role-card-business-plan.md`
 - `docs/product/business/2026-07-18-skill-package-runtime-model.md`：Skill 包、安装版本、Agent 绑定与本轮使用证据的产品模型

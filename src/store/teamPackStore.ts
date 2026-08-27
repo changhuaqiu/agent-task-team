@@ -1,7 +1,7 @@
 // src/store/teamPackStore.ts
 
 import { create } from 'zustand';
-import type { TeamPack, CreateTeamPackInput } from '@/types/teamPack';
+import type { AgentTeamDefinitionInput, TeamPack } from '@/types/teamPack';
 
 interface TeamPackState {
   teamPacks: TeamPack[];
@@ -10,10 +10,8 @@ interface TeamPackState {
   error: string | null;
 
   fetchTeamPacks: () => Promise<void>;
-  createTeamPack: (input: CreateTeamPackInput) => Promise<TeamPack>;
-  updateTeamPack: (id: string, patch: Partial<CreateTeamPackInput>) => Promise<void>;
-  materializeTeamPack: (id: string) => Promise<TeamPack>;
-  exportTeamPack: (id: string) => Promise<TeamPack>;
+  createTeamPack: (input: AgentTeamDefinitionInput) => Promise<TeamPack>;
+  updateTeamPack: (id: string, input: AgentTeamDefinitionInput) => Promise<void>;
   deleteTeamPack: (id: string) => Promise<void>;
   selectPack: (id: string | null) => void;
   getSelectedPack: () => TeamPack | undefined;
@@ -41,13 +39,22 @@ export const useTeamPackStore = create<TeamPackState>((set, get) => ({
   createTeamPack: async (input) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await fetch('/api/team-packs', {
+      const commandId = `ui-${crypto.randomUUID()}`;
+      const res = await fetch('/api/commands', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
+        body: JSON.stringify({
+          name: 'agent_team.create',
+          commandId,
+          idempotencyKey: commandId,
+          projectId: 'workspace',
+          input,
+        }),
       });
-      if (!res.ok) throw new Error('Failed to create team pack');
-      const pack = await res.json();
+      const receipt = await res.json();
+      if (!res.ok) throw new Error(receipt.reasonCode ?? receipt.error ?? 'Agent Team 创建失败');
+      const pack = receipt.result?.team as TeamPack | undefined;
+      if (!pack) throw new Error('Agent Team 创建回执缺少对象');
       set(state => ({
         teamPacks: [...state.teamPacks, pack],
         isLoading: false,
@@ -63,15 +70,21 @@ export const useTeamPackStore = create<TeamPackState>((set, get) => ({
   updateTeamPack: async (id, patch) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await fetch(`/api/team-packs/${id}`, {
-        method: 'PATCH',
+      const current = get().teamPacks.find((team) => team.id === id);
+      if (!current) throw new Error('Agent Team 不存在');
+      const commandId = `ui-${crypto.randomUUID()}`;
+      const res = await fetch('/api/commands', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
+        body: JSON.stringify({
+          name: 'agent_team.update', commandId, idempotencyKey: commandId,
+          expectedRevision: current.revision ?? 1, projectId: 'workspace', input: { ...patch, id },
+        }),
       });
-      if (!res.ok) throw new Error('Failed to update team pack');
-      const refreshed = await fetch(`/api/team-packs/${id}`);
-      if (!refreshed.ok) throw new Error('Failed to reload team pack');
-      const pack = await refreshed.json();
+      const receipt = await res.json();
+      if (!res.ok) throw new Error(receipt.reasonCode ?? receipt.error ?? 'Agent Team 更新失败');
+      const pack = receipt.result?.team as TeamPack | undefined;
+      if (!pack) throw new Error('Agent Team 更新回执缺少对象');
       set((state) => ({
         teamPacks: state.teamPacks.map((item) => item.id === id ? pack : item),
         isLoading: false,
@@ -83,39 +96,18 @@ export const useTeamPackStore = create<TeamPackState>((set, get) => ({
     }
   },
 
-  materializeTeamPack: async (id) => {
-    set({ isLoading: true, error: null });
-    try {
-      const res = await fetch(`/api/team-packs/${id}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'materializeRoleSnapshots' }),
-      });
-      if (!res.ok) throw new Error('Failed to materialize team pack');
-      const pack = await res.json();
-      set((state) => ({
-        teamPacks: state.teamPacks.map((item) => item.id === pack.id ? pack : item),
-        isLoading: false,
-      }));
-      return pack;
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Unknown error';
-      set({ error: message, isLoading: false });
-      throw e;
-    }
-  },
-
-  exportTeamPack: async (id) => {
-    const res = await fetch(`/api/team-packs/${id}?export=1`);
-    if (!res.ok) throw new Error('Failed to export team pack');
-    return res.json();
-  },
-
   deleteTeamPack: async (id) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await fetch(`/api/team-packs/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete team pack');
+      const current = get().teamPacks.find((team) => team.id === id);
+      if (!current) throw new Error('Agent Team 不存在');
+      const commandId = `ui-${crypto.randomUUID()}`;
+      const res = await fetch('/api/commands', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'agent_team.delete', commandId, idempotencyKey: commandId, expectedRevision: current.revision ?? 1, projectId: 'workspace', input: { teamId: id } }),
+      });
+      const receipt = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(receipt.reasonCode ?? receipt.error ?? 'Agent Team 删除失败');
       set(state => ({
         teamPacks: state.teamPacks.filter(p => p.id !== id),
         selectedPackId: state.selectedPackId === id ? null : state.selectedPackId,

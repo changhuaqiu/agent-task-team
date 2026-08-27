@@ -5,8 +5,6 @@ import {
   type Account,
 } from '@/store/taskHubStore';
 import type { TeamPack, TeamPackRole } from '@/types/teamPack';
-import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
-import { roleCardToSnapshot } from '@/server/team-pack-role-snapshot';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,7 +32,6 @@ function makeTeamPack(overrides: Partial<TeamPack> & { id: string; roles: TeamPa
 function makeRole(overrides: Partial<TeamPackRole> & { id: string }): TeamPackRole {
   return {
     displayName: overrides.id,
-    soul: '',
     required: true,
     ...overrides,
   };
@@ -56,8 +53,23 @@ function makeAccount(id: string): Account {
 }
 
 function resetStore() {
+  const referencedAgents = [
+    { id: 'planner', name: 'Planner', emoji: '🎯' },
+    { id: 'coder', name: 'Coder', emoji: '💻' },
+    { id: 'reviewer', name: 'Reviewer', emoji: '🔎' },
+    { id: 'newagent', name: 'New Agent', emoji: '🤖' },
+  ].map((agent) => ({
+    ...AGENT_ROSTER[0],
+    ...agent,
+    isPreset: false,
+    accountIds: [],
+    skillIds: [],
+    instructions: `Work as ${agent.name}.`,
+    cliEngine: 'codex' as const,
+  }));
   useTaskHubStore.setState({
     conversations: [],
+    projects: [],
     selectedConversationId: null,
     tasks: [],
     chatMessagesByConversation: {},
@@ -66,6 +78,7 @@ function resetStore() {
     activeAgentIds: ['mario', 'luigi'],
     currentTeamPack: null,
     accounts: [],
+    agentRoster: [...AGENT_ROSTER, ...referencedAgents],
   });
 }
 
@@ -104,7 +117,7 @@ describe('Team Pack Dynamic Roster', () => {
   });
 
   describe('getEffectiveRoster', () => {
-    it('effectiveRoster includes team pack roles not in AGENT_ROSTER', () => {
+    it('effectiveRoster includes Agent objects referenced by the team', () => {
       const roles = [
         makeRole({ id: 'planner', displayName: 'Planner' }),
         makeRole({ id: 'coder', displayName: 'Coder' }),
@@ -140,20 +153,16 @@ describe('Team Pack Dynamic Roster', () => {
       expect(ids).toContain('reviewer');
 
       const planner = roster.find((a) => a.id === 'planner')!;
-      expect(planner.emoji).toBeDefined();
-      expect(planner.theme).toBeDefined();
+      expect(planner.emoji).toBe('🎯');
+      expect(planner.theme).toBe(AGENT_ROSTER[0].theme);
       expect(planner.name).toBe('Planner');
     });
 
-    it('effectiveRoster merges team pack roles with AGENT_ROSTER', () => {
+    it('effectiveRoster keeps Agent identity fields when a TeamPack references it', () => {
       const roles = [
         makeRole({
           id: 'mario',
           displayName: 'Super Planner',
-          roleCardSnapshot: roleCardToSnapshot({
-            ...PRESET_ROLE_CARDS[0],
-            displayName: 'Architecture Reviewer',
-          }),
         }),
         makeRole({ id: 'newagent', displayName: 'New Agent' }),
       ];
@@ -184,9 +193,8 @@ describe('Team Pack Dynamic Roster', () => {
 
       const marios = roster.filter((a) => a.id === 'mario');
       expect(marios).toHaveLength(1);
-      expect(marios[0].name).toBe('Super Planner');
-      expect(useTaskHubStore.getState().getAgentRoleCard('mario')?.displayName)
-        .toBe('Architecture Reviewer');
+      expect(marios[0].name).toBe('Mario');
+      expect(marios[0].instructions).toBe(useTaskHubStore.getState().agentRoster.find((agent) => agent.id === 'mario')?.instructions);
 
       expect(ids).toContain('newagent');
 
@@ -214,7 +222,7 @@ describe('Team Pack Dynamic Roster', () => {
       });
 
       const roster = useTaskHubStore.getState().getEffectiveRoster();
-      expect(roster.map((a) => a.id)).toEqual(AGENT_ROSTER.map((a) => a.id));
+      expect(roster.map((a) => a.id)).toEqual(useTaskHubStore.getState().agentRoster.map((a) => a.id));
     });
 
     it('effectiveRoster falls back to AGENT_ROSTER when no conversation selected', () => {
@@ -225,7 +233,28 @@ describe('Team Pack Dynamic Roster', () => {
 
       const roster = useTaskHubStore.getState().getEffectiveRoster();
 
-      expect(roster.map((a) => a.id)).toEqual(AGENT_ROSTER.map((a) => a.id));
+      expect(roster.map((a) => a.id)).toEqual(useTaskHubStore.getState().agentRoster.map((a) => a.id));
+    });
+
+    it('uses Project membership as the addressable roster instead of global active agents', () => {
+      useTaskHubStore.setState({
+        projects: [{
+          id: 'project-roster', name: 'Roster Project', rootPath: 'C:/projects/roster',
+          workspaceConversationId: 'workspace-roster', agentIds: ['newagent'],
+          createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z',
+        }],
+        conversations: [{
+          id: 'workspace-roster', title: 'Roster Project', goal: '', status: 'active', priority: 'p2',
+          projectPath: 'C:/projects/roster', breakdownStatus: 'none', projectId: 'project-roster',
+          workspaceKind: 'project_workspace', createdAt: '2026-08-26T00:00:00.000Z', updatedAt: '2026-08-26T00:00:00.000Z',
+        }],
+        selectedConversationId: 'workspace-roster',
+        activeAgentIds: ['mario', 'luigi'],
+        currentTeamPack: null,
+      });
+
+      expect(useTaskHubStore.getState().getAddressableRoster().map((agent) => agent.id))
+        .toEqual(['newagent']);
     });
 
     it('active agents are listed before inactive agents in effective roster', () => {
@@ -366,8 +395,8 @@ describe('Team Pack Dynamic Roster', () => {
       const teamPack = makeTeamPack({
         id: 'pack-planner',
         roles: [
-          makeRole({ id: 'planner', displayName: 'Planner', accountIds: ['acc-planner'] }),
-          makeRole({ id: 'coder', displayName: 'Coder', accountIds: ['acc-coder'] }),
+          makeRole({ id: 'planner', displayName: 'Planner' }),
+          makeRole({ id: 'coder', displayName: 'Coder' }),
         ],
         workflow: {
           type: 'state_machine',
@@ -412,7 +441,7 @@ describe('Team Pack Dynamic Roster', () => {
     it('waits for the team pack before auto-starting project analysis', async () => {
       const teamPack = makeTeamPack({
         id: 'pack-auto',
-        roles: [makeRole({ id: 'researcher', displayName: 'Researcher', accountIds: ['acc-researcher'] })],
+        roles: [makeRole({ id: 'researcher', displayName: 'Researcher' })],
         workflow: {
           type: 'linear',
           steps: [{ role: 'researcher', action: 'Research first', output: 'Notes' }],
@@ -466,7 +495,7 @@ describe('Team Pack Dynamic Roster', () => {
       vi.useFakeTimers();
       const teamPack = makeTeamPack({
         id: 'pack-autonomous',
-        roles: [makeRole({ id: 'planner', displayName: 'Planner', accountIds: ['acc-planner'] })],
+        roles: [makeRole({ id: 'planner', displayName: 'Planner' })],
       });
 
       vi.spyOn(global, 'fetch').mockImplementation((url: string | URL | Request) => {
@@ -506,7 +535,7 @@ describe('Team Pack Dynamic Roster', () => {
       vi.useFakeTimers();
       const teamPack = makeTeamPack({
         id: 'pack-hydrated-autonomous',
-        roles: [makeRole({ id: 'planner', displayName: 'Planner', accountIds: ['acc-planner'] })],
+        roles: [makeRole({ id: 'planner', displayName: 'Planner' })],
       });
       vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
       useTaskHubStore.setState({
@@ -634,10 +663,6 @@ describe('Team Pack Dynamic Roster', () => {
           makeRole({
             id: 'planner',
             displayName: '成员规划师',
-            roleCardSnapshot: roleCardToSnapshot({
-              ...PRESET_ROLE_CARDS[0],
-              displayName: '架构评审岗位',
-            }),
           }),
           makeRole({ id: 'coder', displayName: '实现者' }),
         ],
@@ -658,11 +683,14 @@ describe('Team Pack Dynamic Roster', () => {
         selectedConversationId: 'conv-cjk-mentions',
         activeAgentIds: ['planner', 'coder'],
         currentTeamPack: teamPack,
+        agentRoster: useTaskHubStore.getState().agentRoster.map((agent) => (
+          agent.id === 'planner' ? { ...agent, name: '成员规划师' } : agent
+        )),
       });
 
       await useTaskHubStore.getState().addChatMessage({
         agentId: 'human',
-        content: '@架构评审岗位 请先分析这个项目',
+        content: '@成员规划师 请先分析这个项目',
       });
 
       expect(useTaskHubStore.getState().getEffectiveRoster().find((agent) => agent.id === 'planner')?.name)

@@ -13,6 +13,8 @@ import { deleteAccount, writeAccount } from '@/server/accounts-file';
 import { skillRepo } from '@/server/repositories/skill-repo';
 import { RepositorySkillRuntime } from '@/server/skills/skill-runtime';
 import { buildSkillPackageInput } from '@/test-helpers/skill-package';
+import { agentDefinitionRepo } from '@/server/agents/agent-definition-repo';
+import { asAgentUpdateCommand, commandService } from '@/server/command-kernel/service';
 
 /**
  * 群聊发任务全链路 E2E
@@ -31,6 +33,26 @@ import { buildSkillPackageInput } from '@/test-helpers/skill-package';
 
 // 输入框的稳定锚点：placeholder 与标签
 const INPUT_PLACEHOLDER = '发送消息或 @智能体…';
+
+function setAgentAccounts(agentId: string, accountIds: string[]) {
+  const agent = agentDefinitionRepo.get(agentId);
+  if (!agent?.runtime_id) throw new Error(`Agent Definition missing: ${agentId}`);
+  const key = `e2e-account:${agentId}:${crypto.randomUUID()}`;
+  const receipt = commandService.execute(asAgentUpdateCommand({
+    commandId: key, idempotencyKey: key, expectedRevision: agent.revision,
+    agent: {
+      id: agent.id, name: agent.name, theme: agent.theme, emoji: agent.emoji,
+      runtimeId: agent.runtime_id, accountIds, skillIds: agent.skill_ids,
+      instructions: agent.instructions, avatarUrl: agent.avatar_url ?? undefined,
+      model: agent.model ?? undefined,
+      permissions: { canModifyCode: Boolean(agent.can_modify_code), canReview: Boolean(agent.can_review) },
+      runtimeMode: agent.use_runtime_defaults ? 'defaults' : 'custom',
+      audience: { mode: agent.audience_mode, ids: agent.audience_ids },
+      parallelism: agent.parallelism, instanceNamePool: agent.instance_name_pool, runLocation: 'local',
+    },
+  }));
+  if (!['applied', 'duplicate'].includes(receipt.status)) throw new Error(receipt.reasonCode ?? 'agent_update_failed');
+}
 
 test.describe('群聊发任务全链路', () => {
   test.beforeEach(async ({ page }) => {
@@ -114,7 +136,7 @@ test.describe('群聊发任务全链路', () => {
     const handoff = `E2E-FIRST-A2A-${suffix}：请执行首次质量评审`;
     const pack = teamPackRepo.getByName('default-team')!;
     const agentId = 'peach';
-    const originalAccountIds = pack.roles.find((role) => role.id === agentId)?.accountIds ?? [];
+    const originalAccountIds = agentDefinitionRepo.get(agentId)?.account_ids ?? [];
     writeAccount({
       id: accountId,
       name: 'E2E OpenAI account',
@@ -126,7 +148,7 @@ test.describe('群聊发任务全链路', () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
-    teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: [accountId] });
+    setAgentAccounts(agentId, [accountId]);
     conversationRepo.create({
       id: conversationId,
       title: 'E2E first A2A observability',
@@ -182,7 +204,7 @@ test.describe('群聊发任务全链路', () => {
     } finally {
       if (traceId) getDb().prepare('DELETE FROM observation_span WHERE trace_id = ?').run(traceId);
       conversationRepo.delete(conversationId);
-      teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: originalAccountIds });
+      setAgentAccounts(agentId, originalAccountIds);
       deleteAccount(accountId);
     }
   });
@@ -194,7 +216,7 @@ test.describe('群聊发任务全链路', () => {
     const pack = teamPackRepo.getByName('default-team')!;
     const agentId = 'peach';
     const accountId = `e2e-socket-account-${suffix}`;
-    const originalAccountIds = pack.roles.find((role) => role.id === agentId)?.accountIds ?? [];
+    const originalAccountIds = agentDefinitionRepo.get(agentId)?.account_ids ?? [];
     let skillId: string | undefined;
     let packagePath: string | undefined;
     const socket = createSocket(process.env.E2E_BASE_URL ?? 'http://localhost:3000', {
@@ -216,7 +238,7 @@ test.describe('群聊发任务全链路', () => {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
-      teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: [accountId] });
+      setAgentAccounts(agentId, [accountId]);
       conversationRepo.create({
         id: conversationId,
         title: 'E2E socket Harness Skill failure',
@@ -281,7 +303,7 @@ test.describe('群聊发任务全链路', () => {
       }
       if (packagePath) rmSync(packagePath, { recursive: true, force: true });
       conversationRepo.delete(conversationId);
-      teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: originalAccountIds });
+      setAgentAccounts(agentId, originalAccountIds);
       deleteAccount(accountId);
     }
   });
@@ -293,7 +315,7 @@ test.describe('群聊发任务全链路', () => {
     const accountId = `e2e-required-context-account-${suffix}`;
     const pack = teamPackRepo.getByName('default-team')!;
     const agentId = 'luigi';
-    const originalAccountIds = pack.roles.find((role) => role.id === agentId)?.accountIds ?? [];
+    const originalAccountIds = agentDefinitionRepo.get(agentId)?.account_ids ?? [];
 
     try {
       writeAccount({
@@ -307,7 +329,7 @@ test.describe('群聊发任务全链路', () => {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
-      teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: [accountId] });
+      setAgentAccounts(agentId, [accountId]);
       conversationRepo.create({
         id: conversationId,
         title,
@@ -344,7 +366,7 @@ test.describe('群聊发任务全链路', () => {
     } finally {
       getDb().prepare('DELETE FROM observation_span WHERE conversation_id = ?').run(conversationId);
       conversationRepo.delete(conversationId);
-      teamPackRepo.updateRoleConfig(pack.id, agentId, { accountIds: originalAccountIds });
+      setAgentAccounts(agentId, originalAccountIds);
       deleteAccount(accountId);
     }
   });

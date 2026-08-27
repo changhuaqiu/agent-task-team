@@ -260,7 +260,7 @@ describe('ProductionControlCommandAdapter', () => {
       contextScenario: 'recovery',
     });
     expect(command.prompt).toContain('不要重新实现');
-    expect(command.prompt).toContain('立即调用一次 agent_submit_outcome');
+    expect(command.prompt).toContain('立即调用一次对应的结构化生命周期工具');
     expect(command.prompt).toContain('reports/voice-e2e.md');
   });
 
@@ -287,7 +287,7 @@ describe('ProductionControlCommandAdapter', () => {
         role: { id: 'agent-1' },
         permissions: {
           executionMode: attempt === 2 ? 'outcome_recovery' : 'standard',
-          ...(attempt === 2 ? { tools: ['agent_submit_outcome'] } : {}),
+          ...(attempt === 2 ? { tools: ['task_submit_result'] } : {}),
         },
         authoritativeRefs: [`task:${task.id}`, `delivery_run:${runId}`],
         authoritativeRevisions: {

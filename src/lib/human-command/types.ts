@@ -15,6 +15,7 @@ export interface SubmitDeliveryRequirementCommand {
   issuedAt: string;
   mentions?: string[];
   intent?: 'ideate' | 'execute' | 'review' | 'general';
+  replyToMessageId?: string;
 }
 
 export interface RequestDeliveryPlanCommand {

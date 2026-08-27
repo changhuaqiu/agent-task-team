@@ -4,6 +4,7 @@ import {
   executeAcpSkillMcpTool,
   listAcpSkillToolDefinitions,
   registerAcpSkillMcpGrant,
+  revokeAcpSkillMcpGrants,
   resolveAcpSkillMcpGrant,
 } from './acp-skill-mcp';
 
@@ -75,5 +76,30 @@ describe('ACP skill MCP grants', () => {
     clock.mockReturnValue(now + 2);
     expect(resolveAcpSkillMcpGrant(authorization)).toBeUndefined();
     clock.mockRestore();
+  });
+
+  it('revokes only grants owned by the runtime generation scope', () => {
+    const first = registerAcpSkillMcpGrant({
+      agentId: 'mario', conversationId: 'project-a', projectId: 'project-a', permittedTools: ['task_list'],
+    }, 'http://127.0.0.1:3000')!;
+    const second = registerAcpSkillMcpGrant({
+      agentId: 'mario', conversationId: 'project-b', projectId: 'project-b', permittedTools: ['task_list'],
+    }, 'http://127.0.0.1:3000')!;
+    expect(revokeAcpSkillMcpGrants('mario', 'project-a')).toBe(1);
+    expect(resolveAcpSkillMcpGrant(first.mcpServer.headers[0].value)).toBeUndefined();
+    expect(resolveAcpSkillMcpGrant(second.mcpServer.headers[0].value)).toBeDefined();
+  });
+
+  it('fences older generation grants without revoking the current Invocation grant', () => {
+    const oldGrant = registerAcpSkillMcpGrant({
+      agentId: 'mario', conversationId: 'project-a', projectId: 'project-a', permittedTools: ['task_list'],
+    }, 'http://127.0.0.1:3000')!;
+    const currentGrant = registerAcpSkillMcpGrant({
+      agentId: 'mario', conversationId: 'project-a', projectId: 'project-a', permittedTools: ['task_list'],
+    }, 'http://127.0.0.1:3000')!;
+
+    expect(revokeAcpSkillMcpGrants('mario', 'project-a', currentGrant.grantToken)).toBe(1);
+    expect(resolveAcpSkillMcpGrant(oldGrant.mcpServer.headers[0].value)).toBeUndefined();
+    expect(resolveAcpSkillMcpGrant(currentGrant.mcpServer.headers[0].value)).toBeDefined();
   });
 });

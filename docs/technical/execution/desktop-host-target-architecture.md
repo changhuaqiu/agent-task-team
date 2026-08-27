@@ -79,13 +79,35 @@ orphan Invocation recovery 正是桌面 Host 的前置条件。它们使窗口�
 
 当前已落地：最小 Tauri crate、单实例、隐藏启动窗口、关闭隐藏、release 随机 loopback 端口、standalone Node Service
 启动代码、Host/Service secret + protocol/不可变 artifact build revision/PID handshake、带 bootstrap secret 的 shutdown drain、
-WAL checkpoint、Agent 进程清理、最小 capability/CSP 和协议测试。Workspace Command 在桌面模式下还会校验 Host 派生的
+WAL checkpoint、Agent 进程清理、最小 capability/CSP 和协议测试。桌面 Host 的 HTTP 客户端固定使用 `reqwest 0.13`
+的无默认 TLS 组合：`blocking + json + rustls + webpki-roots`；0.13 已移除旧的 `rustls-tls-webpki-roots` 组合 feature。
+Workspace Command 在桌面模式下还会校验 Host 派生的
 renderer session，且 actor 由服务端生成。真实 standalone Service 已完成 401/成功握手 smoke。
 
-当前尚未完成：本机缺少 Rust toolchain，Rust Host 尚未执行 `cargo check` 和真实窗口 smoke；renderer session 还未成为
+Windows release Host 已完成真实冷启动：Host 与 Service PID 匹配，最终 build revision 为内容派生值；关闭窗口后
+Host/Service 保持存活，再次启动 EXE 仍只有一个 Host 进程并恢复原窗口。生成 Service 为 0 个 junction，且不包含
+`.ath`、历史 `src-tauri/target` 或递归 `src-tauri/gen`。Rust 单元测试和 release build 均已通过。
+
+桌面 Service 不能直接把 Next 的 `.next/standalone` 当成最终资源目录。Next 16/Turbopack 会把部分 server external
+package 生成为 `.next/node_modules` 下的版本隔离别名，而 Windows 下 standalone 目录中的依赖还是 junction；Tauri
+资源复制不会自动把这些 junction 物化。桌面构建因此必须在 Next build 之后生成 `src-tauri/gen/service`：物化
+standalone 依赖、合并 pnpm hoisted transitive 依赖与版本隔离别名、复制 static/public，再把这个自包含目录交给 Tauri。打包前还必须从 tracing 中
+排除 `.ath`、`src-tauri/target` 和 `src-tauri/gen`，避免把本机事实库或旧 bundle 递归带入安装包。
+Tauri 返回的资源路径还可能带 Windows extended-length `\\?\` 前缀；传给系统 Node 入口前必须转换为普通本地路径，
+否则 Node 会把盘符解析成目录并以 `EISDIR lstat 'C:'` 退出。
+Service stdout/stderr 只写入 OS app-log 下的 `service.log`，不显示控制台窗口，也不进入 Renderer；启动入口缺失会在
+Host setup 阶段 fail closed。
+由于动态 tracing 仍可能把整个仓库列入 standalone，staging 完成后还必须执行根目录白名单：只保留 `.next`、
+`node_modules`、`public`、`server.js` 与 `package.json`。`docs/specs/src`、Agent 指令、测试和开发配置不得作为桌面
+Service 资源发布。
+
+桌面 bundle 显式复用 Renderer 的 `src/app/favicon.ico` 作为 Windows Resource 图标；不依赖 Tauri 的隐式
+`src-tauri/icons/icon.ico` 默认，也不维护第二份会漂移的桌面品牌资产。
+
+当前尚未完成：renderer session 还未成为
 所有兼容 HTTP/WebSocket 接口的统一鉴权，强制退出/Host crash 尚未用 Windows Job Object（或等价 process group）保证
 kill-on-close，Node runtime 仍需随安装包绑定而不是依赖系统 node；tray/deep link/updater、dirty-shutdown 恢复、安装签名
-和跨平台升级矩阵也未通过。因此当前只能称为“桌面开发版”，不能宣称可发布桌面版完成。
+和跨平台升级矩阵也未通过；Windows MSI/签名包尚未产出。因此当前只能称为“桌面开发版”，不能宣称可发布桌面版完成。
 
 ## 6. 桌面验收门禁
 

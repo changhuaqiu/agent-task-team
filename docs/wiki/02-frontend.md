@@ -30,61 +30,46 @@
 1. 调用 `loadFromServer()` 从 API rehydrate
 2. 完成后调用 `connectDaemon()`
 3. 首次数据尚未 settled 时展示“初始化中”状态
-4. 页面进入可交互态后，后续 `loadFromServer()` 作为后台刷新运行，不得让 `hasHydrated` 回退或卸载 `ProjectWorkspace`；刷新期间 `runtimeRefreshInProgress=true`，输入仍可编辑但暂缓发送；草稿由 Renderer 按 Delivery ID 隔离并本地持久化，切换、刷新和短暂离开活动 surface 后可恢复
+4. 页面进入可交互态后，后续 `loadFromServer()` 作为后台刷新运行，不得让 `hasHydrated` 回退或卸载 `ProjectWorkspace`；刷新期间 `runtimeRefreshInProgress=true`，输入仍可编辑但暂缓发送；草稿由 Renderer 按 Project workspace identity 隔离并本地持久化，切换、刷新和短暂离开活动 surface 后可恢复
 
 主界面结构：
 
 - `WorkspaceAppChrome`
-  - 左侧：紧凑的交付中心身份
-  - 右侧：唯一主创建动作“新建交付”、设置
+  - 左侧：紧凑的产品身份
+  - 右侧：窗口级设置；添加 Project 由 Projects surface 承担
   - 同一个 DOM 同时服务 Web 与 Tauri Renderer，并声明桌面窗口拖拽区域
 - Body
   - `ProjectWorkspace`
 - Overlay
   - `TaskDetailPanel`
-  - `ProjectCreateDialog`
-  - `AgentRosterModal`
   - `SettingsDrawer`
 
 ## 2.3 当前工作台信息架构
 
-[`ProjectWorkspace.tsx`](../../src/components/project/ProjectWorkspace.tsx) 是当前页面主框架，采用“工作区侧栏 + 交付总览/详情 + 按需检查器”布局。当前
-兼容数据仍使用 `Conversation`，但用户界面已明确区分 Project（真实目录）与 Delivery（一次交付）：
+[`ProjectWorkspace.tsx`](../../src/components/project/ProjectWorkspace.tsx) 是当前页面主框架，采用“工作区侧栏 + 全局 surface / Project workspace + 按需详情”布局。Project 是用户直接进入协作的长期对象；`Conversation` 只作为兼容存储身份，不在界面中形成第二层产品对象：
 
 - 工作区侧栏：[`ProjectSidebar.tsx`](../../src/components/project/ProjectSidebar.tsx)
-  - 一个跨 Project 的“交付总览”入口
-  - 按真实 `projectPath` 展示命名 Project，展开后展示其 Delivery、任务进度和开放阻塞数量
-  - 支持跨 Project/Delivery 搜索和收放；不重复放置创建动作
-- 交付总览：[`ProjectsOverview.tsx`](../../src/components/project/ProjectsOverview.tsx)
-  - 复用 `ProjectNavigationGroup[]`，给出 Project、可继续 Delivery（进行中 + 已暂停）、任务完成与开放阻塞组合指标
-  - “继续工作”按最近更新时间回到可继续 Delivery；命名 Project 区使用同一口径展示目录上下文、整体进度及具体 Delivery
-  - 总览只称“开放阻塞”；只有详情投影可以把人工 blocker 与 `waiting_human` 称为用户“需要关注”
-- 中栏：[`ProjectChatPanel.tsx`](../../src/components/project/ProjectChatPanel.tsx)
-  - Delivery 详情固定提供“概览 / 活动 / 评估”三个 surface，切换不改变当前 Delivery
-  - 概览由 `DeliveryWorkspaceOverview` 与自主交付详情展示阶段、验收、当前工作和证据摘要
-  - 活动使用完整纵向空间承载连续时间线、Agent 在场状态和补充要求输入；从概览或评估返回时保持同一个组件现场
-- 空态：没有任何 Delivery 时由总览独占一个解释性引导，侧栏不重复提示；团队成员、活动时间线、输入区和右侧检查器均不挂载
-- 右栏：[`ProjectRightPanel.tsx`](../../src/components/project/ProjectRightPanel.tsx)
-  - 一级入口只有“任务”和“调试”
-  - “需要关注”只投影人工 blocker 和自主交付 `waiting_human`；普通评审、ready 和自动 gate 故障不冒充用户待办
-  - 关系图是同一任务域的视图模式
-
-`src/lib/delivery-workspace/DeliveryWorkspaceProjection.ts` 是当前工作区的只读投影 Interface。它集中完成
-Conversation 兼容映射、Project -> Delivery 导航、项目隔离、Task/Blocker/Message/DeliveryRun 合并和“需要关注”排序。
-`ProjectWorkspace` 只计算一次 `DeliveryWorkspaceView` 和导航投影，再传给中栏、右栏和侧栏；子组件不再读取原始
-Conversation/Task 集合重复拼接领域含义。独立 Delivery schema 尚未冻结，兼容映射只允许留在此投影 producer 边界。
+  - 稳定入口为收件箱、Agents、Projects 与设置；Project 列表直接打开长期 workspace
+  - 不在 Project 下嵌套 Delivery/Conversation，也不重复放置创建动作
+- 全局 surface：[`ProjectsOverview.tsx`](../../src/components/project/ProjectsOverview.tsx)
+  - 提供跨 Project 的收件箱、Projects、工作、评审和产物镜头
+  - header、filter、主内容与右侧 workspace context 使用同一个有界宽屏网格，最大化时不彼此漂移
+- Project workspace：[`ProjectObjectWorkspace.tsx`](../../src/components/project/ProjectObjectWorkspace.tsx)
+  - Project 选中后直接展示消息、工作、评审和产物事实，不要求先创建 Delivery
+  - [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx) 是主协作面，结构化事实卡与 Agent 回复进入同一时间线
+- 空态：没有 Project 时只解释并提供“添加项目”；不会预渲染团队、素材、Delivery 或 Runtime 配置区
 
 WebUI 有两个明确分离的入口：
 
 - Workspace Command：人的点击、输入和确认只能调用统一 Command Interface；
 - Project View Consumer：服务端事件只能更新当前项目展示，不能自动启动 Agent、重试、推进任务或回传执行 ACK。
 
-交付活动输入、交付创建/删除/人工继续、任务创建/编辑/流转/图操作、阶段写入与拆解确认已通过
+Project 活动输入、任务创建/编辑/流转/图操作、阶段写入与拆解确认已通过
 `src/lib/workspace-command/` 的 `WorkspaceCommandGateway` 提交。Web Adapter 只调用 `/api/workspace-commands` 并还原
 统一 receipt；服务端应用 Module 完成范围校验、幂等回执和跨领域编排，再委托 Delivery、Task Graph、Collaboration
-等既有 owner。交付创建不再由浏览器串行调用 Conversation create 与 Autonomous Delivery start，也不再由浏览器猜测补偿删除；
+等既有 owner。Project 注册不再由浏览器拼接多个领域写入，也不再由浏览器猜测补偿删除；
 拆解确认也不再循环提交 Phase、Task 与文件写入，只有一个稳定幂等意图和一个完整权威回执。
-其中 `delivery.requirement.submit` 仍由内部 Human A2A owner 在一个事务内
+其中兼容命令 `delivery.requirement.submit` 仍由内部 Human A2A owner 在一个事务内
 完成消息、A2A possession、handoff packet、Agent Inbox 和持久 receipt。浏览器不再先写本地消息，也不再串行调用
 `message.append` 与 `a2a.human_handoff`：只有 accepted/duplicate receipt 返回后才按权威 message id 更新投影；领域
 拒绝或网络失败会保留草稿，同一草稿重试沿用原幂等键。
@@ -98,40 +83,50 @@ WebUI 有两个明确分离的入口：
 
 ## 2.4 关键交互组件
 
-### 项目与交付导航
+### Project 导航与全局 surface
 
 - [`ProjectSidebar.tsx`](../../src/components/project/ProjectSidebar.tsx)
-  - 消费完整 `ProjectNavigationGroup[]`，保持 Project / Delivery 层级，不把租户轨道误用为 Project 导航
-  - 搜索 Project 名、目录、Delivery 标题和目标
-  - 根据任务和 blocker 计算交付摘要
-  - 选择行为回调 `ProjectWorkspace`，再通过兼容键 `selectedConversationId` 切换当前交付
+  - 稳定展示收件箱、Agents、Projects、设置和 Project 列表
+  - 搜索 Project 名与目录；不把内部 Conversation/Delivery 作为导航层级
+  - 选择行为回调 `ProjectWorkspace`，再通过 Project 的 workspace conversation identity 切换兼容 Store 边界
 - [`ProjectsOverview.tsx`](../../src/components/project/ProjectsOverview.tsx)
-  - 与侧栏共享导航投影，不直接读 Store
-  - Project 表达长期上下文，Delivery 表达一次目标到验收的工作闭环
-- [`ProjectCreateDialog.tsx`](../../src/components/project/ProjectCreateDialog.tsx)
-  - 负责新建交付，收集标题、目标、项目目录、验收标准和授权
+  - 读取跨 Project 的持久 Inbox、工作、评审与产物投影
+  - Workspace Inbox repository 按 `chat_message.content_type` 排除 `tool_use` / `tool_result`，并在每次对账时清理旧版本已写入的工具条目；原始消息与对应 Invocation Trace 仍保留在 Project 协作流
+  - 与 `ProjectWorkspace` 的 header、filter 和 context rail 共用同一个最大宽度框架
 
-### 交付主视图与团队活动
+### Project 主视图与连续协作
 
 - [`ProjectChatPanel.tsx`](../../src/components/project/ProjectChatPanel.tsx)
-  - 通过父级传入的 `DeliveryWorkspaceView` 展示目标、进度、当前工作和需要关注
-  - 概览与活动为内部稳定 surface；内嵌 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx) 在页面模式切换时保持挂载
+  - 在 Project workspace 内承载连续协作；内嵌 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx) 在对象镜头切换时保持挂载
   - 活动时间线独占剩余高度，底部 composer 始终留在视口内；上翻阅读历史时不自动抢回滚动位置
-  - 草稿由 [`useDeliveryRequirementDraft.ts`](../../src/hooks/useDeliveryRequirementDraft.ts) 按 Delivery 隔离并持久化；引用回复先显示可取消预览，当前持久结果只保存可见引用文本，不伪造 reply relation
+  - 草稿由 [`useDeliveryRequirementDraft.ts`](../../src/hooks/useDeliveryRequirementDraft.ts) 按 Project workspace identity 隔离并持久化；引用回复使用持久化 `replyToMessageId + threadRootId`，预览只是展示
   - “回到最新/新活动”只表示当前打开时间线的瞬态阅读位置，不作为服务端未读事实
-  - 未选交付时不挂载活动和输入；已选后要求必须显式带当前交付 ID，不能由 Store 自动选中或创建 Conversation
-- [`AgentBar.tsx`](../../src/components/task-hub/AgentBar.tsx)
-  - 展示当前参与 Agent 与绑定状态
-  - Agent 成员配置面板中保留调试用 CLI session id 展示与复制入口，便于排查 session 续接问题
+  - 未选 Project 时不挂载活动和输入；已选后必须显式带当前 Project identity，不能由 Store 自动创建工作空间
+- [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)
+  - 输入器只承担向当前 Project 发消息：正文、`@`、表情、引用预览与单一发送动作位于同一表面
+  - Agent 候选通过按需 `@` 弹层选择；已触达 Agent 在提及控件内紧凑显示，输入器周围不常驻 Agent 管理、任务语法、路由或 Runtime 提示
+  - `dispatch.receipt:acknowledged` 通过原始 message identity 投影为用户消息下的确认反应；requested/sent 不伪装为已收到
+  - 筛选状态按 Project 隔离；短时间线不渲染且不应用旧筛选，长时间线才提供按需搜索与类型过滤
 - [`CliOutputBlock.tsx`](../../src/components/task-hub/CliOutputBlock.tsx)
-  - 将 CLI tool events 渲染为“执行摘要 + 活动时间线”
-  - 顶部展示运行中 / 已完成 / 错误数量和当前工具
+  - 将工具事件渲染为一行“运行记录”；折叠时仍保留状态、调用次数与最近工具，不形成第二张主内容卡
   - 每条工具事件支持展开查看参数或结果，避免正文只剩工具噪音
 - [`A2APossessionStrip.tsx`](../../src/components/task-hub/A2APossessionStrip.tsx)
-  - 在聊天室消息流顶部展示当前持球者、最近一次交接和阻止原因
-  - 支持展开最近 8 次交接记录，作为轻量可审计时间线
-  - 只使用用户可理解的“当前持球 / 交接 / 被阻止”文案，不暴露 runtime、worklist、chain 等内部概念
+  - 由 `ProjectObjectWorkspace` 用 `workspaceConversationId` 显式定域并挂载在 Project 标题与视图导航下方、中央主内容上方的顶部状态栏，不进入 `GlobalChatRoom` 的可滚动消息时间线或输入器区域，也不受子任务会话选择影响；正常状态低权重，阻止与失败才使用警示色
+  - 完整记录详情从顶部状态栏向下浮层展开，不挤压主内容、消息时间线或输入器；展开状态由 `conversationId` 定域，切换 Project 时自动重置
+  - Handoff 与 Dispatch Receipt 按真实时间归一排序，从同一条最新记录派生标题、颜色和原因
+  - 只使用用户可理解的“正在处理 / 已接纳 / 交接失败”语义，内部 reason code 必须经过转译或安全兜底，不暴露 runtime、worklist、chain 等内部概念
   - 由 socket 事件 `a2a:pass-offer`、`a2a:possession-changed`、`a2a:pass-blocked` 驱动
+
+### Project 工作对象列表
+
+- [`ProjectWorkSurface.tsx`](../../src/components/project/ProjectWorkSurface.tsx)
+  - 从当前 Project 的 workspace conversation 与关联 conversation 生成唯一 WorkItem 列表，不建立第二套任务状态
+  - 按 blocked / in progress / review / ready / proposed / done / cancelled 生命周期顺序分组；空分组不渲染
+  - 行首状态图形、标题和类别承担首要扫描；描述、负责人、正式产物数与更新时间按宽度渐进隐藏，内部 Task/Conversation/Runtime 标识不进入列表
+  - 整行调用会话定域的 `openTask({ conversationId, taskId })`，一次性切换当前会话与工作；当前会话内只更新工作选择，不重置运行投影
+  - 行 key、选中态、`TaskDetailPanel` 解析和 Task Store 的编辑/状态/进度/删除 mutation 都使用 `conversationId + taskId`；mutation epoch、进度请求中/错误状态与重试 idempotency key 也由复合 key 隔离，允许不同会话存在相同任务 ID，列表没有第二份 Task identity 或局部详情状态
+  - Project 顶栏与工作镜头共享单一创建路径：工作镜头激活时由列表提供入口，空态只保留一个就地动作；工作镜头使用命名区域而非嵌套页面主地标
+  - Project 页不再渲染四张统计卡、独立产物统计或重复完成口径说明；跨 Project 统计仍由 Workspace 监督面负责
 
 ### 右侧辅助面板
 
@@ -151,7 +146,8 @@ WebUI 有两个明确分离的入口：
   - 通过 `task.progress.request` Human Command 请求负责人汇报进度
   - 只读终端输出与运行状态
 - [`SettingsDrawer.tsx`](../../src/components/task-hub/SettingsDrawer.tsx)
-  - 模型账号、角色素材、技能与团队套件的唯一配置入口
+  - 只配置模型账号、运行环境与共享技能
+  - Agent 身份、工作指令和技能选择在 Agent 对象中完成；Agent Team 在 Agents 页面只选择已有 Agent
   - 不暴露 runtime、channel、routing 等内部实现概念
 
 ### Skill 管理
@@ -180,9 +176,9 @@ Skill 加载流程：`loadFromServer()` → `loadSkills()` → `GET /api/skills`
 
 - 交付主视图与工作面板通过只读投影渲染跨领域状态；
 - UI-only 的面板、视图模式和创建弹窗状态保持在所属组件；
-- 手工“新建任务”全局入口及其 Store 状态已删除，顶栏只保留“新建交付”。
+- 手工“新建任务”和“新建交付”全局入口均已删除；唯一显式创建入口是 Projects surface 的“添加项目”。
 - 交付补充要求、规划请求、交付生命周期操作和全部 Task/Task Graph 用户操作已迁入 Workspace Command，并通过持久 receipt 对账。
-- Delivery 详情已拆为概览、活动、评估三个稳定 surface；活动采用连续时间线、按 Delivery 草稿、可取消引用、锚定滚动和键盘/触屏可发现的消息操作。
+- Project workspace 采用连续协作时间线、按 Project 草稿、结构化引用、锚定滚动和键盘/触屏可发现的消息操作。
 - Task 创建、改派和状态命令仍由 Task Command Service 持有事实；需要执行时由服务端 Task Wakeup 推进，浏览器不再
   把任务变化解释为 Agent 启动。浏览器也不再先乐观改 Task：命令携带预期 revision，只有服务端返回权威 Task 后才
   更新投影；rehydrate 与 `task.state` 都携带 revision 并推进投影 epoch，迟到 HTTP 响应不能覆盖更高 revision 的 Socket 事实。

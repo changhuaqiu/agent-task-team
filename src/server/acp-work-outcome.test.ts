@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from './db';
 import {
-  AGENT_SUBMIT_OUTCOME_TOOL,
+  AGENT_OUTCOME_TOOL_BY_TYPE,
   clearAcpSkillMcpGrantsForTests,
   executeAcpSkillMcpTool,
   listAcpSkillToolDefinitions,
@@ -55,17 +55,16 @@ describe('ACP WorkContract outcome channel', () => {
     }, 'http://127.0.0.1:3000')!;
     const stored = resolveAcpSkillMcpGrant(grant.mcpServer.headers[0].value)!;
 
-    expect(stored.permittedTools).toEqual(['task_list', AGENT_SUBMIT_OUTCOME_TOOL]);
+    expect(stored.permittedTools).toEqual(['task_list', AGENT_OUTCOME_TOOL_BY_TYPE.submit_task_result]);
     expect(listAcpSkillToolDefinitions(stored.permittedTools).map((tool) => tool.name))
-      .toEqual(['task_list', AGENT_SUBMIT_OUTCOME_TOOL]);
-    await expect(executeAcpSkillMcpTool(stored, AGENT_SUBMIT_OUTCOME_TOOL, {
-      outcome_type: 'submit_task_result',
+      .toEqual(['task_list', AGENT_OUTCOME_TOOL_BY_TYPE.submit_task_result]);
+    await expect(executeAcpSkillMcpTool(stored, AGENT_OUTCOME_TOOL_BY_TYPE.submit_task_result, {
       payload: { summary: 'done' },
       evidence_refs: ['artifact:sha'],
       idempotency_key: 'acp-outcome-key',
     })).resolves.toMatchObject({
       success: true,
-      data: { status: 'accepted', exitAccepted: true },
+      data: { status: 'applied', result: { exitAccepted: true } },
     });
     await expect(executeAcpSkillMcpTool(stored, 'task_list', {})).resolves.toEqual({
       success: false,
@@ -115,8 +114,7 @@ describe('ACP WorkContract outcome channel', () => {
       expectedCurrentEpoch: first.workEpoch,
     });
     const stored = resolveAcpSkillMcpGrant(grant.mcpServer.headers[0].value)!;
-    await expect(executeAcpSkillMcpTool(stored, AGENT_SUBMIT_OUTCOME_TOOL, {
-      outcome_type: 'submit_task_result',
+    await expect(executeAcpSkillMcpTool(stored, AGENT_OUTCOME_TOOL_BY_TYPE.submit_task_result, {
       payload: { summary: 'late' },
       evidence_refs: [],
       idempotency_key: 'late-outcome-key',
@@ -124,6 +122,15 @@ describe('ACP WorkContract outcome channel', () => {
       success: false,
       error: 'work_authority_stale',
       data: { status: 'rejected' },
+    });
+    await expect(executeAcpSkillMcpTool(stored, AGENT_OUTCOME_TOOL_BY_TYPE.submit_task_result, {
+      payload: { summary: 'late' },
+      evidence_refs: [],
+      idempotency_key: 'late-outcome-key',
+    })).resolves.toMatchObject({
+      success: false,
+      error: 'work_authority_stale',
+      data: { status: 'rejected', result: { exitAccepted: false } },
     });
   });
 });

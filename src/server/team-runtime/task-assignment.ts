@@ -1,6 +1,4 @@
-import { resolveTeamRuntime } from '@/lib/team-runtime';
-import { conversationRepo } from '@/server/repositories/conversation-repo';
-import { teamPackRepo } from '@/server/repositories/team-pack-repo';
+import { resolveConversationRuntime } from '@/server/invocation-pipeline/conversation-runtime';
 
 interface ResolveInitialTaskAgentInput {
   conversationId: string;
@@ -16,27 +14,10 @@ export function resolveInitialTaskAgentId(input: ResolveInitialTaskAgentInput): 
   const explicitAgentId = present(input.explicitAgentId);
   if (explicitAgentId) return explicitAgentId;
 
-  const conversation = conversationRepo.getById(input.conversationId);
-  const teamPack = conversation?.team_pack_id ? teamPackRepo.getById(conversation.team_pack_id) : undefined;
-
-  if (teamPack) {
-    const runtime = resolveTeamRuntime({
-      conversationId: input.conversationId,
-      teamPack,
-      presetAgents: [],
-      activeAgentIds: teamPack.roles.map((role) => role.id),
-      roleCards: [],
-      skillsMap: {},
-      agentSkillIds: {},
-      agentAccountOverrides: {},
-      agentRoleCardOverrides: {},
-    });
-
-    if (runtime.initialAgentId) return runtime.initialAgentId;
-
-    const rosterAgentId = runtime.roster[0]?.id;
-    if (rosterAgentId) return rosterAgentId;
-  }
+  const runtime = resolveConversationRuntime(input.conversationId);
+  if (runtime?.initialAgentId) return runtime.initialAgentId;
+  const rosterAgentId = runtime?.roster[0]?.id;
+  if (rosterAgentId) return rosterAgentId;
 
   return undefined;
 }

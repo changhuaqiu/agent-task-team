@@ -9,11 +9,20 @@ import { messageRepo } from '@/server/repositories/message-repo';
 import { generateSortableId } from '@/server/repositories/sortable-id';
 import { teamLogProjection } from '@/server/team-log/TeamLogProjection';
 import { CollaborationKernel } from '@/server/collaboration-kernel';
+import { PlatformEventLog } from '@/server/platform-events/event-log';
 
 interface ReceiptRow {
   idempotency_key: string;
   request_digest: string;
   receipt_json: string;
+}
+
+interface ReplyMessageRow {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string;
+  metadata: string | null;
 }
 
 interface HumanCommandServiceOptions {
@@ -83,6 +92,18 @@ function stringValue(value: unknown, field: string): string {
   return value.trim();
 }
 
+function objectValue(value: string | null): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 export class HumanCommandService {
   private readonly database?: Database.Database;
   private readonly now: () => Date;
@@ -129,6 +150,11 @@ export class HumanCommandService {
     if (command.taskId !== undefined && (typeof command.taskId !== 'string' || !command.taskId.trim())) {
       throw new HumanCommandInvariantError('human_command_task_invalid', '任务引用格式不正确');
     }
+    if (command.replyToMessageId !== undefined && (
+      typeof command.replyToMessageId !== 'string' || !command.replyToMessageId.trim()
+    )) {
+      throw new HumanCommandInvariantError('human_command_reply_invalid', '回复目标格式不正确');
+    }
     if (command.mentions !== undefined && (
       !Array.isArray(command.mentions)
       || command.mentions.some((mention) => typeof mention !== 'string')
@@ -154,6 +180,7 @@ export class HumanCommandService {
       content,
       targetAgentIds: normalizedTargets,
       ...(command.taskId ? { taskId: command.taskId.trim() } : {}),
+      ...(command.replyToMessageId ? { replyToMessageId: command.replyToMessageId.trim() } : {}),
       ...(command.mentions ? { mentions: command.mentions.map((mention) => mention.trim()).filter(Boolean) } : {}),
     };
     const digest = requestDigest(normalizedCommand);
@@ -212,6 +239,43 @@ export class HumanCommandService {
         }
       }
 
+      let replyContext: {
+        replyToMessageId: string;
+        threadRootId: string;
+        replyAuthor: string;
+        replyPreview: string;
+      } | undefined;
+      if (normalizedCommand.replyToMessageId) {
+        const reply = db.prepare(`
+          SELECT id,conversation_id,sender_id,content,metadata
+          FROM chat_message WHERE id=?
+        `).get(normalizedCommand.replyToMessageId) as ReplyMessageRow | undefined;
+        if (!reply) {
+          return this.recordReceipt(db, digest, normalizedCommand, {
+            status: 'rejected', targetAgentIds: [],
+            reasonCode: 'human_command_reply_not_found',
+            userMessage: '回复的消息不存在，请刷新后重试',
+          });
+        }
+        if (reply.conversation_id !== deliveryId) {
+          return this.recordReceipt(db, digest, normalizedCommand, {
+            status: 'rejected', targetAgentIds: [],
+            reasonCode: 'human_command_reply_scope_mismatch',
+            userMessage: '回复的消息不属于当前项目',
+          });
+        }
+        const replyMetadata = objectValue(reply.metadata);
+        const existingRoot = replyMetadata.threadRootId;
+        replyContext = {
+          replyToMessageId: reply.id,
+          threadRootId: typeof existingRoot === 'string' && existingRoot.trim()
+            ? existingRoot.trim()
+            : reply.id,
+          replyAuthor: reply.sender_id === 'human' ? '你' : reply.sender_id,
+          replyPreview: reply.content.replace(/\s+/g, ' ').trim().slice(0, 160),
+        };
+      }
+
       const runtime = this.resolveRuntime(deliveryId);
       if (!runtime) {
         return this.recordReceipt(db, digest, normalizedCommand, {
@@ -256,13 +320,23 @@ export class HumanCommandService {
             content,
             mentions: normalizedCommand.mentions,
             intent: normalizedCommand.intent ?? 'general',
-            metadata: { source: 'human-command', idempotencyKey },
+            metadata: { source: 'human-command', idempotencyKey, ...(replyContext ?? {}) },
             projectTeamLog: false,
           }, db);
+          new PlatformEventLog({ db }).append({
+            type: 'chat.message.persisted', category: 'domain', projectId: deliveryId,
+            streamKey: `message:${messageId}`, aggregate: { type: 'message', id: messageId },
+            actor: { type: 'user', id: actorId }, subject: { type: 'message', id: messageId },
+            correlationId: idempotencyKey, causationId: idempotencyKey,
+            dedupeKey: `chat-message-persisted:${messageId}`,
+            payload: { messageId, content, senderId: actorId, taskId: normalizedCommand.taskId },
+          });
           const handoff = (this.handoff ?? new HumanA2ACommandService({ db })).submit({
             conversationId: deliveryId,
             messageId,
-            prompt: content,
+            prompt: replyContext
+              ? `回复 ${replyContext.replyAuthor}：${replyContext.replyPreview}\n\n${content}`
+              : content,
             targetAgentIds: targets,
             taskId: normalizedCommand.taskId,
           });

@@ -10,6 +10,7 @@ import detailHandler from '@/pages/api/skills/[id]';
 import agentSkillsHandler from '@/pages/api/agents/[agentId]/skills';
 import { RepositorySkillRuntime } from '@/server/skills/skill-runtime';
 import { buildSkillPackageInput } from '@/test-helpers/skill-package';
+import { skillRepo } from '@/server/repositories/skill-repo';
 
 let skillDataDir: string;
 let previousSkillDataDir: string | undefined;
@@ -160,8 +161,8 @@ describe('GET /api/agents/:agentId/skills', () => {
     const r1 = mockRes(); await handler(mockReq('POST', { name: 'review', content: 'review content' }), r1);
     const r2 = mockRes(); await handler(mockReq('POST', { name: 'tdd', content: 'tdd content' }), r2);
 
-    // Assign both to mario
-    await agentSkillsHandler(mockReq('POST', { skillIds: [r1._json.id, r2._json.id] }, { agentId: 'mario' }), mockRes());
+    // Repository setup only; the public write path is agent.update.
+    skillRepo.setAgentSkills('mario', [r1._json.id, r2._json.id]);
 
     const getRes = mockRes();
     await agentSkillsHandler(mockReq('GET', undefined, { agentId: 'mario' }), getRes);
@@ -171,18 +172,10 @@ describe('GET /api/agents/:agentId/skills', () => {
 });
 
 describe('POST /api/agents/:agentId/skills', () => {
-  it('replaces agent skill assignments', async () => {
-    const r1 = mockRes(); await handler(mockReq('POST', { name: 'a-replace', content: 'a' }), r1);
-    const r2 = mockRes(); await handler(mockReq('POST', { name: 'b-replace', content: 'b' }), r2);
-
-    // Assign r1
-    await agentSkillsHandler(mockReq('POST', { skillIds: [r1._json.id] }, { agentId: 'luigi' }), mockRes());
-    // Replace with r2
-    await agentSkillsHandler(mockReq('POST', { skillIds: [r2._json.id] }, { agentId: 'luigi' }), mockRes());
-
-    const getRes = mockRes();
-    await agentSkillsHandler(mockReq('GET', undefined, { agentId: 'luigi' }), getRes);
-    expect(getRes._json).toHaveLength(1);
-    expect(getRes._json[0].name).toBe('b-replace');
+  it('rejects the independent skill write path', async () => {
+    const res = mockRes();
+    await agentSkillsHandler(mockReq('POST', { skillIds: ['skill-a'] }, { agentId: 'luigi' }), res);
+    expect(res.statusCode).toBe(410);
+    expect(res._json).toMatchObject({ reasonCode: 'use_agent_update_command' });
   });
 });

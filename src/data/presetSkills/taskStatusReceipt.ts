@@ -5,8 +5,8 @@ export const TASK_STATUS_RECEIPT_SKILL: CreateSkillInput = {
   description: 'Legacy task status receipt guidance outside structured WorkContract execution',
   content: `# Task Status Receipt
 
-When the current invocation has a WorkContract, do not call task_update_status. Submit exactly one
-agent_submit_outcome with the requested evidence; Task Authority owns the resulting state and Gate transition.
+When the current invocation has a WorkContract, do not call task_update_status. Call exactly one
+structured lifecycle tool with the requested evidence; Task Authority owns the resulting state and Gate transition.
 
 Use task_update_status only in a legacy, non-WorkContract invocation where the platform explicitly exposes it.
 

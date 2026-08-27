@@ -5,14 +5,14 @@ describe('buildCollaborationLayer', () => {
   it('requires structured handoff outcomes and treats mentions as visible text only', () => {
     const result = buildCollaborationLayer();
 
-    expect(result).toContain('agent_submit_outcome');
-    expect(result).toContain('handoff_to_agent');
+    expect(result).toContain('task_submit_result');
+    expect(result).toContain('work_handoff');
     expect(result).toContain('branches');
     expect(result).toContain('toAgentId');
     expect(result).toContain('requestedAction');
     expect(result).toContain('evidenceRefs');
     expect(result).toContain('本轮退出决策');
-    expect(result).toContain('continue_work');
+    expect(result).toContain('work_continue');
     expect(result).toContain('精确下一动作');
     expect(result).toContain('外部依赖、人类决策或权限边界');
     expect(result).toContain('伪协作结果');

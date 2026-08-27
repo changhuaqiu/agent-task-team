@@ -2,17 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useTaskHubStore } from '@/store/taskHubStore';
-import { getCategoryConfig } from '@/components/role-card/RoleCardBadge';
 import { AgentBindingPanel } from '@/components/task-hub/AgentBindingPanel';
 import { cn } from '@/lib/utils';
 
 export function AgentBar() {
-  const activeAgentIds = useTaskHubStore((s) => s.activeAgentIds);
   const accounts = useTaskHubStore((s) => s.accounts);
   const setRosterModalOpen = useTaskHubStore((s) => s.setRosterModalOpen);
   const tasks = useTaskHubStore((s) => s.tasks);
-  const effectiveRoster = useTaskHubStore((s) => s.getEffectiveRoster());
-  const getAgentRoleCard = useTaskHubStore((s) => s.getAgentRoleCard);
+  const activeAgents = useTaskHubStore((s) => s.getAddressableRoster());
   const getAgentRuntimeProfile = useTaskHubStore((s) => s.getAgentRuntimeProfile);
 
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
@@ -30,23 +27,24 @@ export function AgentBar() {
     return () => document.removeEventListener('mousedown', handler);
   }, [expandedAgent]);
 
-  const activeAgents = effectiveRoster.filter((a) => activeAgentIds.includes(a.id));
-
   if (activeAgents.length === 0) return null;
 
   return (
-    <div ref={containerRef} className="px-4 pt-2 pb-1">
-      <div className="flex items-center gap-1.5 flex-wrap">
+    <div ref={containerRef} className="px-4 py-1.5">
+      <div className="flex min-h-7 items-center gap-1.5 overflow-x-auto">
         {activeAgents.map((agent) => {
           const profile = getAgentRuntimeProfile(agent.id);
-          const roleCard = getAgentRoleCard(agent.id) ?? null;
-          const cfg = roleCard ? getCategoryConfig(roleCard.category) : null;
-          const boundIds = profile?.agent.accountIds ?? agent.accountIds ?? roleCard?.accountIds ?? [];
+          const boundIds = profile?.agent.accountIds ?? agent.accountIds ?? [];
           const boundCount = boundIds.length;
           const hasValidAccount = boundIds.some((id) => {
             const acc = accounts.find((a) => a.id === id);
             return acc?.status === 'valid';
           });
+          const accountStatusLabel = hasValidAccount
+            ? '账号已验证'
+            : boundCount > 0
+              ? '账号待验证'
+              : '使用运行环境的登录状态';
           const isExpanded = expandedAgent === agent.id;
           const currentTask = tasks.find((t: { agentId: string; status: string }) => t.agentId === agent.id && t.status === 'in_progress');
 
@@ -56,46 +54,33 @@ export function AgentBar() {
                 type="button"
                 onClick={() => setExpandedAgent(isExpanded ? null : agent.id)}
                 className={cn(
-                  'flex items-center gap-1.5 px-2 py-1 rounded-[4px] border-2 transition-all',
+                  'flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2 transition-colors',
                   isExpanded
-                    ? 'border-[hsl(var(--text-primary))] bg-[hsl(var(--bg-elevated))] shadow-[2px_2px_0px_hsl(var(--text-primary))]'
+                    ? 'border-[hsl(var(--accent))] bg-[hsl(var(--accent-soft))]'
                     : currentTask
-                      ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_8px_rgba(59,130,246,0.2)] hover:border-blue-400'
-                      : cfg
-                        ? `border-[hsl(var(${cfg.themeVar})/0.4)] bg-[hsl(var(${cfg.themeVar}-soft)/0.5)] hover:border-[hsl(var(${cfg.themeVar}))]`
-                        : 'border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] hover:border-[hsl(var(--text-primary))]',
+                      ? 'border-blue-300 bg-blue-50 hover:border-blue-400 dark:border-blue-900 dark:bg-blue-950/30'
+                      : 'border-transparent bg-transparent hover:bg-[hsl(var(--bg-muted))]',
                 )}
               >
                 {/* Emoji avatar */}
                 <span
                   className={cn(
-                    'w-5 h-5 rounded-[2px] flex items-center justify-center text-[11px] border',
-                    cfg
-                      ? `bg-[hsl(var(${cfg.themeVar}-soft))] border-[hsl(var(${cfg.themeVar})/0.3)]`
-                      : 'bg-[hsl(var(--bg-app))] border-[hsl(var(--border))]',
+                    'flex size-5 items-center justify-center rounded-full text-[11px]',
+                    'bg-[hsl(var(--bg-muted))]',
                   )}
                 >
                   {agent.emoji}
                 </span>
 
-                {/* Name + role */}
-                <div className="flex flex-col items-start leading-none">
-                  <span className="text-[10px] font-bold text-[hsl(var(--text-primary))]">
+                <div className="flex items-center leading-none">
+                  <span className="text-[10px] font-medium text-[hsl(var(--text-primary))]">
                     {agent.name}
                   </span>
-                  {roleCard && (
-                    <span className={cn(
-                      'text-[8px] font-bold tracking-wider uppercase',
-                      cfg ? `text-[hsl(var(${cfg.themeVar}))]` : 'text-[hsl(var(--text-tertiary))]',
-                    )}>
-                      {roleCard.displayName}
-                    </span>
-                  )}
                 </div>
 
                 {currentTask && (
-                  <span className="text-[8px] text-blue-400 max-w-[60px] truncate animate-pulse">
-                    {currentTask.title}
+                  <span className="max-w-[100px] truncate text-[9px] text-blue-600 dark:text-blue-300">
+                    正在处理 · {currentTask.title}
                   </span>
                 )}
 
@@ -105,14 +90,14 @@ export function AgentBar() {
                     'w-1.5 h-1.5 rounded-full shrink-0',
                     currentTask ? 'bg-blue-400 animate-pulse' : hasValidAccount ? 'bg-emerald-400' : boundCount > 0 ? 'bg-amber-400' : 'bg-zinc-400',
                   )}
-                  title={currentTask ? `执行中: ${currentTask.title}` : hasValidAccount ? '账号已验证' : boundCount > 0 ? '账号待验证' : '未绑定账号'}
+                  title={currentTask ? `执行中: ${currentTask.title}` : accountStatusLabel}
                 />
               </button>
 
               {/* Expanded binding panel */}
               {isExpanded && (
                 <div className="absolute left-0 top-full mt-1 z-30 w-[280px]">
-                  <div className="border-2 border-[hsl(var(--text-primary))] rounded-[4px] bg-[hsl(var(--bg-elevated))] shadow-[3px_3px_0px_hsl(var(--text-primary))]">
+                  <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--bg-elevated))] shadow-lg">
                     <AgentBindingPanel agentId={agent.id} />
                   </div>
                 </div>
@@ -125,10 +110,10 @@ export function AgentBar() {
         <button
           type="button"
           onClick={() => setRosterModalOpen(true)}
-          className="flex items-center gap-1 px-2 py-1 rounded-[4px] border-2 border-dashed border-[hsl(var(--border))] text-[hsl(var(--text-tertiary))] hover:border-[hsl(var(--text-primary))] hover:text-[hsl(var(--text-primary))] transition-colors"
+          className="flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--text-primary))]"
         >
           <span className="text-[11px]">+</span>
-          <span className="text-[10px] font-bold tracking-wider">招募</span>
+          <span className="text-[10px] font-medium">管理 Agent</span>
         </button>
       </div>
     </div>

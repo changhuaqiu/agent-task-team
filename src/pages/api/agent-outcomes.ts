@@ -4,10 +4,9 @@ import {
   parseAgentOutcomeInput,
 } from '@/server/work-contract/outcome-input';
 import {
-  AgentOutcomeIdempotencyConflictError,
   WorkContractInvariantError,
-  workContractRepo,
 } from '@/server/work-contract/repository';
+import { asWorkSubmitOutcomeCommand, commandService } from '@/server/command-kernel/service';
 
 type ResponseBody = {
   ok: boolean;
@@ -27,23 +26,20 @@ export default function handler(
     return;
   }
   try {
-    const admission = workContractRepo.admitOutcome(parseAgentOutcomeInput(req.body));
-    res.status(admission.status === 'rejected' ? 409 : admission.status === 'accepted' ? 202 : 200)
+    const receipt = commandService.execute(asWorkSubmitOutcomeCommand(parseAgentOutcomeInput(req.body)));
+    const status = receipt.status === 'applied'
+      ? 'accepted'
+      : receipt.status === 'duplicate'
+        ? 'duplicate'
+        : 'rejected';
+    res.status(status === 'rejected' ? 409 : status === 'accepted' ? 202 : 200)
       .json({
-        ok: admission.status !== 'rejected',
-        status: admission.status,
-        outcomeId: admission.outcome.id,
-        ...('reasonCode' in admission ? { reasonCode: admission.reasonCode } : {}),
+        ok: status !== 'rejected',
+        status,
+        outcomeId: receipt.commandId,
+        ...(receipt.reasonCode ? { reasonCode: receipt.reasonCode } : {}),
       });
   } catch (error) {
-    if (error instanceof AgentOutcomeIdempotencyConflictError) {
-      res.status(409).json({
-        ok: false,
-        reasonCode: error.reasonCode,
-        error: error.message,
-      });
-      return;
-    }
     if (
       error instanceof InvalidAgentOutcomeInputError
       || error instanceof WorkContractInvariantError

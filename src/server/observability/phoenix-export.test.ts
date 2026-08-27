@@ -303,7 +303,7 @@ describe('Phoenix observability projection', () => {
       goal: 'Complete the runtime task',
       acceptanceCriteria: ['Provide evidence'],
       role: { id: 'implementer' },
-      permissions: { tools: ['agent_submit_outcome'] },
+      permissions: { tools: ['task_submit_result'] },
       authoritativeRefs: ['task:task-1'],
       authoritativeRevisions: { task: task.revision },
       contextSnapshotRef: 'context:test',

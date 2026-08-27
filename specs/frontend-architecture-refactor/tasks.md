@@ -84,3 +84,58 @@
 - [x] 将 Delivery 详情拆为概览 / 活动 / 评估三个稳定 surface，活动获得完整纵向空间。
 - [x] 增加按 Delivery 隔离的本地草稿、引用回复预览、回到最新与键盘可发现的消息操作。
 - [x] 补充活动交互组件测试、真实浏览器回归、文档和 STORY 证据。
+
+## Phase 6：Project 创建边界与 Agent 运行环境设置
+
+- [x] 对照 Buzz 的 Project / Work Item 创建菜单、Agents 设置、Harness Catalog、Agent defaults 与 managed runtime status 的真实实现，冻结可复用边界。
+- [x] 将 Project 提升为可独立持久化对象，并从已有工作目录幂等登记历史 Project。
+- [x] 把全局主动作改为“添加项目”，删除“新建交付”产品入口，创建后直接进入 Project 协作流。
+- [x] 让总览与侧栏展示 Project，并提供协作、工作、评估三个稳定 surface。
+- [x] 建立一等 Agent Definition 聚合：身份、工作指令、Skills、ACP Runtime、模型账号/模型、权限与执行偏好由同一 repository/API 保存；废弃独立角色素材对象。
+- [x] 建立 ACP Runtime Catalog/Discovery 深模块并嵌入 Agent 配置，不让 UI 或 Store 自行猜测 launcher。
+- [x] 让 Team Pack 与 Project workspace 只引用 Agent identity；服务端 Invocation profile 从 Agent 聚合解析，Team 创建只选择既有 Agent，不再复制 runtime/account/skill execution owner。
+- [x] 建立 Project Agent 成员关系与 `project.agent.add/remove` 命令；Team 部署只初始化成员，Project 上下文提供一个清晰的“添加 Agent”入口，并让聊天、任务分派和 Runtime 共同消费该关系。
+- [x] 将 Agent 对象移到 Agents 一级页面；设置只保留模型账号、运行环境和共享 Skill Library，Agent Team 在 Agents 页面只选择既有 Agent。
+- [x] Agent 卡片显示现有连接/忙碌/可用性事实；常驻 lifecycle 尚未接通前不提供假启动/停止开关。
+- [x] 补充 repository、API、projection、组件与架构测试，并执行类型检查、生产构建和原生桌面回归。
+
+## Phase 7：命令驱动的交付内核
+
+- [x] 将 Project 默认页改为 Telegram 式协作流，工作页区分正式工作、产物、评审和阻塞。
+- [x] 建立统一 ProductCommand / CommandReceipt，并以 `work.submit_outcome` 打通第一条真实 handler。
+- [x] 将 Agent 聚合 outcome 拆成 WorkContract 裁剪的单意图结构化 MCP 工具。
+- [x] 建立 `ath` JSON CLI，与 MCP/Web 共用 CommandService；CLI 作为通用接口与逃生仓。
+- [x] 修正 Runtime：终态 MCP receipt 才能结束工作，空 final text 不再触发错误恢复。
+- [x] 建立 ManagedRuntimeSupervisor 与 AgentWorkerPool 的生命周期、并发、退避和熔断内核。
+- [x] 将实际 ACP 子进程接入 persistent worker ownership，并完成 session affinity、停止/重启/重配置失效与恢复边界。
+- [ ] 将 Task、Artifact、Review/Gate、Release 其余写路径逐步接入 CommandService registry。
+- [ ] 增加禁止 Runtime/Web API 绕过 CommandService 的架构门禁并完成全量验证。
+
+## Phase 8：按对象页推断的信息架构（历史实施，主交互已被 Phase 9 推翻）
+
+- [x] 在已登录的本地 Buzz Desktop v0.5.18 EXE 中检查导航、Inbox、Channel、Agents、Agent 创建/Profile/Defaults、Settings/Compute；Projects 以同版本源码交叉复核（本机预览开关关闭，未改用户设置）。
+- [x] 记录真实交互与本产品定位的映射，废弃 Project 默认聊天与协作/工作/评估三页签方案。
+- [x] 建立全局侧栏：工作动态、Agents、Projects；Project/Conversation 不再混进同一导航树。
+- [x] 建立 Workspace 统一镜头：动态、项目、工作、评审、产物，并提供 Context Rail。
+- [x] 重做 Project Object Workspace 与按需 Agent Conversation Panel。
+- [x] 重做 Agents Directory、Agent Profile 与渐进式创建/编辑交互。
+- [x] 删除被替代的旧统计卡总览、Project 三页签和 Settings 内 Agent 快速配置入口。
+- [x] 完成组件、浏览器、桌面宽度、类型、测试与构建验证。
+
+## Phase 9：按本地 EXE 真实触发链纠正主交互
+
+- [x] 在本地 Buzz EXE 中沿一次真实消息触发追踪到 Agent ACP session、运行轨迹、CLI 命令与同流最终回复；不再只根据对象列表和设置页推断主链路。
+- [x] 推翻“Project 默认概览、聊天按需侧栏”的旧结论，Project 默认常驻协作流，工作/评审/产物作为同一正式事实集的镜头。
+- [x] Agent Profile 默认展示真实活动，并增加信息、运行、频道和技能视角；无事实时使用空态，不伪造日志或 supervisor 状态。
+- [x] Runtime 页面增加秘密值禁止进入 DOM、辅助功能树、日志和诊断响应的明确约束。
+- [x] 新增 Project 主协作面和 Agent 活动/频道组件测试；全量 245 个测试文件、1796 个测试及生产构建通过。
+- [x] 在最新 release EXE 中完成桌面对象页、创建表单、诊断入口与真实输入回归；浏览器插件不再作为桌面验收门。
+- [x] 通过真实 Project `@Mario` 消息验证消息事件到 persistent Codex ACP worker、结构化生命周期工具、统一事件投影与同流最终回复的生产链路；WebSocket 超时可回退 HTTPS 并保持同一 Invocation 事实。
+- [x] Agent 继承本机运行环境时显示“使用运行环境的登录状态”，不会因未单独绑定账号而误报不可运行。
+- [x] Work hydration 与 socket 投影将非数组 `dependencies` / `artifacts` 旧值归一为空数组，单条异常持久数据不会让整个桌面 Renderer 崩溃。
+- [x] Workspace 的评审筛选、项目计数与 Review 镜头统一消费独立 Review aggregate；读取失败显示错误态，不再以 Task `in_review` 或空列表伪装。
+- [x] 从全局 Work/Artifact 镜头打开对象时原子切换其 conversation scope 与 selected Work，跨项目对象可直接进入详情。
+- [x] 将 Agent possession / 派发 / 交接摘要从聊天时间线迁移到 Project 顶部状态栏，状态栏位于 Project 视图导航与主内容之间；记录向下浮层展开且不改变消息视口或输入器高度。
+- [x] 状态栏由 Project `workspaceConversationId` 显式定域，完整保留混合交接/回执历史，并将内部失败原因转译为用户文案。
+- [x] 将 Project 工作页从统计仪表盘重构为按生命周期分组的 WorkItem 对象列表，统一整行打开、响应式元数据与选中态，并删除重复的产物/完成口径说明卡。
+- [x] 将 `tool_use` / `tool_result` 从持久 Workspace Inbox 投影中排除，清理已有工具条目，并保持工具运行记录在 Project 协作流中可追溯。

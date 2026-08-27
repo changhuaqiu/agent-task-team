@@ -24,7 +24,7 @@ Evaluation level: C（Harness、WorkContract、Session 与观测链路行为变�
 
 ### 3.1 唯一结构化退出
 
-- `agent_submit_outcome` 的首次 accepted 记录消费当前 WorkContract 的唯一退出槽。
+- 任一结构化生命周期命令的首次 accepted 记录消费当前 WorkContract 的唯一退出槽。
 - 首次 accepted 可以是 `continue_work` 或任一终结 Outcome；两类不能在同一合同内各接纳一次。
 - schema、Gate target、revision、fencing 等校验失败的 rejected 记录不消费退出槽。
 - 相同幂等键和相同内容仍返回 duplicate；不同内容仍返回 idempotency conflict。
@@ -58,7 +58,7 @@ Evaluation level: C（Harness、WorkContract、Session 与观测链路行为变�
 ## 4. 退出条件
 
 - 单元测试证明一个合同不能接纳 `continue_work` 后的 terminal Outcome，反向顺序同样被拒绝。
-- dispatch contract 测试证明领域 mutation tool 被裁掉，`agent_submit_outcome` 与浏览器验证工具仍可用。
+- dispatch contract 测试证明领域 mutation tool 被裁掉，WorkContract 允许的单意图生命周期工具与浏览器验证工具仍可用。
 - session repository 与 daemon 测试证明 token/Invocation 预算触发 seal，新 session 可以继续执行。
 - Phoenix exporter 与 runtime worker 测试通过，并能在本地 collector 不可用时 fail-open。
 - 相关技术文档、诊断报告、修复计划和 C 级评测记录同步更新。

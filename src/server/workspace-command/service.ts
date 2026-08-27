@@ -531,7 +531,7 @@ export class WorkspaceCommandService {
               description: taskInput.description,
               agent_id: agentId,
               dependencies: [...new Set(taskInput.dependencies)],
-              artifacts: {},
+              artifacts: [],
             },
           });
           const task = commit.tasks.find((item) => item.id === taskInput.id)
@@ -663,7 +663,7 @@ export class WorkspaceCommandService {
       conversationId: command.deliveryId,
       explicitAgentId: command.task.agentId,
     });
-    if (!agentId) {
+    if (!agentId && command.requestExecution) {
       throw new WorkspaceCommandInvariantError('workspace_command_agent_unavailable', '当前团队没有可接手任务的成员');
     }
     const commit = taskCommandService.create({
@@ -674,10 +674,11 @@ export class WorkspaceCommandService {
       task: {
         id: required(command.task.id, 'task.id'),
         title: required(command.task.title, 'task.title'),
+        category: command.task.category,
         description: command.task.description,
-        agent_id: agentId,
+        agent_id: agentId ?? '',
         dependencies: [...new Set(command.task.dependencies)],
-        artifacts: command.task.artifacts as unknown as Record<string, unknown> | undefined,
+        artifacts: command.task.artifacts,
       },
     });
     const task = commit.tasks[0];

@@ -1,4 +1,3 @@
-import type { RoleCard } from '@/types/roleCard';
 import type { ContextScenario } from './scenarioResolver';
 
 export type ContextArchetype = 'planner' | 'reviewer' | 'worker';
@@ -49,10 +48,8 @@ export const INJECTION_POLICY: Record<ContextScenario, Record<ContextArchetype, 
   escalation: { planner: escalation, reviewer: escalation, worker: escalation },
 };
 
-export function resolveArchetype(roleCard?: RoleCard): ContextArchetype {
-  if (roleCard?.category === 'planner') return 'planner';
-  if (roleCard?.category === 'code_reviewer' || roleCard?.category === 'arch_reviewer') return 'reviewer';
-  return 'worker';
+export function resolveArchetype(archetype?: ContextArchetype): ContextArchetype {
+  return archetype ?? 'worker';
 }
 
 export function getDirective(

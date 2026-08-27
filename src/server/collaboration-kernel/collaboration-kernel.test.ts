@@ -35,7 +35,10 @@ describe('CollaborationKernel', () => {
       requestedAction: 'Implement TASK-1 and submit evidence.',
       idempotencyKey: 'task:TASK-1:revision:2',
       cause: { correlationId: 'delivery-1', causationId: 'task-ready-1' },
-      scope: { taskId: 'TASK-1', deliveryRunId: 'delivery-1' },
+      scope: {
+        taskId: 'TASK-1', deliveryRunId: 'delivery-1',
+        executionSubject: { kind: 'ad_hoc_execution', id: 'subject-1' },
+      },
       replyTo: { type: 'task', id: 'TASK-1' },
     });
 
@@ -52,6 +55,7 @@ describe('CollaborationKernel', () => {
       replyTo: { type: 'task', id: 'TASK-1' },
       taskId: 'TASK-1',
       deliveryRunId: 'delivery-1',
+      executionSubject: { kind: 'ad_hoc_execution', id: 'subject-1' },
     });
   });
 
@@ -83,6 +87,16 @@ describe('CollaborationKernel', () => {
       cause: { correlationId: 'recover-1' },
       replyTo: { type: 'work', id: ' ' },
     })).toThrow('collaboration_reply_to_id_required');
+  });
+
+  it('rejects an empty ad-hoc execution subject', () => {
+    expect(() => kernel.request({
+      projectId: 'project-1', targetAgentId: 'builder', source: 'workflow',
+      requestedAction: 'Execute.', idempotencyKey: 'adhoc-empty',
+      cause: { correlationId: 'adhoc-empty' },
+      scope: { executionSubject: { kind: 'ad_hoc_execution', id: ' ' } },
+      replyTo: { type: 'work', id: 'adhoc-empty' },
+    })).toThrow('collaboration_execution_subject_id_required');
   });
 
   it('scopes the same caller idempotency key by project and target Agent', () => {

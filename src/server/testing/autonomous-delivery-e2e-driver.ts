@@ -15,6 +15,8 @@ import type { AgentRuntime } from '../agent-runtime';
 import { executeSkillTool } from '../skill-tool-executor';
 import { proofLogRepo } from '../repositories/proof-log-repo';
 import { teamPackRepo } from '../repositories/team-pack-repo';
+import { agentDefinitionRepo } from '../agents/agent-definition-repo';
+import { asAgentUpdateCommand, commandService } from '../command-kernel/service';
 
 const DRIVER_STATE_KEY = Symbol.for('agent-task-hub.autonomous-delivery.e2e-driver');
 const E2E_ACCOUNT_ID = 'autonomous-delivery-e2e-account';
@@ -213,7 +215,25 @@ export function configureAutonomousDeliveryE2EFixtures(): void {
   const pack = teamPackRepo.getByName('default-team');
   if (!pack) throw new Error('default-team is not available');
   for (const role of pack.roles) {
-    teamPackRepo.updateRoleConfig(pack.id, role.id, { accountIds: [E2E_ACCOUNT_ID] });
+    const agent = agentDefinitionRepo.get(role.id);
+    if (!agent?.runtime_id) throw new Error(`Agent Definition is not available: ${role.id}`);
+    const key = `e2e-agent-account:${agent.id}:r${agent.revision}`;
+    const receipt = commandService.execute(asAgentUpdateCommand({
+      commandId: key,
+      idempotencyKey: key,
+      expectedRevision: agent.revision,
+      agent: {
+        id: agent.id, name: agent.name, theme: agent.theme, emoji: agent.emoji,
+        runtimeId: agent.runtime_id, accountIds: [E2E_ACCOUNT_ID], skillIds: agent.skill_ids,
+        instructions: agent.instructions, avatarUrl: agent.avatar_url ?? undefined,
+        model: agent.model ?? undefined,
+        permissions: { canModifyCode: Boolean(agent.can_modify_code), canReview: Boolean(agent.can_review) },
+        runtimeMode: agent.use_runtime_defaults ? 'defaults' : 'custom',
+        audience: { mode: agent.audience_mode, ids: agent.audience_ids },
+        parallelism: agent.parallelism, instanceNamePool: agent.instance_name_pool, runLocation: 'local',
+      },
+    }));
+    if (!['applied', 'duplicate'].includes(receipt.status)) throw new Error(receipt.reasonCode ?? 'e2e_agent_update_failed');
   }
 }
 

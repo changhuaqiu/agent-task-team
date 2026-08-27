@@ -37,6 +37,7 @@ import {
 import type { Server as IOServer } from 'socket.io';
 import { TaskWorkLifecycleProcessManager } from '../invocation-pipeline/task-work-lifecycle-process-manager';
 import { EvaluationWorkLifecycleProcessManager } from '../evaluation/evaluation-work-lifecycle-process-manager';
+import { AutomationRuntime } from '../automations';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -60,6 +61,7 @@ export interface PlatformEventRuntimeWorkerOptions {
   phoenix?: PhoenixProjectionOverrides | false;
   phoenixDispatcher?: WorkerDispatcher;
   io?: IOServer;
+  automation?: Pick<AutomationRuntime, 'handle' | 'claimDueSchedules'> | false;
 }
 
 export class PlatformEventRuntimeWorker {
@@ -67,6 +69,7 @@ export class PlatformEventRuntimeWorker {
   private readonly projection: RuntimeInvocationProjection;
   private readonly effects?: WorkerEffects;
   private readonly phoenixDispatcher?: WorkerDispatcher;
+  private readonly automation?: Pick<AutomationRuntime, 'handle' | 'claimDueSchedules'>;
   private readonly intervalMs: number;
   private timer?: ReturnType<typeof setTimeout>;
   private phoenixTimer?: ReturnType<typeof setTimeout>;
@@ -81,6 +84,17 @@ export class PlatformEventRuntimeWorker {
     this.dispatcher = resolved.dispatcher ?? new PlatformEventDispatcher();
     this.projection = resolved.projection ?? new RuntimeInvocationProjection();
     this.effects = resolved.effectOutbox;
+    this.automation = resolved.automation === false ? undefined : resolved.automation;
+    if (this.automation) {
+      this.dispatcher.register({
+        id: 'automation-runtime:v1',
+        pattern: '*',
+        stereotype: 'process_manager',
+        reliability: 'durable',
+        timeoutMs: 10_000,
+        handle: this.automation.handle,
+      });
+    }
     this.dispatcher.register({
       id: 'runtime-invocation-projection:v1',
       pattern: 'runtime.invocation.*',
@@ -337,6 +351,7 @@ export class PlatformEventRuntimeWorker {
         this.effects?.recover();
         this.recovered = true;
       }
+      this.automation?.claimDueSchedules();
       this.dispatcher.discover();
       await this.dispatcher.drain();
       await this.effects?.drain();

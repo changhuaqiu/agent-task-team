@@ -13,6 +13,8 @@ export type PlatformEventHandlerStereotype =
 export type PlatformEventHandlerReliability = 'durable' | 'best_effort';
 export interface PlatformEventHandlerContext {
   signal: AbortSignal;
+  attemptNo?: number;
+  maxAttempts?: number;
 }
 export type PlatformEventHandler = (
   event: PlatformEvent,
@@ -86,7 +88,7 @@ export class PlatformEventDispatcher {
     this.idFactory = options.idFactory ?? ((prefix) => generateSortableId(prefix));
     this.leaseMs = options.leaseMs ?? 30_000;
     this.retryDelayMs = options.retryDelayMs
-      ?? ((attemptNo) => Math.min(30_000, 1_000 * (2 ** Math.max(0, attemptNo - 1))));
+      ?? ((attemptNo) => Math.min(300_000, 5_000 * (2 ** Math.max(0, attemptNo - 1))));
   }
 
   register(registration: PlatformEventHandlerRegistration): void {
@@ -118,7 +120,7 @@ export class PlatformEventDispatcher {
           }>;
       for (const delivery of expired) {
         const registration = this.registrations.get(delivery.handler_id);
-        const exhausted = delivery.attempt_count >= (registration?.maxAttempts ?? 5);
+        const exhausted = delivery.attempt_count >= (registration?.maxAttempts ?? 10);
         db.prepare(`
           UPDATE platform_event_delivery_attempt
           SET status = 'abandoned', finished_at = ?
@@ -377,7 +379,7 @@ export class PlatformEventDispatcher {
     const now = this.now();
     const nowIso = now.toISOString();
     const message = errorMessage(error);
-    const deadLettered = delivery.attempt_count >= (registration.maxAttempts ?? 5);
+    const deadLettered = delivery.attempt_count >= (registration.maxAttempts ?? 10);
     const nextAttemptAt = deadLettered
       ? nowIso
       : new Date(now.getTime() + this.retryDelayMs(delivery.attempt_count)).toISOString();
@@ -421,7 +423,11 @@ export class PlatformEventDispatcher {
     const controller = new AbortController();
     try {
       await Promise.race([
-        Promise.resolve().then(() => registration.handle(event, { signal: controller.signal })),
+        Promise.resolve().then(() => registration.handle(event, {
+          signal: controller.signal,
+          attemptNo: 1,
+          maxAttempts: 1,
+        })),
         new Promise<never>((_, reject) => {
           timer = setTimeout(
             () => {
@@ -458,7 +464,11 @@ export class PlatformEventDispatcher {
       Math.max(10, Math.floor(this.leaseMs / 3)),
     );
     try {
-      await registration.handle(event, { signal: controller.signal });
+      await registration.handle(event, {
+        signal: controller.signal,
+        attemptNo: delivery.attempt_count,
+        maxAttempts: registration.maxAttempts ?? 10,
+      });
       if (timedOut) {
         throw new Error(`platform_event_handler_timed_out:${registration.id}`);
       }

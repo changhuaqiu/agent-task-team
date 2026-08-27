@@ -111,6 +111,8 @@ export class DirectedAgentRuntime implements AgentRuntime {
         ttlMs: this.startTtlMs,
         payload: {
           prompt: plan.prompt,
+          sourceMessageId: plan.trigger.a2aHandoff?.sourceMessageIds?.[0]
+            ?? (plan.trigger.source === 'user' ? plan.trigger.id : undefined),
           contextRefs: [
             ...(plan.trigger.taskId ? [`task:${plan.trigger.taskId}`] : []),
             ...(plan.trigger.chainId ? [`chain:${plan.trigger.chainId}`] : []),

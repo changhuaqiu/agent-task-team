@@ -36,7 +36,9 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
 
     expect(result.status).toBe('completed');
     expect(result.output).toBe('system context\n\nuser request');
-  }, 15_000);
+  // This is the suite's cold npx/tsx subprocess start. Full parallel runs can
+  // legitimately spend more than 15s waiting on Windows process and module IO.
+  }, 30_000);
 
   it('passes configured MCP servers into a new ACP session', async () => {
     const backend = new AcpBackend({
@@ -313,6 +315,26 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
       reasonCode: 'acp_tool_completion_missing',
     });
     expect(contents.join('')).toContain('未返回最终文本');
+  }, 30000);
+
+  it('treats an accepted terminal command receipt as the turn result without requiring prose', async () => {
+    const backend = new AcpBackend({
+      command: 'npx',
+      args: ['tsx', mockPath],
+      engine: 'opencode',
+      cwd: process.cwd(),
+      permissionPolicy: 'allow_once',
+      autoApproveMcpToolNames: ['task_submit_result'],
+      terminalMcpToolNames: ['task_submit_result'],
+      env: { MOCK_ACP_SCENARIO: 'terminal_command_only' },
+    });
+
+    const run = backend.execute('submit the structured result and end', {});
+    const types: string[] = [];
+    for await (const event of run.events) types.push(event.type);
+
+    expect(await run.result).toMatchObject({ status: 'completed', output: '' });
+    expect(types).toEqual(['tool_use', 'tool_result', 'done']);
   }, 30000);
 
   it('fails closed when resume is unsupported instead of creating a new session', async () => {

@@ -1,6 +1,6 @@
 // src/data/presetTeamPacks.ts
 
-import type { CreateTeamPackInput } from '@/types/teamPack';
+import type { LegacyTeamPackSeedInput } from '@/types/teamPack';
 
 const IMPACT_ANALYSIS_PROTOCOL = [
   '## Repository Impact Analysis Protocol',
@@ -46,7 +46,7 @@ const IMPACT_ANALYSIS_ROLE_GUIDANCE = {
   ].join('\n'),
 } as const;
 
-export const PRESET_TEAM_PACKS: CreateTeamPackInput[] = [
+export const PRESET_TEAM_PACKS: LegacyTeamPackSeedInput[] = [
   {
     name: 'default-team',
     displayName: '默认团队',

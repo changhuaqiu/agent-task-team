@@ -8,5 +8,5 @@
 - [ ] 用 Windows Job Object/跨平台 process group 覆盖 Host crash 和强制退出的整个进程树。
 - [ ] 将 renderer session 扩展到全部兼容 HTTP/WebSocket 接口。
 - [x] 添加协议测试与 Windows standalone Service handshake smoke。
-- [ ] 在具备 Rust toolchain 的环境执行 `cargo check`。
+- [x] 在 Windows Rust toolchain 上执行 Rust 单元测试、release build 与真实窗口 smoke。
 - [ ] 完成签名、更新、deep link 和安装矩阵后转为可发布状态。

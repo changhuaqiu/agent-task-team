@@ -82,7 +82,7 @@ describe('task.updateStatus confirmation boundary', () => {
     const fetchSpy = vi.spyOn(global, 'fetch')
       .mockImplementationOnce(() => mutationResponse)
       .mockResolvedValue({ ok: true } as Response);
-    const update = useTaskHubStore.getState().updateTaskStatus('TASK-015', 'in_progress');
+    const update = useTaskHubStore.getState().updateTaskStatus({ conversationId: 'conv-1', taskId: 'TASK-015' }, 'in_progress');
 
     expect(useTaskHubStore.getState().getTaskById('TASK-015')?.status).toBe('ready');
     expect(useTaskHubStore.getState().eventsByConversation['conv-1']).toEqual([]);
@@ -129,7 +129,7 @@ describe('task.updateStatus confirmation boundary', () => {
         } }),
       } as Response)
       .mockResolvedValue({ ok: true } as Response);
-    await useTaskHubStore.getState().updateTaskStatus('TASK-015', 'in_progress');
+    await useTaskHubStore.getState().updateTaskStatus({ conversationId: 'conv-1', taskId: 'TASK-015' }, 'in_progress');
 
     const state = useTaskHubStore.getState();
     expect(state.getTaskById('TASK-015')).toEqual(task);
@@ -144,7 +144,7 @@ describe('task.updateStatus confirmation boundary', () => {
     vi.spyOn(global, 'fetch')
       .mockRejectedValueOnce(new Error('Network request failed'))
       .mockResolvedValue({ ok: true } as Response);
-    await useTaskHubStore.getState().updateTaskStatus('TASK-015', 'in_progress');
+    await useTaskHubStore.getState().updateTaskStatus({ conversationId: 'conv-1', taskId: 'TASK-015' }, 'in_progress');
 
     const state = useTaskHubStore.getState();
     expect(state.getTaskById('TASK-015')).toEqual(task);
@@ -161,8 +161,8 @@ describe('task.updateStatus confirmation boundary', () => {
       resolvers.push(resolve);
     }));
 
-    const older = useTaskHubStore.getState().updateTaskStatus('TASK-015', 'in_progress');
-    const newer = useTaskHubStore.getState().updateTaskStatus('TASK-015', 'blocked');
+    const older = useTaskHubStore.getState().updateTaskStatus({ conversationId: 'conv-1', taskId: 'TASK-015' }, 'in_progress');
+    const newer = useTaskHubStore.getState().updateTaskStatus({ conversationId: 'conv-1', taskId: 'TASK-015' }, 'blocked');
     resolvers[1]({
       ok: true,
       status: 200,
@@ -193,7 +193,7 @@ describe('task.updateStatus confirmation boundary', () => {
     vi.spyOn(global, 'fetch').mockImplementation(() => new Promise((resolve) => {
       resolveMutation = resolve;
     }));
-    const update = useTaskHubStore.getState().updateTaskStatus('TASK-015', 'in_progress');
+    const update = useTaskHubStore.getState().updateTaskStatus({ conversationId: 'conv-1', taskId: 'TASK-015' }, 'in_progress');
 
     emitTaskState({
         ...acceptedTask('blocked', 2),

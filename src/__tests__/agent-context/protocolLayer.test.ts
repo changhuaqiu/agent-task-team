@@ -1,17 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildProtocolLayer, deriveRoleFromCard } from '@/lib/agent-context/layers/protocolLayer';
-import type { RoleCard } from '@/types/roleCard';
-
-describe('deriveRoleFromCard', () => {
-  it('returns first domain from capabilities', () => {
-    const roleCard = { capabilities: { domains: ['backend', 'api'] } } as unknown as RoleCard;
-    expect(deriveRoleFromCard(roleCard)).toBe('backend');
-  });
-
-  it('returns "worker" when no capabilities', () => {
-    expect(deriveRoleFromCard(undefined)).toBe('worker');
-  });
-});
+import { buildProtocolLayer } from '@/lib/agent-context/layers/protocolLayer';
 
 describe('buildProtocolLayer', () => {
   it('includes identity while treating the Task projection as read-only', () => {
@@ -35,12 +23,12 @@ describe('buildProtocolLayer', () => {
 
   it('does not invent Task Graph work when no task is assigned', () => {
     const result = buildProtocolLayer({ agentId: 'luigi', agentRole: 'backend', hasTaskAssignment: false });
-    expect(result).toContain('没有明确任务时按用户指令执行');
+    expect(result).toContain('不要把模糊请求自行升级为实现');
   });
 
   it('keeps reviewer decisions behind a structured outcome', () => {
     const result = buildProtocolLayer({ agentId: 'peach', agentRole: 'testing', hasTaskAssignment: true });
     expect(result).toContain('不跳过 review 或伪造执行/验收证据');
-    expect(result).toContain('agent_submit_outcome');
+    expect(result).toContain('结构化生命周期工具');
   });
 });

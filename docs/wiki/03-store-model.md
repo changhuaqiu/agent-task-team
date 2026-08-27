@@ -202,9 +202,13 @@ Invocation 调试对象由调试接口按需读取，不再混入主工作区快
 
 Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `resolveTeamRuntime()`、`getEffectiveRoster()`、`getAgentRoleCard()` 和 `getAgentRuntimeProfile()` 的结果；当 conversation、TeamPack、RoleCard、Skill、账号绑定、角色卡覆盖、active roster 或 preset roster 签名发生变化时必须失效。这样可以避免组件 render 阶段反复扫描并创建 roster/profile 对象，同时保持 Team Runtime Contract 仍然是团队语义的唯一领域契约。
 
+Project 现在拥有独立、可变的 Agent 成员关系。服务端 `project_agent_membership` 是成员事实源；Team 部署只负责初始化这份关系，不再永久限制 Project。`WorkspaceProject.agentIds` 是 `/api/state` 的浏览器投影，`addProjectAgent/removeProjectAgent` 通过统一 `project.agent.add/remove` Command 修改服务端关系后回写投影。
+
+Project 内的右侧成员卡、聊天 `@` 候选、默认接手、任务通知与 Invocation Runtime 必须消费同一份 Project roster。浏览器统一通过 `getAddressableRoster()` 读取可触达成员：Project 上下文直接使用已解析的严格成员 roster，不能再被全局 `activeAgentIds` 二次过滤；非 Project 兼容上下文才保留原全局激活过滤。这样避免出现“成员已添加到 Project，但聊天仍无法提及或触发”的分裂状态。
+
 关键规则：
 
-- `getEffectiveRoster()` 委托 `resolveTeamRuntime()`。没有 TeamPack 时返回 preset agents；有 TeamPack 时以 TeamPack roles 为第一事实源；浏览器成员投影只保留成员标识与展示/执行字段，不复制 RoleCard 岗位事实。
+- `getEffectiveRoster()` 委托 `resolveTeamRuntime()`。没有 TeamPack 时返回 preset agents；有 TeamPack 时以 TeamPack roles 为身份资料源；Project 严格模式再以 Project membership 决定最终成员，并允许手工加入不属于初始 Team 的 Agent。浏览器成员投影只保留成员标识与展示/执行字段，不复制 RoleCard 岗位事实。
 - `getAgentRoleCard(agentId)` 从同一 Team Runtime roster 读取已解析 RoleCard，因而同时支持全局卡与 TeamPack snapshot；UI、任务详情和 @提及不得重新只查全局 `roleCards` 数组。
 - `getAgentRuntimeProfile(agentId)` 委托 `resolveRuntimeAgentProfile()`。它返回单个成员的 RoleCard、Skill、账号和 engine；如果没有可执行账号或 fallback engine，返回 `null`。
 - 任务详情、成员账号面板和执行入口都直接消费同一份缓存 Profile；组件不得再次按账号重算 engine，也不得在 Profile 为空时猜测 OpenCode。账号 readiness 与 provider 路由只在共享账号规则和 Team Runtime resolver 中维护。
@@ -214,8 +218,8 @@ Team Runtime 缓存是派生缓存，不是新的事实源。缓存只复用 `re
 - PromptComposer 接收 runtime roster，因此 TeamLayer、TeamPackLayer 和 dispatch 使用的是同一组团队身份。
 - `/api/state` 返回持久化的全部 `agentSkillIds`，store 不能再假设只有固定六个 preset agent 才能绑定 Skill。
 - 项目创建后的方案分析不再固定派发给 Mario。普通项目仍使用 preset planner；TeamPack 项目等待对应 TeamPack 加载完成后，按 workflow 的首个可用角色发起 proposal。
-- 用户消息中的显式目标按 runtime roster 解析；TeamPack role id、当前角色名和角色素材显示名
-  都可作为 Human Command 的目标。消息先持久化，再由 `HumanA2ACommandService` 原子创建
+- 用户消息中的显式目标按当前 Agent roster 解析；Agent id 和当前 Agent 名称
+  可作为 Human Command 的目标。消息先持久化，再由 `HumanA2ACommandService` 原子创建
   A2A 聚合与 AgentInbox Command；store 不发送 `terminal:start` 或
   `a2a:user-turn-created`。
 - 忙碌 agent 的人工要求由服务端 Human Command owner 写入 Agent Inbox。浏览器不再维护 `pendingDispatches`、
@@ -322,3 +326,15 @@ Store interface 只保留有真实 UI、Socket、middleware 或内部 slice 消�
 它不是自动执行状态机；Task wakeup、A2A、恢复和重试的 owner 在服务端。
 
 它不应成为 RoleCard、TeamPack workflow、通信矩阵或账号执行规则的最终事实源。
+
+## 3.7 Artifact Ledger 当前事实
+
+Project“产物”不进入 `taskHubStore`，也不再从 Task 兼容字段 `artifacts` 派生。页面通过
+`GET /api/artifacts?projectId=...` 读取服务端 `projectArtifactLedger.list(projectId)` 的纯投影：
+
+- `runtime.tool.started` 与同一 Invocation/callId 的 `runtime.tool.completed` 成功配对后，写工具输入中的 Project 内路径成为 `working` 记录；读取、失败、未完成、构建目录与越界路径被过滤；
+- 已接纳 `agent_outcome.evidence_refs_json` 与 Task owner 的 `task_artifact_ref` 都成为 `registered` 记录，直接 A2A 和传统 Task 不分叉；
+- 两种来源按规范化 ref 合并，`registered` 优先但保留 create/edit/delete/register 操作历史及 Agent、Invocation、Work 来源；
+- `ArtifactLedgerContextContributor`、Project/Workspace 产物页、Project 卡片和侧栏计数读取同一投影，把最近 ref 自动放入每次 Agent briefing；`.ath` 内部状态被过滤，页面与 Agent 不各自维护第二套“产物列表”。
+
+因此 Artifact Ledger 属于服务端导航读模型，Task outcome 与 Gate/Release owner 仍然拥有正式完成判断。

@@ -33,6 +33,18 @@ export class AgentProcessRegistry {
     return this.active.get(this.key(agentId, projectId));
   }
 
+  cancel(agentId: string, projectId?: string): number {
+    let cancelled = 0;
+    for (const [key, process] of [...this.active.entries()]) {
+      if (!key.startsWith(`${agentId}@`)) continue;
+      if (projectId && key !== this.key(agentId, projectId)) continue;
+      process.kill();
+      this.active.delete(key);
+      cancelled += 1;
+    }
+    return cancelled;
+  }
+
   remove(agentId: string, projectId: string, expected?: ActiveAgentProcess): void {
     const key = this.key(agentId, projectId);
     if (expected && this.active.get(key) !== expected) return;

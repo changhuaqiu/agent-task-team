@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 
 interface Migration {
   version: number;
@@ -4041,6 +4042,673 @@ CREATE TABLE IF NOT EXISTS workspace_command_journal (
 CREATE INDEX IF NOT EXISTS idx_workspace_command_journal_state
   ON workspace_command_journal(state,lease_expires_at,updated_at);
 `,
+  },
+  {
+    version: 92,
+    run: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS project (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          root_path TEXT NOT NULL COLLATE NOCASE UNIQUE,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_updated_at ON project(updated_at DESC);
+      `);
+
+      const hasAgents = Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agents'",
+      ).get());
+      if (hasAgents) {
+        const agentColumns = new Set((db.prepare('PRAGMA table_info(agents)')
+          .all() as Array<{ name: string }>).map((column) => column.name));
+        if (!agentColumns.has('runtime_id')) {
+          db.exec('ALTER TABLE agents ADD COLUMN runtime_id TEXT');
+        }
+        if (!agentColumns.has('account_ids')) {
+          db.exec("ALTER TABLE agents ADD COLUMN account_ids TEXT NOT NULL DEFAULT '[]'");
+        }
+      }
+
+      const hasConversation = Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='conversation'",
+      ).get());
+      if (!hasConversation) return;
+      const conversationColumns = new Set((db.prepare('PRAGMA table_info(conversation)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      if (!conversationColumns.has('project_path')) return;
+      const now = new Date().toISOString();
+      const paths = db.prepare(`
+        SELECT DISTINCT project_path
+        FROM conversation
+        WHERE project_path IS NOT NULL AND trim(project_path) <> ''
+      `).all() as Array<{ project_path: string }>;
+      const insert = db.prepare(`
+        INSERT OR IGNORE INTO project (id,name,root_path,created_at,updated_at)
+        VALUES (?,?,?,?,?)
+      `);
+      for (const row of paths) {
+        const normalized = row.project_path.replace(/[\\/]+$/, '');
+        const name = normalized.split(/[\\/]/).pop() || normalized;
+        insert.run(`project-${randomUUID()}`, name, normalized, now, now);
+      }
+    },
+  },
+  {
+    version: 93,
+    run: (db) => {
+      const hasAgents = Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agents'",
+      ).get());
+      if (!hasAgents) return;
+      const columns = new Set((db.prepare('PRAGMA table_info(agents)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      if (!columns.has('instructions')) {
+        db.exec("ALTER TABLE agents ADD COLUMN instructions TEXT NOT NULL DEFAULT ''");
+      }
+      if (!columns.has('avatar_url')) {
+        db.exec('ALTER TABLE agents ADD COLUMN avatar_url TEXT');
+      }
+      if (!columns.has('model')) {
+        db.exec('ALTER TABLE agents ADD COLUMN model TEXT');
+      }
+      db.exec(`
+        UPDATE agents
+        SET instructions = CASE id
+          WHEN 'mario' THEN '负责理解目标、拆解工作、协调团队并推动交付闭环。'
+          WHEN 'luigi' THEN '负责在明确边界内完成全栈实现，并提供可验证的实现证据。'
+          WHEN 'peach' THEN '负责独立评审、测试与质量判断，发现问题时给出可执行反馈。'
+          WHEN 'dk' THEN '负责架构、数据模型、安全与跨模块风险评估。'
+          ELSE instructions
+        END
+        WHERE trim(instructions) = '';
+      `);
+    },
+  },
+  {
+    version: 94,
+    run: (db) => {
+      const columns = new Set((db.prepare('PRAGMA table_info(agents)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      if (columns.has('runtime_id')) {
+        db.exec("UPDATE agents SET runtime_id='codex' WHERE runtime_id IS NULL OR trim(runtime_id)=''");
+      }
+    },
+  },
+  {
+    version: 95,
+    run: (db) => {
+      const hasConversation = Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='conversation'",
+      ).get());
+      if (!hasConversation) return;
+      const columns = new Set((db.prepare('PRAGMA table_info(conversation)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      if (!columns.has('project_id')) db.exec('ALTER TABLE conversation ADD COLUMN project_id TEXT');
+      if (!columns.has('workspace_kind')) {
+        db.exec("ALTER TABLE conversation ADD COLUMN workspace_kind TEXT NOT NULL DEFAULT 'workstream'");
+      }
+      if (!columns.has('project_path') || !columns.has('updated_at')) return;
+      const projects = db.prepare('SELECT id,name,root_path FROM project')
+        .all() as Array<{ id: string; name: string; root_path: string }>;
+      const conversations = db.prepare(`
+        SELECT id,project_path,updated_at FROM conversation
+        WHERE project_path IS NOT NULL AND trim(project_path) <> ''
+        ORDER BY updated_at DESC,id DESC
+      `).all() as Array<{ id: string; project_path: string; updated_at: string }>;
+      const identity = (value: string) => value.replace(/[\\/]+$/, '').toLowerCase();
+      const now = new Date().toISOString();
+      for (const project of projects) {
+        const matches = conversations.filter((conversation) => (
+          identity(conversation.project_path) === identity(project.root_path)
+        ));
+        if (matches.length > 0) {
+          for (const [index, conversation] of matches.entries()) {
+            db.prepare(`
+              UPDATE conversation SET project_id=?,workspace_kind=? WHERE id=?
+            `).run(project.id, index === 0 ? 'project_workspace' : 'historical_workstream', conversation.id);
+          }
+          continue;
+        }
+        db.prepare(`
+          INSERT INTO conversation (
+            id,title,goal,status,priority,project_path,use_worktree,created_at,updated_at,
+            project_id,workspace_kind
+          ) VALUES (?,?,NULL,'active','p2',?,0,?,?,?,?)
+        `).run(
+          `workspace-${randomUUID()}`,
+          project.name,
+          project.root_path,
+          now,
+          now,
+          project.id,
+          'project_workspace',
+        );
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_conversation_project ON conversation(project_id,workspace_kind,updated_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_project_workspace_conversation
+          ON conversation(project_id) WHERE workspace_kind='project_workspace';
+      `);
+    },
+  },
+  {
+    version: 96,
+    run: (db) => {
+      const hasProject = Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='project'",
+      ).get());
+      const hasConversation = Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='conversation'",
+      ).get());
+      if (!hasProject || !hasConversation) return;
+      const conversationColumns = new Set((db.prepare('PRAGMA table_info(conversation)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      if (!conversationColumns.has('project_id') || !conversationColumns.has('workspace_kind')) return;
+
+      const normalize = (value: string) => value.trim().replace(/[\\/]+$/, '');
+      const identity = (value: string) => normalize(value).toLowerCase();
+      const projects = db.prepare(`
+        SELECT id,name,root_path,created_at FROM project ORDER BY created_at,id
+      `).all() as Array<{ id: string; name: string; root_path: string; created_at: string }>;
+      const groups = new Map<string, typeof projects>();
+      for (const project of projects) {
+        const key = identity(project.root_path);
+        groups.set(key, [...(groups.get(key) ?? []), project]);
+      }
+
+      for (const group of groups.values()) {
+        const winner = group[0];
+        const ids = group.map((project) => project.id);
+        const placeholders = ids.map(() => '?').join(',');
+        const conversations = db.prepare(`
+          SELECT id,project_id,workspace_kind,updated_at FROM conversation
+          WHERE project_id IN (${placeholders})
+          ORDER BY CASE WHEN project_id=? AND workspace_kind='project_workspace' THEN 0
+                        WHEN workspace_kind='project_workspace' THEN 1 ELSE 2 END,
+                   updated_at DESC,id DESC
+        `).all(...ids, winner.id) as Array<{
+          id: string;
+          project_id: string;
+          workspace_kind: string;
+          updated_at: string;
+        }>;
+        const workspace = conversations[0];
+
+        // Demote first so the partial unique index cannot be violated while
+        // several historical projects are merged into one identity.
+        db.prepare(`
+          UPDATE conversation SET workspace_kind='historical_workstream'
+          WHERE project_id IN (${placeholders}) AND workspace_kind='project_workspace'
+        `).run(...ids);
+        db.prepare(`UPDATE conversation SET project_id=? WHERE project_id IN (${placeholders})`)
+          .run(winner.id, ...ids);
+        if (workspace) {
+          db.prepare("UPDATE conversation SET workspace_kind='project_workspace' WHERE id=?")
+            .run(workspace.id);
+        } else {
+          const now = new Date().toISOString();
+          db.prepare(`
+            INSERT INTO conversation (
+              id,title,goal,status,priority,project_path,use_worktree,created_at,updated_at,
+              project_id,workspace_kind
+            ) VALUES (?,?,NULL,'active','p2',?,0,?,?,?, 'project_workspace')
+          `).run(
+            `workspace-${randomUUID()}`,
+            winner.name,
+            normalize(winner.root_path),
+            now,
+            now,
+            winner.id,
+          );
+        }
+        for (const duplicate of group.slice(1)) {
+          db.prepare('DELETE FROM project WHERE id=?').run(duplicate.id);
+        }
+        db.prepare('UPDATE project SET root_path=? WHERE id=?')
+          .run(normalize(winner.root_path), winner.id);
+      }
+    },
+  },
+  {
+    version: 97,
+    run: (db) => {
+      const hasAgents = Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agents'",
+      ).get());
+      if (!hasAgents) return;
+      const columns = new Set((db.prepare('PRAGMA table_info(agents)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      if (!columns.has('can_modify_code')) {
+        db.exec('ALTER TABLE agents ADD COLUMN can_modify_code INTEGER NOT NULL DEFAULT 0');
+      }
+      if (!columns.has('can_review')) {
+        db.exec('ALTER TABLE agents ADD COLUMN can_review INTEGER NOT NULL DEFAULT 0');
+      }
+      db.exec(`
+        UPDATE agents SET can_modify_code=1 WHERE id IN ('mario','luigi','dk');
+        UPDATE agents SET can_review=1 WHERE id IN ('peach','dk');
+      `);
+    },
+  },
+  {
+    version: 98,
+    run: (db) => {
+      const tables = new Set((db.prepare(`
+        SELECT name FROM sqlite_master WHERE type='table'
+      `).all() as Array<{ name: string }>).map((row) => row.name));
+      if (!tables.has('agents') || !tables.has('team_pack_role')) return;
+      const columns = new Set((db.prepare('PRAGMA table_info(team_pack_role)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      const hasAccounts = columns.has('account_ids');
+      const hasSkills = columns.has('skill_ids');
+      const roles = db.prepare(`
+        SELECT role_id,display_name,soul,description,role_card_id,
+          ${hasAccounts ? 'account_ids' : 'NULL AS account_ids'},
+          ${hasSkills ? 'skill_ids' : 'NULL AS skill_ids'}
+        FROM team_pack_role ORDER BY pack_id,role_id
+      `).all() as Array<{
+        role_id: string;
+        display_name: string;
+        soul: string;
+        description: string | null;
+        role_card_id: string | null;
+        account_ids: string | null;
+        skill_ids: string | null;
+      }>;
+      const now = new Date().toISOString();
+      const insertAgent = db.prepare(`
+        INSERT OR IGNORE INTO agents (
+          id,name,role_card_id,theme,emoji,is_preset,runtime_id,account_ids,
+          instructions,avatar_url,model,can_modify_code,can_review,created_at,updated_at
+        ) VALUES (?,?,?,?,?,0,'codex',?,?,NULL,NULL,0,0,?,?)
+      `);
+      const assignSkill = tables.has('skill') && tables.has('agent_skill')
+        ? db.prepare(`
+            INSERT OR IGNORE INTO agent_skill (agent_id,skill_id,assigned_at)
+            SELECT ?,id,? FROM skill WHERE id=?
+          `)
+        : undefined;
+      for (const role of roles) {
+        const result = insertAgent.run(
+          role.role_id,
+          role.display_name,
+          role.role_card_id ?? 'preset-planner',
+          'mario',
+          '🤖',
+          role.account_ids ?? '[]',
+          role.soul.trim() || role.description?.trim() || `作为 ${role.display_name} 参与团队协作。`,
+          now,
+          now,
+        );
+        if (role.account_ids && role.account_ids !== '[]') {
+          db.prepare(`
+            UPDATE agents SET account_ids=?,updated_at=?
+            WHERE id=? AND (account_ids IS NULL OR account_ids='[]' OR trim(account_ids)='')
+          `).run(role.account_ids, now, role.role_id);
+        }
+        void result;
+        if (!assignSkill || !role.skill_ids) continue;
+        let skillIds: unknown = [];
+        try { skillIds = JSON.parse(role.skill_ids); } catch { skillIds = []; }
+        if (!Array.isArray(skillIds)) continue;
+        for (const skillId of skillIds) {
+          if (typeof skillId === 'string') assignSkill.run(role.role_id, now, skillId);
+        }
+      }
+    },
+  },
+  {
+    version: 99,
+    sql: `
+      CREATE TABLE IF NOT EXISTS project_review (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        repository_root TEXT NOT NULL,
+        base_ref TEXT NOT NULL,
+        compare_ref TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'open',
+        decision_summary TEXT,
+        revision INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (status IN ('open','changes_requested','approved','closed')),
+        CHECK (base_ref <> compare_ref)
+      );
+      CREATE INDEX IF NOT EXISTS idx_project_review_project
+        ON project_review(project_id, updated_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_project_review_open_pair
+        ON project_review(project_id, repository_root, base_ref, compare_ref)
+        WHERE status IN ('open','changes_requested');
+    `,
+  },
+  {
+    version: 100,
+    run: (db) => {
+      const taskTable = db.prepare(`
+        SELECT 1 FROM sqlite_master WHERE type='table' AND name='task'
+      `).get();
+      if (!taskTable) return;
+      const columns = new Set((db.prepare('PRAGMA table_info(task)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      if (!columns.has('category')) {
+        db.exec("ALTER TABLE task ADD COLUMN category TEXT NOT NULL DEFAULT 'issue'");
+      }
+    },
+  },
+  {
+    version: 101,
+    run: (db) => {
+      const inboxTable = db.prepare(`
+        SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_inbox_item'
+      `).get();
+      if (!inboxTable) return;
+      db.exec(`
+        DROP TRIGGER IF EXISTS trg_agent_inbox_transition_update;
+        CREATE TRIGGER trg_agent_inbox_transition_update
+        BEFORE UPDATE OF status ON agent_inbox_item
+        WHEN NEW.status <> OLD.status AND NOT (
+          (OLD.status='enqueued' AND NEW.status IN ('claimed','expired','cancelled'))
+          OR (OLD.status='released' AND NEW.status IN ('claimed','expired','cancelled'))
+          OR (OLD.status='claimed' AND NEW.status IN ('admitted','released','expired','cancelled'))
+          OR (OLD.status='expired' AND NEW.status='released')
+        )
+        BEGIN
+          SELECT RAISE(ABORT,'invalid_agent_inbox_transition');
+        END;
+      `);
+    },
+  },
+  {
+    version: 102,
+    run: (db) => {
+      const agentTable = db.prepare(`
+        SELECT 1 FROM sqlite_master WHERE type='table' AND name='agents'
+      `).get();
+      if (!agentTable) return;
+      const columns = new Set((db.prepare('PRAGMA table_info(agents)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      if (!columns.has('use_runtime_defaults')) {
+        db.exec('ALTER TABLE agents ADD COLUMN use_runtime_defaults INTEGER NOT NULL DEFAULT 1');
+      }
+      if (!columns.has('audience_mode')) {
+        db.exec("ALTER TABLE agents ADD COLUMN audience_mode TEXT NOT NULL DEFAULT 'owner'");
+      }
+      if (!columns.has('audience_ids')) {
+        db.exec("ALTER TABLE agents ADD COLUMN audience_ids TEXT NOT NULL DEFAULT '[]'");
+      }
+      if (!columns.has('parallelism')) {
+        db.exec('ALTER TABLE agents ADD COLUMN parallelism INTEGER');
+      }
+      if (!columns.has('instance_name_pool')) {
+        db.exec("ALTER TABLE agents ADD COLUMN instance_name_pool TEXT NOT NULL DEFAULT '[]'");
+      }
+      if (!columns.has('run_location')) {
+        db.exec("ALTER TABLE agents ADD COLUMN run_location TEXT NOT NULL DEFAULT 'local'");
+      }
+      if (!columns.has('revision')) {
+        db.exec('ALTER TABLE agents ADD COLUMN revision INTEGER NOT NULL DEFAULT 1');
+      }
+    },
+  },
+  {
+    version: 103,
+    sql: `
+      CREATE TABLE IF NOT EXISTS workspace_inbox_item (
+        conversation_key TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        project_id TEXT REFERENCES project(id) ON DELETE CASCADE,
+        subject_type TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        actor_type TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        preview TEXT NOT NULL DEFAULT '',
+        action_state TEXT NOT NULL DEFAULT 'informational',
+        latest_event_id TEXT NOT NULL,
+        latest_at TEXT NOT NULL,
+        unread_count INTEGER NOT NULL DEFAULT 1,
+        read_at TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        revision INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (kind IN ('message_thread','work','review','agent_activity','reminder','draft')),
+        CHECK (action_state IN ('informational','needs_action','resolved')),
+        CHECK (unread_count >= 0)
+      );
+      CREATE INDEX IF NOT EXISTS idx_workspace_inbox_latest
+        ON workspace_inbox_item(latest_at DESC,conversation_key);
+      CREATE INDEX IF NOT EXISTS idx_workspace_inbox_filter
+        ON workspace_inbox_item(kind,action_state,latest_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_workspace_inbox_project
+        ON workspace_inbox_item(project_id,latest_at DESC);
+    `,
+  },
+  {
+    version: 104,
+    sql: `
+      CREATE TABLE IF NOT EXISTS project_automation (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 0,
+        trigger_json TEXT NOT NULL,
+        actions_json TEXT NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (enabled IN (0,1))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_project_automation_name
+        ON project_automation(project_id,name COLLATE NOCASE);
+      CREATE INDEX IF NOT EXISTS idx_project_automation_project
+        ON project_automation(project_id,updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS automation_run (
+        id TEXT PRIMARY KEY,
+        automation_id TEXT NOT NULL REFERENCES project_automation(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        source_event_id TEXT,
+        schedule_claim TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        current_step INTEGER,
+        trigger_context_json TEXT NOT NULL DEFAULT '{}',
+        trace_json TEXT NOT NULL DEFAULT '[]',
+        error_code TEXT,
+        error_message TEXT,
+        started_at TEXT,
+        completed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (status IN ('pending','running','waiting_decision','completed','failed','cancelled','skipped'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_automation_run_source_event
+        ON automation_run(automation_id,source_event_id) WHERE source_event_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_automation_run_schedule_claim
+        ON automation_run(automation_id,schedule_claim) WHERE schedule_claim IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_automation_run_history
+        ON automation_run(automation_id,created_at DESC);
+    `,
+  },
+  {
+    version: 105,
+    run: (db) => {
+      const automationColumns = new Set(
+        (db.pragma('table_info(project_automation)') as Array<{ name: string }>).map((column) => column.name),
+      );
+      if (!automationColumns.has('activation_watermark_at')) {
+        db.exec('ALTER TABLE project_automation ADD COLUMN activation_watermark_at TEXT');
+      }
+      const runColumns = new Set(
+        (db.pragma('table_info(automation_run)') as Array<{ name: string }>).map((column) => column.name),
+      );
+      const additions: Array<[string, string]> = [
+        ['definition_revision', 'INTEGER NOT NULL DEFAULT 1'],
+        ['trigger_snapshot_json', `TEXT NOT NULL DEFAULT '{"type":"manual"}'`],
+        ['actions_snapshot_json', `TEXT NOT NULL DEFAULT '[]'`],
+        ['retry_count', 'INTEGER NOT NULL DEFAULT 0'],
+      ];
+      for (const [name, sqlType] of additions) {
+        if (!runColumns.has(name)) db.exec(`ALTER TABLE automation_run ADD COLUMN ${name} ${sqlType}`);
+      }
+      db.exec(`
+        UPDATE project_automation
+        SET activation_watermark_at=CASE WHEN enabled=1 THEN updated_at ELSE NULL END
+        WHERE activation_watermark_at IS NULL;
+        UPDATE automation_run
+        SET definition_revision=COALESCE((
+              SELECT revision FROM project_automation WHERE project_automation.id=automation_run.automation_id
+            ),definition_revision,1),
+            trigger_snapshot_json=CASE WHEN trigger_snapshot_json='{"type":"manual"}' THEN COALESCE((
+              SELECT trigger_json FROM project_automation WHERE project_automation.id=automation_run.automation_id
+            ),trigger_snapshot_json) ELSE trigger_snapshot_json END,
+            actions_snapshot_json=CASE WHEN actions_snapshot_json='[]' THEN COALESCE((
+              SELECT actions_json FROM project_automation WHERE project_automation.id=automation_run.automation_id
+            ),actions_snapshot_json) ELSE actions_snapshot_json END;
+        CREATE TABLE IF NOT EXISTS automation_definition_revision (
+          automation_id TEXT NOT NULL REFERENCES project_automation(id) ON DELETE CASCADE,
+          revision INTEGER NOT NULL,
+          project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          enabled INTEGER NOT NULL,
+          trigger_json TEXT NOT NULL,
+          actions_json TEXT NOT NULL,
+          activation_watermark_at TEXT,
+          effective_at TEXT NOT NULL,
+          PRIMARY KEY (automation_id,revision),
+          CHECK (enabled IN (0,1))
+        );
+        INSERT OR IGNORE INTO automation_definition_revision (
+          automation_id,revision,project_id,name,description,enabled,trigger_json,
+          actions_json,activation_watermark_at,effective_at
+        )
+        SELECT id,revision,project_id,name,description,enabled,trigger_json,
+          actions_json,activation_watermark_at,updated_at
+        FROM project_automation;
+        CREATE INDEX IF NOT EXISTS idx_automation_revision_event_lookup
+          ON automation_definition_revision(project_id,effective_at,automation_id,revision DESC);
+      `);
+    },
+  },
+  {
+    version: 106,
+    sql: `
+      CREATE TABLE IF NOT EXISTS automation_decision (
+        id TEXT PRIMARY KEY,
+        automation_id TEXT NOT NULL REFERENCES project_automation(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES automation_run(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        step_id TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        requested_by TEXT NOT NULL,
+        decided_by TEXT,
+        note TEXT,
+        created_at TEXT NOT NULL,
+        decided_at TEXT,
+        CHECK (status IN ('pending','approved','denied')),
+        UNIQUE (run_id,step_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_automation_decision_pending
+        ON automation_decision(project_id,status,created_at);
+      CREATE INDEX IF NOT EXISTS idx_automation_decision_run
+        ON automation_decision(run_id,created_at,id);
+    `,
+  },
+  {
+    version: 107,
+    sql: `
+      CREATE TABLE IF NOT EXISTS project_release (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'draft',
+        targets_json TEXT NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        published_at TEXT,
+        CHECK (status IN ('draft','published'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_project_release_name
+        ON project_release(project_id,name COLLATE NOCASE);
+      CREATE INDEX IF NOT EXISTS idx_project_release_project
+        ON project_release(project_id,updated_at DESC,id);
+    `,
+  },
+  {
+    version: 108,
+    run: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS project_agent_membership (
+          project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+          agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+          source TEXT NOT NULL DEFAULT 'manual',
+          added_at TEXT NOT NULL,
+          PRIMARY KEY (project_id,agent_id),
+          CHECK (source IN ('default','team','manual'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_agent_membership_agent
+          ON project_agent_membership(agent_id,project_id);
+      `);
+      const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .all() as Array<{ name: string }>).map((row) => row.name));
+      if (tables.has('conversation') && tables.has('team_pack_role') && tables.has('agents')) {
+        db.exec(`
+          INSERT OR IGNORE INTO project_agent_membership (project_id,agent_id,source,added_at)
+          SELECT conversation.project_id,team_pack_role.role_id,'team',conversation.updated_at
+          FROM conversation
+          JOIN team_pack_role ON team_pack_role.pack_id=conversation.team_pack_id
+          JOIN agents ON agents.id=team_pack_role.role_id
+          WHERE conversation.workspace_kind='project_workspace'
+            AND conversation.project_id IS NOT NULL;
+        `);
+      }
+      if (tables.has('project') && tables.has('agents')) {
+        db.exec(`
+          INSERT OR IGNORE INTO project_agent_membership (project_id,agent_id,source,added_at)
+          SELECT project.id,agents.id,'default',project.updated_at
+          FROM project
+          JOIN agents ON agents.id IN ('mario','luigi')
+          WHERE NOT EXISTS (
+            SELECT 1 FROM project_agent_membership membership
+            WHERE membership.project_id=project.id
+          );
+        `);
+      }
+    },
+  },
+  {
+    version: 109,
+    run: (db) => {
+      const hasAgents = Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agents'",
+      ).get());
+      if (!hasAgents) return;
+      const columns = new Set((db.prepare('PRAGMA table_info(agents)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      if (!columns.has('responsibility')) {
+        db.exec("ALTER TABLE agents ADD COLUMN responsibility TEXT NOT NULL DEFAULT 'specialist'");
+      }
+      db.prepare(`
+        UPDATE agents SET responsibility=CASE id
+          WHEN 'mario' THEN 'coordinator'
+          WHEN 'luigi' THEN 'implementer'
+          WHEN 'peach' THEN 'reviewer'
+          WHEN 'dk' THEN 'reviewer'
+          ELSE responsibility
+        END,
+        revision=revision+1,
+        updated_at=?
+      `).run(new Date().toISOString());
+    },
   },
 ];
 

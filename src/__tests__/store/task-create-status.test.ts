@@ -64,4 +64,37 @@ describe('browser task creation status boundary', () => {
     const body = JSON.parse(String(request?.body)) as { task: Record<string, unknown> };
     expect(body.task).not.toHaveProperty('status');
   });
+
+  it('projects a new project and its workspace atomically before work can be created', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({
+        status: 'applied',
+        result: {
+          project: {
+            id: 'project-alpha', name: 'Alpha', root_path: 'C:/projects/alpha',
+            workspace_conversation_id: 'workspace-alpha', created_at: '2026-08-25T00:00:00.000Z',
+            updated_at: '2026-08-25T00:00:00.000Z',
+          },
+          workspace: {
+            id: 'workspace-alpha', title: 'Alpha', goal: null, status: 'active', priority: 'p2',
+            project_path: 'C:/projects/alpha', use_worktree: 0, git_repo_root: null,
+            team_pack_id: null, created_at: '2026-08-25T00:00:00.000Z',
+            updated_at: '2026-08-25T00:00:00.000Z', project_id: 'project-alpha',
+            workspace_kind: 'project_workspace',
+          },
+        },
+      }),
+    } as Response);
+
+    const project = await useTaskHubStore.getState().addProject({
+      name: 'Alpha', rootPath: 'C:/projects/alpha',
+    });
+
+    expect(project.workspaceConversationId).toBe('workspace-alpha');
+    expect(useTaskHubStore.getState().conversations).toContainEqual(expect.objectContaining({
+      id: 'workspace-alpha', projectId: 'project-alpha', workspaceKind: 'project_workspace',
+    }));
+  });
 });

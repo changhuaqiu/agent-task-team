@@ -105,21 +105,20 @@ const formatContentWithMentions = (content: string) => {
   });
 };
 
-function HumanMessageContent({ content }: { content: string }) {
-  const quotedReply = content.match(/^> 引用 ([^：\n]+)：([^\n]+)\n\n([\s\S]*)$/);
-  if (!quotedReply) {
-    return <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(content)}</div>;
-  }
-
+function ReplyPreview({ metadata }: { metadata?: Record<string, unknown> }) {
+  const author = typeof metadata?.replyAuthor === 'string' ? metadata.replyAuthor : '';
+  const preview = typeof metadata?.replyPreview === 'string' ? metadata.replyPreview : '';
+  if (!author || !preview) return null;
   return (
-    <div>
-      <div className="mb-2 border-l-2 border-[hsl(var(--accent))] pl-2 text-[11px] text-[hsl(var(--text-secondary))]">
-        <div className="font-semibold text-[hsl(var(--accent))]">{quotedReply[1]}</div>
-        <div className="line-clamp-2">{quotedReply[2]}</div>
-      </div>
-      <div className="whitespace-pre-wrap break-words">{formatContentWithMentions(quotedReply[3])}</div>
+    <div className="mb-2 border-l-2 border-[hsl(var(--accent))] pl-2 text-[11px] text-[hsl(var(--text-secondary))]" data-testid="structured-reply-preview">
+      <div className="font-semibold text-[hsl(var(--accent))]">{author}</div>
+      <div className="line-clamp-2">{preview}</div>
     </div>
   );
+}
+
+function HumanMessageContent({ content, metadata }: { content: string; metadata?: Record<string, unknown> }) {
+  return <div><ReplyPreview metadata={metadata} /><div className="whitespace-pre-wrap break-words">{formatContentWithMentions(content)}</div></div>;
 }
 
 const LONG_NARRATIVE_CHARACTER_LIMIT = 900;
@@ -166,6 +165,10 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
   const setSelectedTaskId = useTaskHubStore((s) => s.setSelectedTaskId);
   const updateChatMessageStatus = useTaskHubStore((s) => s.updateChatMessageStatus);
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
+  const dispatchReceiptsByConversation = useTaskHubStore((state) => state.dispatchReceiptsByConversation);
+  const dispatchReceipts = selectedConversationId
+    ? dispatchReceiptsByConversation[selectedConversationId] ?? []
+    : [];
 
   const segments = responseSegments?.length ? responseSegments : [message];
   const responseMessage = segments[0];
@@ -198,16 +201,23 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
     ? plainTextSegments.filter((segment) => segment.id !== finalPlainTextId)
     : [];
   const intermediateNarrativeIds = new Set(intermediateNarrativeSegments.map((segment) => segment.id));
+  const acknowledgements = isHuman
+    ? Array.from(new Map(
+      dispatchReceipts
+        .filter((receipt) => (
+          receipt.phase === 'acknowledged'
+          && receipt.sourceMessageId === responseMessage.id
+        ))
+        .map((receipt) => [receipt.targetAgentId, receipt]),
+    ).values())
+    : [];
 
   const timeString = new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
   return (
     <div
       data-testid={message.invocationId ? `agent-response-${message.invocationId}` : undefined}
       data-message-id={responseMessage.id}
-      className={cn(
-        'group flex w-full gap-3 animate-fade-in',
-        isHuman ? 'flex-row-reverse' : 'flex-row'
-      )}
+      className="group relative flex w-full animate-fade-in gap-3 rounded-xl px-2 py-2 hover:bg-[hsl(var(--bg-muted)/0.55)]"
     >
       {/* Avatar */}
       <div className="shrink-0 pt-1">
@@ -228,11 +238,11 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
       </div>
 
       {/* Message Body */}
-      <div className={cn('flex flex-col max-w-[85%]', isHuman && 'items-end')}>
+      <div className="flex min-w-0 flex-1 flex-col">
         {/* Header */}
         <div className="flex items-baseline gap-2 mb-1">
           <span className="text-[11px] font-bold text-[hsl(var(--text-secondary))]">
-            {isHuman ? '用户' : agent?.name}
+            {isHuman ? '你' : agent?.name}
           </span>
           <span className="text-[9px] text-[hsl(var(--text-tertiary))] opacity-70">
             {timeString}
@@ -255,14 +265,7 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
 
         {/* Bubble */}
         <div
-          className={cn(
-            'relative break-words border px-3.5 py-2.5 text-[12px] leading-relaxed shadow-sm',
-            'bg-[hsl(var(--bg-card))] text-[hsl(var(--text-primary))]',
-            'rounded-2xl',
-            isHuman
-              ? 'border-[hsl(var(--agent-owner-border))] rounded-tr-md'
-              : 'border-[hsl(var(--border))] rounded-tl-md'
-          )}
+          className="relative break-words pr-2 text-[12px] leading-relaxed text-[hsl(var(--text-primary))]"
         >
           {intermediateNarrativeSegments.length > 0 && (
             <details
@@ -291,7 +294,7 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
                   <span className="inline-block w-1.5 h-4 bg-current animate-pulse rounded-full opacity-50" />
                 ) : segment.content && !hideSegmentNarrative ? (
                   isHuman ? (
-                    <HumanMessageContent content={segment.content} />
+                    <HumanMessageContent content={segment.content} metadata={segment.metadata} />
                   ) : (
                     <AgentNarrative content={segment.content} />
                   )
@@ -352,6 +355,25 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
             </div>
           )}
 
+          {acknowledgements.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1" data-testid="agent-acknowledgements">
+              {acknowledgements.map((receipt) => {
+                const acknowledgingAgent = allAgents.find((candidate) => candidate.id === receipt.targetAgentId);
+                const label = `${acknowledgingAgent?.name ?? receipt.targetAgentId} 已收到`;
+                return (
+                  <span
+                    key={receipt.targetAgentId}
+                    className="inline-flex h-6 min-w-7 items-center justify-center rounded-full border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] px-1.5 text-[12px] shadow-sm"
+                    aria-label={label}
+                    title={label}
+                  >
+                    {acknowledgingAgent?.emoji ?? '✓'}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
           {/* Message actions stay keyboard/touch discoverable. */}
             <div className="absolute -top-2 right-2 z-10 flex gap-0.5 rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-0.5 opacity-100 shadow-sm transition-opacity sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100">
               {!isHuman && (message.conversationId || selectedConversationId) && (
@@ -376,6 +398,9 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
                   window.dispatchEvent(new CustomEvent('chat:quote', {
                     detail: {
                       id: responseMessage.id,
+                      rootId: typeof responseMessage.metadata?.threadRootId === 'string'
+                        ? responseMessage.metadata.threadRootId
+                        : responseMessage.id,
                       author: isHuman ? '用户' : agent?.name ?? responseMessage.agentId,
                       content: responseText,
                     },

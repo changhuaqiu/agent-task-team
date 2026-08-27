@@ -1,4 +1,3 @@
-import type { RoleCard } from '@/types/roleCard';
 import type { ChatMessage } from '@/store/types';
 import type { RuntimeAgent } from '@/lib/team-runtime';
 import type { TeamPack } from '@/types/teamPack';
@@ -17,7 +16,6 @@ export interface TierContext {
   bootstrapIdentity: boolean;
   agentId: string;
   conversationId: string;
-  roleCard: RoleCard | undefined;
   messages: ChatMessage[];
   task: {
     id: string;

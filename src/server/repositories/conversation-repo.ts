@@ -13,17 +13,19 @@ export interface ConversationRow {
   participants: string | null;
   created_at: string;
   updated_at: string;
+  project_id: string | null;
+  workspace_kind: 'project_workspace' | 'historical_workstream' | 'workstream';
 }
 
 export const conversationRepo = {
-  create(input: { id: string; title: string; goal?: string; priority?: string; project_path?: string; team_pack_id?: string; use_worktree?: boolean; git_repo_root?: string }): ConversationRow {
+  create(input: { id: string; title: string; goal?: string; priority?: string; project_path?: string; team_pack_id?: string; use_worktree?: boolean; git_repo_root?: string; project_id?: string; workspace_kind?: ConversationRow['workspace_kind'] }): ConversationRow {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO conversation (id, title, goal, status, priority, project_path, use_worktree, git_repo_root, team_pack_id, created_at, updated_at)
-         VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO conversation (id, title, goal, status, priority, project_path, use_worktree, git_repo_root, team_pack_id, created_at, updated_at, project_id, workspace_kind)
+         VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(input.id, input.title, input.goal ?? null, input.priority ?? 'p2', input.project_path ?? null, input.use_worktree ? 1 : 0, input.git_repo_root ?? null, input.team_pack_id ?? null, now, now);
+      .run(input.id, input.title, input.goal ?? null, input.priority ?? 'p2', input.project_path ?? null, input.use_worktree ? 1 : 0, input.git_repo_root ?? null, input.team_pack_id ?? null, now, now, input.project_id ?? null, input.workspace_kind ?? 'workstream');
     return conversationRepo.getById(input.id)!;
   },
 

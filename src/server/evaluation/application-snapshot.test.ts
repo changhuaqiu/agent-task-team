@@ -58,6 +58,12 @@ beforeEach(() => {
     JSON.stringify({ snapshotVersion: 1, snapshottedAt: now, displayName: 'Runner Agent' }),
     '["account-ref"]', '[]', now,
   );
+  getDb().prepare(`INSERT INTO agents
+    (id,name,role_card_id,theme,emoji,is_preset,runtime_id,account_ids,instructions,model,can_modify_code,can_review,created_at,updated_at)
+    VALUES (?,?,?,?,?,0,?,?,?,?,0,0,?,?)`).run(
+    'agent-runner', 'Runner Agent', 'preset-planner', 'mario', '🤖', 'codex',
+    '["account-ref"]', 'execute', 'gpt-5.4', now, now,
+  );
 });
 
 afterEach(() => resetDb());
@@ -256,10 +262,10 @@ describe('application snapshot and case execution', () => {
       observedManifestDigest: snapshot.manifest_digest,
       applicationVariant: snapshot.manifest,
     });
-    expect(subject.appManifest.roleCardSnapshots).toEqual([
+    expect(subject.appManifest.agentDefinitions).toEqual([
       expect.objectContaining({
-        roleId: 'agent-runner',
-        snapshotDigest: digest(snapshot.manifest.team.roles[0]?.roleCardSnapshot),
+        agentId: 'agent-runner',
+        revision: expect.any(Number),
       }),
     ]);
     expect(JSON.stringify(subject.appManifest)).not.toContain('mutable-skill');

@@ -3,6 +3,7 @@ import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 import type {
   AgentActivationSource,
   AgentExecutionMode,
+  AgentExecutionSubject,
 } from '../invocation-pipeline/types';
 import type { PlatformEvent } from '../platform-events/types';
 
@@ -30,6 +31,7 @@ export interface WorkRequest {
   scope?: {
     workId?: string;
     executionMode?: AgentExecutionMode;
+    executionSubject?: AgentExecutionSubject;
     taskId?: string;
     deliveryRunId?: string;
   };

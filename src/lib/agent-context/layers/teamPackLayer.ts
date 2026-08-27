@@ -18,7 +18,7 @@ export function buildTeamPackLayer(
   const agentRole = teamPack.roles.find(r => r.id === agentId);
   if (agentRole) {
     parts.push(`### 你在团队中的角色`);
-    parts.push(`**${agentRole.displayName}**：${agentRole.description ?? ''}`);
+    parts.push(`**${agentRole.displayName}**`);
   }
 
   // Team mode specific instructions

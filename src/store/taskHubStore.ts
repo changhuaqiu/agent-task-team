@@ -2,11 +2,10 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { PRESET_ROLE_CARDS } from '@/data/presetRoleCards';
 
 // Sub-store slice creators
 import { createTaskSlice, observeAuthoritativeTaskProjection } from './taskStore';
-import type { TaskStatus, Task, TaskArtifact } from './taskStore';
+import type { TaskStatus, Task, TaskArtifact, TaskIdentity } from './taskStore';
 import { setTaskCounter } from './taskStore';
 import { createAgentSlice, AGENT_ROSTER } from './agentStore';
 import { loadAgents } from './agentStore';
@@ -24,8 +23,7 @@ import {
 } from '@/shared/project-view-events';
 import { resolveRuntimeAgentProfile, resolveTeamRuntime } from '@/lib/team-runtime';
 import type { PresetRuntimeAgentInput, RuntimeAgentProfile, TeamRuntime } from '@/lib/team-runtime';
-import type { RoleCard } from '@/types/roleCard';
-import type { TeamPackRole, TeamPack } from '@/types/teamPack';
+import type { TeamPack } from '@/types/teamPack';
 import type { Phase } from '@/types/phase';
 import type { PhaseProposal } from '@/lib/breakdownParser';
 import type { SkillSummary } from '@/lib/agent-context/types';
@@ -41,7 +39,7 @@ export type { A2AHandoffStatus, A2AHandoffView, A2APossessionView, ChatMessage, 
 // Re-export types from sub-stores (backward compatibility)
 export type { DetectedRuntime } from '@/server/types';
 export type { TaskStatus } from './taskStore';
-export type { Task, TaskArtifact } from './taskStore';
+export type { Task, TaskArtifact, TaskIdentity } from './taskStore';
 export { STATUS_LABELS, STATUS_ORDER } from './taskStore';
 export type { AgentTheme, Agent } from './agentStore';
 export { AGENT_ROSTER, loadAgents, PROVIDER_LABELS, PROVIDER_OPTIONS, MODEL_SUGGESTIONS } from './agentStore';
@@ -77,6 +75,7 @@ export interface DispatchReceipt {
   projectId: string;
   receiptId: string;
   conversationId: string;
+  sourceMessageId?: string;
   taskId?: string;
   targetAgentId: string;
   source?: 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
@@ -86,6 +85,52 @@ export interface DispatchReceipt {
   runId?: string;
   reasonCode?: string;
   createdAt: string;
+}
+
+const DISPATCH_RECEIPT_FALLBACK_LIMIT = 200;
+const DISPATCH_PHASE_ORDER: Record<DispatchReceipt['phase'], number> = {
+  requested: 0,
+  sent: 1,
+  acknowledged: 2,
+  rejected: 2,
+};
+
+export function compareDispatchReceipts(left: DispatchReceipt, right: DispatchReceipt): number {
+  const leftEnvelopeId = left.receiptId.slice(0, left.receiptId.lastIndexOf(':')) || left.receiptId;
+  const rightEnvelopeId = right.receiptId.slice(0, right.receiptId.lastIndexOf(':')) || right.receiptId;
+  return left.createdAt.localeCompare(right.createdAt)
+    || leftEnvelopeId.localeCompare(rightEnvelopeId)
+    || DISPATCH_PHASE_ORDER[left.phase] - DISPATCH_PHASE_ORDER[right.phase]
+    || left.receiptId.localeCompare(right.receiptId);
+}
+
+function retainDispatchReceipts(
+  receipts: DispatchReceipt[],
+  visibleMessages: ChatMessage[],
+): DispatchReceipt[] {
+  const latestById = new Map<string, DispatchReceipt>();
+  for (const receipt of receipts) latestById.set(receipt.receiptId, receipt);
+  const orderedById = [...latestById.values()].sort(compareDispatchReceipts);
+  const latestByDispatch = new Map<string, DispatchReceipt>();
+  for (const receipt of orderedById) {
+    const lane = receipt.phase === 'acknowledged' || receipt.phase === 'rejected'
+      ? 'terminal'
+      : 'progress';
+    const key = receipt.sourceMessageId
+      ? `${receipt.sourceMessageId}\u0000${receipt.targetAgentId}\u0000${lane}`
+      : receipt.receiptId;
+    latestByDispatch.set(key, receipt);
+  }
+  const ordered = [...latestByDispatch.values()];
+  const visibleMessageIds = new Set(visibleMessages.map((message) => message.id));
+  const visible = ordered.filter((receipt) => (
+    receipt.sourceMessageId && visibleMessageIds.has(receipt.sourceMessageId)
+  ));
+  const visibleReceiptIds = new Set(visible.map((receipt) => receipt.receiptId));
+  const fallback = ordered
+    .filter((receipt) => !visibleReceiptIds.has(receipt.receiptId))
+    .slice(-DISPATCH_RECEIPT_FALLBACK_LIMIT);
+  return [...visible, ...fallback].sort(compareDispatchReceipts);
 }
 
 export interface Conversation {
@@ -102,6 +147,18 @@ export interface Conversation {
   teamPackId?: string;
   createdAt: string;
   updatedAt: string;
+  projectId?: string;
+  workspaceKind?: 'project_workspace' | 'historical_workstream' | 'workstream';
+}
+
+export interface WorkspaceProject {
+  id: string;
+  name: string;
+  rootPath: string;
+  createdAt: string;
+  updatedAt: string;
+  workspaceConversationId: string;
+  agentIds?: string[];
 }
 
 export type PlatformNoticeKind =
@@ -202,92 +259,49 @@ const selectAgentRoster = (state: TaskHubState) => state.agentRoster;
 
 // --- Helper Selectors ---
 
-function findCurrentTeamRole(state: TaskHubState, agentId: string): TeamPackRole | undefined {
-  const conv = state.conversations.find((c) => c.id === state.selectedConversationId);
-  if (!conv?.teamPackId || !state.currentTeamPack || state.currentTeamPack.id !== conv.teamPackId) {
-    return undefined;
-  }
-  return state.currentTeamPack.roles.find((role) => role.id === agentId);
-}
-
-function updateCurrentTeamRole(
-  state: TaskHubState,
-  agentId: string,
-  patch: Partial<TeamPackRole>,
-): Pick<TaskHubState, 'currentTeamPack'> {
-  if (!state.currentTeamPack) return { currentTeamPack: state.currentTeamPack };
-  return {
-    currentTeamPack: {
-      ...state.currentTeamPack,
-      roles: state.currentTeamPack.roles.map((role) =>
-        role.id === agentId ? { ...role, ...patch } : role
-      ),
-    },
-  };
-}
-
 function buildTeamRuntimeFromState(state: TaskHubState) {
   const conv = state.conversations.find((c) => c.id === state.selectedConversationId);
+  const project = state.projects.find((item) => (
+    item.id === conv?.projectId || item.workspaceConversationId === conv?.id
+  ));
+  const projectAgentIds = project?.agentIds ?? state.activeAgentIds;
   const currentTeamPack = conv?.teamPackId && state.currentTeamPack?.id === conv.teamPackId
     ? state.currentTeamPack
     : undefined;
-  const presetAgents: PresetRuntimeAgentInput[] = AGENT_ROSTER.map((agent) => ({
+  const presetAgents: PresetRuntimeAgentInput[] = state.agentRoster.map((agent) => ({
     id: agent.id,
     name: agent.name,
-    roleCardId: agent.roleCardId,
     accountIds: agent.accountIds,
     cliEngine: agent.cliEngine,
+    instructions: agent.instructions,
+    model: agent.model,
     emoji: agent.emoji,
     theme: agent.theme,
+    skillIds: agent.skillIds,
+    canModifyCode: agent.canModifyCode,
+    canReview: agent.canReview,
   }));
 
   const runtime = resolveTeamRuntime({
     conversationId: conv?.id ?? state.selectedConversationId ?? 'default',
     teamPack: currentTeamPack,
     presetAgents,
-    activeAgentIds: state.activeAgentIds,
-    roleCards: state.roleCards,
+    activeAgentIds: projectAgentIds,
     skillsMap: state.skillsMap,
-    agentSkillIds: state.agentSkillIds,
-    agentAccountOverrides: state.agentAccountOverrides,
-    agentRoleCardOverrides: state.agentRoleCardOverrides ?? {},
+    strictActiveRoster: Boolean(project),
   });
 
-  if (!currentTeamPack) {
-    return runtime;
-  }
-
-  const presetRuntime = resolveTeamRuntime({
-    conversationId: runtime.conversationId,
-    presetAgents,
-    activeAgentIds: state.activeAgentIds,
-    roleCards: state.roleCards,
-    skillsMap: state.skillsMap,
-    agentSkillIds: state.agentSkillIds,
-    agentAccountOverrides: state.agentAccountOverrides,
-    agentRoleCardOverrides: state.agentRoleCardOverrides ?? {},
-  });
-  const existingIds = new Set(runtime.roster.map((agent) => agent.id));
-  return {
-    ...runtime,
-    roster: [
-      ...runtime.roster,
-      ...presetRuntime.roster.filter((agent) => !existingIds.has(agent.id)),
-    ],
-  };
+  return runtime;
 }
 
 interface TeamRuntimeCache {
   selectedConversationId: string | null;
   conversations: Conversation[];
+  projects: WorkspaceProject[];
   currentTeamPack: TeamPack | null;
   activeAgentIds: string[];
-  roleCards: RoleCard[];
   skillsMap: Record<string, SkillSummary>;
-  agentSkillIds: Record<string, string[]>;
-  agentAccountOverrides: Record<string, string[]>;
-  agentRoleCardOverrides: Record<string, string>;
-  presetRosterSignature: string;
+  agentRoster: Agent[];
   runtime: TeamRuntime;
   effectiveRoster: Agent[] | null;
   profilesByAgentId: Map<string, { accounts: Account[]; profile: RuntimeAgentProfile | null }>;
@@ -295,39 +309,21 @@ interface TeamRuntimeCache {
 
 let teamRuntimeCache: TeamRuntimeCache | null = null;
 
-function getPresetRosterSignature(): string {
-  return AGENT_ROSTER.map((agent) => [
-    agent.id,
-    agent.name,
-    agent.roleCardId,
-    agent.cliEngine ?? '',
-    agent.theme,
-    agent.emoji,
-    agent.isOnline ? '1' : '0',
-    agent.accountIds.join(','),
-  ].join(':')).join('|');
-}
-
 function isTeamRuntimeCacheCurrent(
   cache: TeamRuntimeCache,
   state: TaskHubState,
-  presetRosterSignature: string,
 ): boolean {
   return cache.selectedConversationId === state.selectedConversationId
     && cache.conversations === state.conversations
+    && cache.projects === state.projects
     && cache.currentTeamPack === state.currentTeamPack
     && cache.activeAgentIds === state.activeAgentIds
-    && cache.roleCards === state.roleCards
     && cache.skillsMap === state.skillsMap
-    && cache.agentSkillIds === state.agentSkillIds
-    && cache.agentAccountOverrides === state.agentAccountOverrides
-    && cache.agentRoleCardOverrides === state.agentRoleCardOverrides
-    && cache.presetRosterSignature === presetRosterSignature;
+    && cache.agentRoster === state.agentRoster;
 }
 
 function getCachedTeamRuntime(state: TaskHubState): TeamRuntime {
-  const presetRosterSignature = getPresetRosterSignature();
-  if (teamRuntimeCache && isTeamRuntimeCacheCurrent(teamRuntimeCache, state, presetRosterSignature)) {
+  if (teamRuntimeCache && isTeamRuntimeCacheCurrent(teamRuntimeCache, state)) {
     return teamRuntimeCache.runtime;
   }
 
@@ -335,14 +331,11 @@ function getCachedTeamRuntime(state: TaskHubState): TeamRuntime {
   teamRuntimeCache = {
     selectedConversationId: state.selectedConversationId,
     conversations: state.conversations,
+    projects: state.projects,
     currentTeamPack: state.currentTeamPack,
     activeAgentIds: state.activeAgentIds,
-    roleCards: state.roleCards,
     skillsMap: state.skillsMap,
-    agentSkillIds: state.agentSkillIds,
-    agentAccountOverrides: state.agentAccountOverrides,
-    agentRoleCardOverrides: state.agentRoleCardOverrides,
-    presetRosterSignature,
+    agentRoster: state.agentRoster,
     runtime,
     effectiveRoster: null,
     profilesByAgentId: new Map(),
@@ -356,28 +349,28 @@ function getCachedEffectiveRoster(state: TaskHubState): Agent[] {
   if (cache?.effectiveRoster) return cache.effectiveRoster;
 
   const effectiveRoster = runtime.roster.map((runtimeAgent) => {
-    const presetAgent = AGENT_ROSTER.find((agent) => agent.id === runtimeAgent.id);
+    const presetAgent = state.agentRoster.find((agent) => agent.id === runtimeAgent.id);
     const teamRole = runtime.teamPack?.roles.find((role) => role.id === runtimeAgent.id);
     return {
       id: runtimeAgent.id,
-      name: runtimeAgent.source === 'preset-agent'
-        ? presetAgent?.name ?? runtimeAgent.displayName
-        : teamRole?.displayName ?? runtimeAgent.displayName,
-      roleCardId: runtimeAgent.roleCardId ?? presetAgent?.roleCardId ?? `team-role-${runtimeAgent.id}`,
+      name: presetAgent?.name ?? teamRole?.displayName ?? runtimeAgent.displayName,
       theme: runtimeAgent.theme ?? presetAgent?.theme ?? 'mario',
       emoji: runtimeAgent.emoji ?? presetAgent?.emoji ?? '🤖',
       isOnline: presetAgent?.isOnline ?? true,
       cliEngine: runtimeAgent.cliEngine ?? presetAgent?.cliEngine,
       accountIds: runtimeAgent.accountIds,
+      instructions: runtimeAgent.instructions ?? presetAgent?.instructions ?? '',
+      responsibility: runtimeAgent.responsibility ?? presetAgent?.responsibility ?? 'specialist',
+      avatarUrl: presetAgent?.avatarUrl,
+      model: runtimeAgent.model ?? presetAgent?.model,
+      skillIds: runtimeAgent.skills.map((skill) => skill.id).filter((id): id is string => Boolean(id)),
+      canModifyCode: runtimeAgent.canModifyCode ?? presetAgent?.canModifyCode ?? false,
+      canReview: runtimeAgent.canReview ?? presetAgent?.canReview ?? false,
     };
   });
 
   if (cache) cache.effectiveRoster = effectiveRoster;
   return effectiveRoster;
-}
-
-function getCachedAgentRoleCard(state: TaskHubState, agentId: string): RoleCard | undefined {
-  return getCachedTeamRuntime(state).roster.find((agent) => agent.id === agentId)?.roleCard;
 }
 
 function getCachedAgentRuntimeProfile(state: TaskHubState, agentId: string): RuntimeAgentProfile | null {
@@ -420,8 +413,6 @@ function resolveMentionAgentIds(state: TaskHubState, tokens: string[]): string[]
   for (const agent of roster) {
     byMention.set(agent.id.toLowerCase(), agent.id);
     byMention.set(agent.name.toLowerCase(), agent.id);
-    const roleCardName = getCachedAgentRoleCard(state, agent.id)?.displayName;
-    if (roleCardName) byMention.set(roleCardName.toLowerCase(), agent.id);
   }
   return [...new Set(tokens.map((token) => byMention.get(token.toLowerCase())).filter(Boolean) as string[])];
 }
@@ -472,6 +463,29 @@ async function fetchRuntimeJson<T>(
     const data = await response.json();
     return data as T;
   });
+}
+
+async function changeProjectAgentMembership(
+  name: 'project.agent.add' | 'project.agent.remove',
+  projectId: string,
+  agentId: string,
+  set: (partial: any) => void,
+): Promise<void> {
+  const commandId = crypto.randomUUID();
+  const response = await fetch('/api/commands', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, commandId, idempotencyKey: commandId, projectId, input: { agentId } }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !Array.isArray(body.result?.agentIds)) {
+    throw new Error(body.reasonCode ?? body.error ?? '项目 Agent 保存失败');
+  }
+  set((state: TaskHubState) => ({
+    projects: state.projects.map((project) => project.id === projectId
+      ? { ...project, agentIds: body.result.agentIds, updatedAt: body.recordedAt ?? project.updatedAt }
+      : project),
+  }));
 }
 
 function applyConversationTeamPack(
@@ -680,12 +694,13 @@ export interface TaskHubState {
   activeAgentIds: string[];
   currentTeamPack: TeamPack | null;
   getEffectiveRoster: () => Agent[];
-  getAgentRoleCard: (agentId: string) => RoleCard | undefined;
+  getAddressableRoster: () => Agent[];
   getAgentRuntimeProfile: (agentId: string) => RuntimeAgentProfile | null;
-  setTeamRoleAccountIds: (agentId: string, accountIds: string[]) => Promise<void>;
-  setTeamRoleSkillIds: (agentId: string, skillIds: string[]) => Promise<void>;
-  setTeamRoleCardSnapshot: (agentId: string, roleCardId: string) => Promise<void>;
   conversations: Conversation[];
+  projects: WorkspaceProject[];
+  addProject: (input: { name: string; rootPath: string }) => Promise<WorkspaceProject>;
+  addProjectAgent: (projectId: string, agentId: string) => Promise<void>;
+  removeProjectAgent: (projectId: string, agentId: string) => Promise<void>;
   selectedConversationId: string | null;
   tasks: Task[];
   taskSyncError: { message: string; timestamp: string; conversationId: string } | null;
@@ -699,6 +714,7 @@ export interface TaskHubState {
 
   getTasksByAgent: (agentId: string) => Task[];
   getTaskById:     (taskId: string) => Task | undefined;
+  getTaskByIdentity: (identity: TaskIdentity) => Task | undefined;
   getAgentCurrentTask: (agentId: string) => Task | undefined;
   getSelectedConversation: () => Conversation | undefined;
   getOpenBlockersForSelectedConversation: () => Blocker[];
@@ -713,6 +729,7 @@ export interface TaskHubState {
 
   createConversation: (input: { title: string; goal: string; projectPath?: string; priority?: Conversation['priority']; teamPackId?: string; useWorktree?: boolean; gitRepoRoot?: string; autonomous?: boolean }) => Promise<string>;
   setSelectedConversationId: (conversationId: string | null) => void;
+  openTask: (selection: { conversationId: string; taskId: string }) => void;
   deleteConversation: (
     conversationId: string,
     options?: { persist?: boolean },
@@ -722,12 +739,12 @@ export interface TaskHubState {
   openBlocker: (input: Omit<Blocker, 'id' | 'status' | 'createdAt'> & { id?: string; status?: Blocker['status']; createdAt?: string }) => string;
   inviteAgent:      (agentId: string) => void;
   dismissAgent:     (agentId: string) => void;
-  updateTaskStatus: (taskId: string, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => Promise<void>;
-  addTask:          (taskData: Omit<Task, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => Promise<void>;
-  removeTask:       (taskId: string) => void;
-  updateTask:       (taskId: string, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => Promise<void>;
+  updateTaskStatus: (identity: TaskIdentity, status: TaskStatus, reviewNote?: string, evidence?: Record<string, unknown>) => Promise<boolean>;
+  addTask:          (taskData: Omit<Task, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'conversationId' | 'phaseId'> & { phaseId?: string }) => Promise<boolean>;
+  removeTask:       (identity: TaskIdentity) => void;
+  updateTask:       (identity: TaskIdentity, patch: Partial<Pick<Task, 'title' | 'description' | 'agentId' | 'dependencies' | 'artifacts'>>) => Promise<void>;
   requestTaskProgress: (
-    taskId: string,
+    identity: TaskIdentity,
     request: string,
     options?: { idempotencyKey?: string; issuedAt?: string },
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -759,16 +776,6 @@ export interface TaskHubState {
   isRosterModalOpen: boolean;
   setRosterModalOpen: (open: boolean) => void;
 
-  agentAccountOverrides: Record<string, string[]>;
-  agentRoleCardOverrides: Record<string, string>;
-  setAgentAccountIds: (agentId: string, accountIds: string[]) => void;
-
-  roleCards: RoleCard[];
-  upsertRoleCard: (card: Omit<RoleCard, 'id' | 'createdAt' | 'updatedAt' | 'version' | 'isPreset'> & { id?: string; isPreset?: boolean }) => string;
-  removeRoleCard: (cardId: string) => void;
-  setAgentRoleCardId: (agentId: string, roleCardId: string) => void;
-  setRoleCardAccountIds: (roleCardId: string, accountIds: string[]) => void;
-
   phases: Phase[];
   upsertPhase: (phase: Omit<Phase, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => Promise<string>;
   removePhase: (phaseId: string) => Promise<void>;
@@ -784,18 +791,10 @@ export interface TaskHubState {
     options?: { idempotencyKey: string; issuedAt: string },
   ) => Promise<void>;
 
-  isRoleCardDetailOpen: boolean;
-  selectedRoleCardId: string | null;
-  setRoleCardDetailOpen: (open: boolean, cardId?: string) => void;
-  isRoleCardEditorOpen: boolean;
-  editingRoleCardId: string | null;
-  setRoleCardEditorOpen: (open: boolean, cardId?: string) => void;
-
   skillsMap: Record<string, SkillSummary>;
   agentSkillIds: Record<string, string[]>;
   loadSkills: () => Promise<void>;
   getSkillsForAgent: (agentId: string) => SkillSummary[];
-  assignSkillsToAgent: (agentId: string, skillIds: string[]) => Promise<void>;
   importSkills: (source: string) => Promise<{ imported?: number; error?: string }>;
 
   worktrees: WorktreeInfo[];
@@ -817,6 +816,66 @@ export const useTaskHubStore = create<TaskHubState>()(
       let loadFromServerInFlight: Promise<void> | null = null;
       const messageRefreshesInFlight = new Map<string, Promise<void>>();
       const olderMessageRefreshesInFlight = new Map<string, Promise<void>>();
+
+      const selectConversationContext = (
+        conversationId: string | null,
+        selectedTaskId: string | null,
+      ) => {
+        const previousConversationId = get().selectedConversationId;
+        if (previousConversationId === conversationId) {
+          if (get().selectedTaskId !== selectedTaskId) set({ selectedTaskId });
+          return;
+        }
+
+        const conv = get().conversations.find((c) => c.id === conversationId);
+        if (previousConversationId) {
+          socket.emit('conversation:leave', { conversationId: previousConversationId });
+          for (const agentId of Object.keys(get().agentStatus)) clearWatchdog(agentId);
+        }
+        if (conversationId) {
+          socket.emit('conversation:join', { conversationId });
+          void get().refreshConversationMessages(conversationId).catch((error: unknown) => {
+            console.error('[messages] failed to reconcile selected project:', error);
+          });
+          socket.emit('daemon:status', { projectId: conversationId }, (response: {
+            activeAgents?: Record<string, { taskId?: string; conversationId?: string }>;
+          }) => {
+            if (get().selectedConversationId !== conversationId || !response?.activeAgents) return;
+            const statusUpdate: Record<string, AgentRunStatus> = {};
+            const runsUpdate: Record<string, ActiveAgentRun | undefined> = {};
+            for (const [agentId, info] of Object.entries(response.activeAgents)) {
+              if (info.conversationId !== conversationId) continue;
+              statusUpdate[agentId] = 'busy';
+              runsUpdate[agentId] = {
+                runId: `recovered-${agentId}`,
+                taskId: info.taskId,
+                conversationId,
+                startedAt: new Date().toISOString(),
+              };
+            }
+            set({ agentStatus: statusUpdate, activeRunsByAgent: runsUpdate });
+          });
+        }
+
+        const sharedSelection = {
+          selectedConversationId: conversationId,
+          selectedProjectId: conversationId || 'default',
+          selectedTaskId,
+          currentTeamPack: null,
+          terminalLogs: {},
+          agentStatus: {},
+          activeRunsByAgent: {},
+          activeStreamMessageId: {},
+          activeStreamConversationId: {},
+        };
+        if (conv?.teamPackId) {
+          set({ ...sharedSelection, activeAgentIds: [] });
+          applyConversationTeamPack(get, set, conversationId, conv.teamPackId);
+          return;
+        }
+
+        set({ ...sharedSelection, activeAgentIds: DEFAULT_ACTIVE_AGENT_IDS });
+      };
 
       // App slice (conversations, chat, events, blockers, accounts, settings, hydration)
       const appSlice = {
@@ -889,6 +948,63 @@ export const useTaskHubStore = create<TaskHubState>()(
         selectedProjectId: 'default' as ProjectId,
         currentTeamPack: null as TeamPack | null,
         conversations: [] as Conversation[],
+        projects: [] as WorkspaceProject[],
+        addProject: async (input: { name: string; rootPath: string }) => {
+          const commandId = crypto.randomUUID();
+          const response = await fetch('/api/commands', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              name: 'project.create',
+              commandId,
+              idempotencyKey: commandId,
+              input,
+            }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok || !body.result?.project || !body.result?.workspace) {
+            throw new Error(body.reasonCode ?? body.error ?? '添加项目失败');
+          }
+          const row = body.result.project;
+          const workspaceRow = body.result.workspace;
+          const project: WorkspaceProject = {
+            id: row.id,
+            name: row.name,
+            rootPath: row.root_path,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            workspaceConversationId: row.workspace_conversation_id,
+            agentIds: Array.isArray(row.agent_ids) ? row.agent_ids : [],
+          };
+          const workspace: Conversation = {
+            id: workspaceRow.id,
+            title: workspaceRow.title || '',
+            goal: workspaceRow.goal || '',
+            status: workspaceRow.status || 'active',
+            priority: workspaceRow.priority || 'p2',
+            projectPath: workspaceRow.project_path || '',
+            useWorktree: workspaceRow.use_worktree === 1 || workspaceRow.use_worktree === true,
+            gitRepoRoot: workspaceRow.git_repo_root || undefined,
+            breakdownStatus: 'none',
+            autonomous: false,
+            teamPackId: workspaceRow.team_pack_id || undefined,
+            createdAt: workspaceRow.created_at,
+            updatedAt: workspaceRow.updated_at,
+            projectId: workspaceRow.project_id || project.id,
+            workspaceKind: workspaceRow.workspace_kind || 'project_workspace',
+          };
+          set((state: TaskHubState) => ({
+            projects: [project, ...state.projects.filter((item) => item.id !== project.id)],
+            conversations: [workspace, ...state.conversations.filter((item) => item.id !== workspace.id)],
+          }));
+          return project;
+        },
+        addProjectAgent: async (projectId: string, agentId: string) => {
+          await changeProjectAgentMembership('project.agent.add', projectId, agentId, set);
+        },
+        removeProjectAgent: async (projectId: string, agentId: string) => {
+          await changeProjectAgentMembership('project.agent.remove', projectId, agentId, set);
+        },
         selectedConversationId: null as string | null,
         taskSyncError: null as { message: string; timestamp: string; conversationId: string } | null,
         lastTaskSyncAt: null as string | null,
@@ -922,10 +1038,10 @@ export const useTaskHubStore = create<TaskHubState>()(
         },
         recordDispatchReceipt: (receipt: DispatchReceipt) => set((state: TaskHubState) => {
           const existing = state.dispatchReceiptsByConversation[receipt.conversationId] ?? [];
-          const next = [
+          const next = retainDispatchReceipts([
             ...existing.filter((item) => item.receiptId !== receipt.receiptId),
             receipt,
-          ].slice(-50);
+          ], state.chatMessagesByConversation[receipt.conversationId] ?? EMPTY_CHAT);
           return {
             dispatchReceiptsByConversation: {
               ...state.dispatchReceiptsByConversation,
@@ -944,71 +1060,20 @@ export const useTaskHubStore = create<TaskHubState>()(
           return getCachedEffectiveRoster(get());
         },
 
-        getAgentRoleCard: (agentId: string) => {
-          return getCachedAgentRoleCard(get(), agentId);
+        getAddressableRoster: () => {
+          const state = get();
+          const roster = getCachedEffectiveRoster(state);
+          const conversation = state.conversations.find((item) => item.id === state.selectedConversationId);
+          const projectScoped = state.projects.some((project) => (
+            project.id === conversation?.projectId || project.workspaceConversationId === conversation?.id
+          ));
+          return projectScoped
+            ? roster
+            : roster.filter((agent) => state.activeAgentIds.includes(agent.id));
         },
 
         getAgentRuntimeProfile: (agentId: string) => {
           return getCachedAgentRuntimeProfile(get(), agentId);
-        },
-
-        setTeamRoleAccountIds: async (agentId: string, accountIds: string[]) => {
-          const teamRole = findCurrentTeamRole(get(), agentId);
-          const packId = teamRole ? get().currentTeamPack?.id : undefined;
-          if (!packId) {
-            get().setAgentAccountIds(agentId, accountIds);
-            return;
-          }
-          const res = await fetch(`/api/team-packs/${packId}/roles/${agentId}`, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ accountIds }),
-          });
-          if (!res.ok) throw new Error('Failed to update team member accounts');
-          const data = await res.json();
-          set((state: TaskHubState) => updateCurrentTeamRole(state, agentId, data.role));
-        },
-
-        setTeamRoleSkillIds: async (agentId: string, skillIds: string[]) => {
-          const teamRole = findCurrentTeamRole(get(), agentId);
-          const packId = teamRole ? get().currentTeamPack?.id : undefined;
-          if (!packId) {
-            await get().assignSkillsToAgent(agentId, skillIds);
-            return;
-          }
-          const res = await fetch(`/api/team-packs/${packId}/roles/${agentId}`, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ skillIds }),
-          });
-          if (!res.ok) throw new Error('Failed to update team member skills');
-          const data = await res.json();
-          set((state: TaskHubState) => updateCurrentTeamRole(state, agentId, data.role));
-        },
-
-        setTeamRoleCardSnapshot: async (agentId: string, roleCardId: string) => {
-          const teamRole = findCurrentTeamRole(get(), agentId);
-          const packId = teamRole ? get().currentTeamPack?.id : undefined;
-          const card = get().roleCards.find((item: RoleCard) => item.id === roleCardId);
-          if (!packId || !card) {
-            get().setAgentRoleCardId(agentId, roleCardId);
-            return;
-          }
-          const { id, isPreset, version, createdAt, updatedAt, ...snapshotBase } = card;
-          const roleCardSnapshot = {
-            ...snapshotBase,
-            sourceRoleCardId: id,
-            snapshotVersion: version,
-            snapshottedAt: new Date().toISOString(),
-          };
-          const res = await fetch(`/api/team-packs/${packId}/roles/${agentId}`, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ roleCardId, roleCardSnapshot }),
-          });
-          if (!res.ok) throw new Error('Failed to update team member role');
-          const data = await res.json();
-          set((state: TaskHubState) => updateCurrentTeamRole(state, agentId, data.role));
         },
 
         loadFromServer: () => {
@@ -1050,6 +1115,18 @@ export const useTaskHubStore = create<TaskHubState>()(
               teamPackId: c.team_pack_id || undefined,
               createdAt: c.created_at,
               updatedAt: c.updated_at,
+              projectId: c.project_id || undefined,
+              workspaceKind: c.workspace_kind || 'workstream',
+            }));
+
+            const projects: WorkspaceProject[] = (data.projects || []).map((row: any) => ({
+              id: row.id,
+              name: row.name,
+              rootPath: row.root_path,
+              createdAt: row.created_at,
+              updatedAt: row.updated_at,
+              workspaceConversationId: row.workspace_conversation_id,
+              agentIds: Array.isArray(row.agent_ids) ? row.agent_ids : [],
             }));
 
             const tasks: import('./taskStore').Task[] = (data.tasks || []).map((t: any) => {
@@ -1061,11 +1138,12 @@ export const useTaskHubStore = create<TaskHubState>()(
                 conversationId: t.conversation_id,
                 phaseId: t.phase_id || '',
                 title: t.title,
+                category: t.category === 'change_request' || t.category === 'improvement' ? t.category : 'issue',
                 description: t.description || '',
                 status: assertTaskStatus(t.status),
                 agentId: t.agent_id,
-                dependencies: typeof t.dependencies === 'string' ? JSON.parse(t.dependencies || '[]') : (t.dependencies || []),
-                artifacts: typeof t.artifacts === 'string' ? JSON.parse(t.artifacts || '[]') : (t.artifacts || []),
+                dependencies: parseArrayProjection<string>(t.dependencies),
+                artifacts: parseArrayProjection<TaskArtifact>(t.artifacts),
                 reviewNote: t.review_note,
                 createdAt: t.created_at,
                 updatedAt: t.updated_at,
@@ -1088,8 +1166,33 @@ export const useTaskHubStore = create<TaskHubState>()(
               }
             }
 
-            const admittedHydrationTaskIds: string[] = [];
+            const admittedHydrationTasks: TaskIdentity[] = [];
             set((state: TaskHubState) => {
+              const reconciledMessages = reconcileHydratedMessageMaps(
+                state.chatMessagesByConversation,
+                mapMessagesToState(data.recentMessages || {}),
+                new Set(Object.values(state.activeStreamMessageId).filter(Boolean)),
+              );
+              const hydratedDispatchReceipts = ((data.dispatchReceipts || []) as DispatchReceipt[])
+                .reduce<Record<string, DispatchReceipt[]>>((byConversation, receipt) => {
+                  (byConversation[receipt.conversationId] ??= []).push(receipt);
+                  return byConversation;
+                }, {});
+              for (const [conversationId, liveReceipts] of Object.entries(state.dispatchReceiptsByConversation)) {
+                const hydratedIds = new Set(
+                  (hydratedDispatchReceipts[conversationId] ?? []).map((receipt) => receipt.receiptId),
+                );
+                hydratedDispatchReceipts[conversationId] = [
+                  ...(hydratedDispatchReceipts[conversationId] ?? []),
+                  ...liveReceipts.filter((receipt) => !hydratedIds.has(receipt.receiptId)),
+                ];
+              }
+              for (const [conversationId, receipts] of Object.entries(hydratedDispatchReceipts)) {
+                hydratedDispatchReceipts[conversationId] = retainDispatchReceipts(
+                  receipts,
+                  reconciledMessages[conversationId] ?? EMPTY_CHAT,
+                );
+              }
               const currentTasks = new Map(state.tasks.map((task) => [
                 `${task.conversationId}\u0000${task.id}`,
                 task,
@@ -1105,7 +1208,10 @@ export const useTaskHubStore = create<TaskHubState>()(
                   && typeof current.revision === 'number'
                   && current.revision > Number(hydrated.revision)
                 ) return current;
-                admittedHydrationTaskIds.push(hydrated.id);
+                admittedHydrationTasks.push({
+                  conversationId: hydrated.conversationId,
+                  taskId: hydrated.id,
+                });
                 return hydrated;
               });
               for (const [taskKey, current] of currentTasks) {
@@ -1123,13 +1229,10 @@ export const useTaskHubStore = create<TaskHubState>()(
                 }
               }
               return {
+                projects,
                 conversations,
                 tasks: mergedTasks,
-                chatMessagesByConversation: reconcileHydratedMessageMaps(
-                  state.chatMessagesByConversation,
-                  mapMessagesToState(data.recentMessages || {}),
-                  new Set(Object.values(state.activeStreamMessageId).filter(Boolean)),
-                ),
+                chatMessagesByConversation: reconciledMessages,
                 agentSessions: serverSessions,
                 needsFullCompose: hydratedNeedsFullCompose,
                 a2aByConversation: Object.fromEntries(
@@ -1137,10 +1240,11 @@ export const useTaskHubStore = create<TaskHubState>()(
                     .filter((snapshot) => snapshot?.conversationId && snapshot?.chainId)
                     .map((snapshot) => [snapshot.conversationId, snapshot]),
                 ),
+                dispatchReceiptsByConversation: hydratedDispatchReceipts,
               };
             });
-            for (const taskId of admittedHydrationTaskIds) {
-              observeAuthoritativeTaskProjection(taskId);
+            for (const identity of admittedHydrationTasks) {
+              observeAuthoritativeTaskProjection(identity);
             }
 
             // Keep a still-valid selection, otherwise use the most recently
@@ -1207,12 +1311,6 @@ export const useTaskHubStore = create<TaskHubState>()(
               '智能体配置',
               signal => loadAgents({ signal, propagateFailure: true }),
             );
-
-            const existingIds = new Set(get().roleCards.map((c: any) => c.id));
-            const missing = PRESET_ROLE_CARDS.filter((c) => !existingIds.has(c.id));
-            if (missing.length) {
-              set((state: TaskHubState) => ({ roleCards: [...missing, ...state.roleCards] }));
-            }
 
             get().loadSkills();
 
@@ -1497,68 +1595,14 @@ export const useTaskHubStore = create<TaskHubState>()(
         },
 
         setSelectedConversationId: (conversationId: string | null) => {
-          const previousConversationId = get().selectedConversationId;
-          const conv = get().conversations.find((c) => c.id === conversationId);
-          if (previousConversationId && previousConversationId !== conversationId) {
-            socket.emit('conversation:leave', { conversationId: previousConversationId });
-            for (const agentId of Object.keys(get().agentStatus)) {
-              clearWatchdog(agentId);
-            }
-          }
-          if (conversationId) {
-            socket.emit('conversation:join', { conversationId });
-            void get().refreshConversationMessages(conversationId).catch((error: unknown) => {
-              console.error('[messages] failed to reconcile selected project:', error);
-            });
-            socket.emit('daemon:status', { projectId: conversationId }, (response: {
-              activeAgents?: Record<string, { taskId?: string; conversationId?: string }>;
-            }) => {
-              if (get().selectedConversationId !== conversationId || !response?.activeAgents) return;
-              const statusUpdate: Record<string, AgentRunStatus> = {};
-              const runsUpdate: Record<string, ActiveAgentRun | undefined> = {};
-              for (const [agentId, info] of Object.entries(response.activeAgents)) {
-                if (info.conversationId !== conversationId) continue;
-                statusUpdate[agentId] = 'busy';
-                runsUpdate[agentId] = {
-                  runId: `recovered-${agentId}`,
-                  taskId: info.taskId,
-                  conversationId,
-                  startedAt: new Date().toISOString(),
-                };
-              }
-              set({ agentStatus: statusUpdate, activeRunsByAgent: runsUpdate });
-            });
-          }
-
-          if (conv?.teamPackId) {
-            set({
-              selectedConversationId: conversationId,
-              selectedProjectId: conversationId || 'default',
-              selectedTaskId: null,
-              activeAgentIds: [],
-              currentTeamPack: null,
-              terminalLogs: {},
-              agentStatus: {},
-              activeRunsByAgent: {},
-              activeStreamMessageId: {},
-              activeStreamConversationId: {},
-            });
-            applyConversationTeamPack(get, set, conversationId, conv.teamPackId);
-            return;
-          }
-
-          set({
-            selectedConversationId: conversationId,
-            selectedProjectId: conversationId || 'default',
-            selectedTaskId: null,
-            activeAgentIds: DEFAULT_ACTIVE_AGENT_IDS,
-            currentTeamPack: null,
-            terminalLogs: {},
-            agentStatus: {},
-            activeRunsByAgent: {},
-            activeStreamMessageId: {},
-            activeStreamConversationId: {},
-          });
+          selectConversationContext(conversationId, null);
+        },
+        openTask: ({ conversationId, taskId }: { conversationId: string; taskId: string }) => {
+          const task = get().tasks.find((item) => (
+            item.conversationId === conversationId && item.id === taskId
+          ));
+          if (!task) return;
+          selectConversationContext(conversationId, taskId);
         },
 
         deleteConversation: async (
@@ -1733,6 +1777,9 @@ export const useTaskHubStore = create<TaskHubState>()(
                 issuedAt: commandIssuedAt ?? new Date().toISOString(),
                 mentions,
                 intent,
+                ...(typeof rest.metadata?.replyToMessageId === 'string'
+                  ? { replyToMessageId: rest.metadata.replyToMessageId }
+                  : {}),
               });
               if (receipt.status === 'rejected') {
                 return {
@@ -1865,7 +1912,7 @@ export const useTaskHubStore = create<TaskHubState>()(
     },
     {
       name: 'agent-task-hub-store-clean',
-      version: 9,
+      version: 10,
       migrate: (persisted: any, version: number) => {
         if (version === 0) {
           const idMap: Record<string, string> = {
@@ -1879,14 +1926,6 @@ export const useTaskHubStore = create<TaskHubState>()(
           }
 
           persisted.agentSessions = {};
-
-          if (persisted.agentAccountOverrides && typeof persisted.agentAccountOverrides === 'object') {
-            const mapped: Record<string, any> = {};
-            for (const [aid, ids] of Object.entries(persisted.agentAccountOverrides)) {
-              mapped[remap(aid)] = ids;
-            }
-            persisted.agentAccountOverrides = mapped;
-          }
 
           if (Array.isArray(persisted.tasks)) {
             persisted.tasks = persisted.tasks.map((t: any) => ({
@@ -1940,6 +1979,7 @@ export const useTaskHubStore = create<TaskHubState>()(
             })
             .filter((task: any) => isTaskStatus(task?.status));
         }
+        if (version < 10) delete persisted.agentAccountOverrides;
         return persisted;
       },
       partialize: (state) => ({
@@ -1950,8 +1990,6 @@ export const useTaskHubStore = create<TaskHubState>()(
         blockersByConversation: state.blockersByConversation,
         activeAgentIds: state.activeAgentIds,
         currentTeamPack: state.currentTeamPack,
-        agentAccountOverrides: state.agentAccountOverrides,
-        roleCards: state.roleCards,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
@@ -2525,6 +2563,7 @@ interface TaskStateSocketRow {
   conversation_id?: string;
   phase_id?: string;
   title?: string;
+  category?: 'issue' | 'change_request' | 'improvement';
   description?: string;
   status?: unknown;
   agent_id?: string;
@@ -2534,6 +2573,17 @@ interface TaskStateSocketRow {
   created_at?: string;
   updated_at?: string;
   revision?: number;
+}
+
+function parseArrayProjection<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (typeof value !== 'string' || !value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed as T[] : [];
+  } catch {
+    return [];
+  }
 }
 
 function handleTaskState({ projectId, task: row }: { projectId?: string; task?: TaskStateSocketRow }): void {
@@ -2564,15 +2614,12 @@ function handleTaskState({ projectId, task: row }: { projectId?: string; task?: 
     conversationId: row.conversation_id,
     phaseId: row.phase_id || '',
     title: row.title || '',
+    category: row.category === 'change_request' || row.category === 'improvement' ? row.category : 'issue',
     description: row.description || '',
     status: row.status,
     agentId: row.agent_id || '',
-    dependencies: typeof row.dependencies === 'string'
-      ? JSON.parse(row.dependencies || '[]')
-      : (row.dependencies || []),
-    artifacts: typeof row.artifacts === 'string'
-      ? JSON.parse(row.artifacts || '[]')
-      : (row.artifacts || []),
+    dependencies: parseArrayProjection<string>(row.dependencies),
+    artifacts: parseArrayProjection<TaskArtifact>(row.artifacts),
     reviewNote: row.review_note || undefined,
     createdAt: row.created_at || new Date().toISOString(),
     updatedAt: row.updated_at || new Date().toISOString(),
@@ -2585,7 +2632,7 @@ function handleTaskState({ projectId, task: row }: { projectId?: string; task?: 
     typeof current?.revision === 'number'
     && current.revision > Number(task.revision)
   ) return;
-  observeAuthoritativeTaskProjection(task.id);
+  observeAuthoritativeTaskProjection({ conversationId: task.conversationId, taskId: task.id });
   useTaskHubStore.setState((state) => {
     const exists = state.tasks.some(
       (item) => item.id === task.id && item.conversationId === task.conversationId,

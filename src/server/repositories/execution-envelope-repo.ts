@@ -157,6 +157,59 @@ export const executionEnvelopeRepo = {
       .all(conversationId) as ExecutionEnvelopeRow[];
   },
 
+  listTerminalForHydration(
+    conversationId: string,
+    options: { visibleSourceMessageIds: string[]; fallbackLimit: number },
+  ): ExecutionEnvelopeRow[] {
+    const db = getDb();
+    const visibleSourceMessageIds = [...new Set(options.visibleSourceMessageIds)];
+    const placeholders = visibleSourceMessageIds.map(() => '?').join(', ');
+    const visible = visibleSourceMessageIds.length > 0
+      ? db.prepare(
+        `SELECT envelope.*
+         FROM execution_envelope envelope
+         WHERE envelope.conversation_id = ?
+           AND envelope.status IN ('acknowledged', 'rejected')
+           AND json_extract(envelope.payload, '$.sourceMessageId') IN (${placeholders})
+           AND NOT EXISTS (
+             SELECT 1
+             FROM execution_envelope newer
+             WHERE newer.conversation_id = envelope.conversation_id
+               AND newer.status IN ('acknowledged', 'rejected')
+               AND newer.to_agent_id = envelope.to_agent_id
+               AND json_extract(newer.payload, '$.sourceMessageId') = json_extract(envelope.payload, '$.sourceMessageId')
+               AND (
+                 newer.updated_at > envelope.updated_at
+                 OR (newer.updated_at = envelope.updated_at AND newer.id > envelope.id)
+               )
+           )
+         ORDER BY envelope.updated_at ASC, envelope.id ASC`,
+      ).all(conversationId, ...visibleSourceMessageIds) as ExecutionEnvelopeRow[]
+      : [];
+    const fallback = db.prepare(
+      `SELECT *
+       FROM execution_envelope
+       WHERE conversation_id = ?
+         AND status IN ('acknowledged', 'rejected')
+         ${visibleSourceMessageIds.length > 0
+    ? `AND (
+             json_extract(payload, '$.sourceMessageId') IS NULL
+             OR json_extract(payload, '$.sourceMessageId') NOT IN (${placeholders})
+           )`
+    : ''}
+       ORDER BY updated_at DESC, id DESC
+       LIMIT ?`,
+    ).all(
+      conversationId,
+      ...visibleSourceMessageIds,
+      Math.max(0, options.fallbackLimit),
+    ) as ExecutionEnvelopeRow[];
+
+    return [...visible, ...fallback.reverse()].sort((left, right) => (
+      left.updated_at.localeCompare(right.updated_at) || left.id.localeCompare(right.id)
+    ));
+  },
+
   listRunnableForNode(nodeId: string): ExecutionEnvelopeRow[] {
     return getDb()
       .prepare(

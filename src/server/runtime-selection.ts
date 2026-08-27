@@ -5,9 +5,19 @@ import {
 } from '@/lib/team-runtime/runtimeEngine';
 
 export const RUNTIME_ID_BY_ENGINE: Record<RuntimeCliEngine, string> = {
+  goose: 'goose-acp',
   opencode: 'opencode-local',
   claude: 'claude-cli',
   codex: 'codex-cli',
+  'buzz-agent': 'buzz-agent-acp',
+  devin: 'devin-acp',
+  cursor: 'cursor-acp',
+  omp: 'omp-acp',
+  grok: 'grok-acp',
+  kimi: 'kimi-acp',
+  amp: 'amp-acp',
+  hermes: 'hermes-acp',
+  openclaw: 'openclaw-acp',
 };
 
 const ENGINE_BY_RUNTIME_ID = Object.fromEntries(
