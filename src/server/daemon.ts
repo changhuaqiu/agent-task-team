@@ -96,6 +96,7 @@ import {
   isRuntimeOwnershipLost,
   type AgentRuntimeDispatchContext,
 } from './agent-runtime';
+import { runtimeProjectViewIdentity } from './agent-runtime/runtime-project-view-identity';
 
 type AgentActivityStatus = 'running' | 'awaiting_children' | 'idle';
 
@@ -494,9 +495,12 @@ export default function registerDaemon(io: IOServer) {
           type: 'runtime.warning',
           delivery: 'transient',
           actor: { type: 'agent', id: agentId },
-          subject: { type: 'invocation', id: invocation.id },
-          correlationId: invocationTraceId ?? invocation.id,
-          causationId: controlEnvelopeId ?? invocation.id,
+          ...runtimeProjectViewIdentity({
+            invocationId: invocation.id,
+            traceId: invocationTraceId,
+            envelopeId: controlEnvelopeId,
+            projectId: sessionConvId,
+          }),
           payload: { message, reasonCode },
         });
       };
@@ -510,9 +514,12 @@ export default function registerDaemon(io: IOServer) {
           type: 'terminal.exited',
           delivery: 'transient',
           actor: { type: 'agent', id: agentId },
-          subject: { type: 'invocation', id: invocation.id },
-          correlationId: invocationTraceId ?? invocation.id,
-          causationId: controlEnvelopeId ?? invocation.id,
+          ...runtimeProjectViewIdentity({
+            invocationId: invocation.id,
+            traceId: invocationTraceId,
+            envelopeId: controlEnvelopeId,
+            projectId: sessionConvId,
+          }),
           payload: input,
         });
       };
@@ -1666,8 +1673,12 @@ export default function registerDaemon(io: IOServer) {
           type: 'runtime.warning',
           delivery: 'transient',
           actor: { type: 'agent', id: agentId },
-          correlationId: invocationTraceId ?? controlEnvelopeId ?? projectId,
-          causationId: controlEnvelopeId ?? invocationTraceId ?? projectId,
+          ...runtimeProjectViewIdentity({
+            invocationId: acquiredInvocationId,
+            traceId: invocationTraceId,
+            envelopeId: controlEnvelopeId,
+            projectId,
+          }),
           payload: {
             message: `内部错误：${(err as Error)?.message || '未知'}`,
             reasonCode: 'internal_error',
@@ -1677,8 +1688,12 @@ export default function registerDaemon(io: IOServer) {
           type: 'terminal.exited',
           delivery: 'transient',
           actor: { type: 'agent', id: agentId },
-          correlationId: invocationTraceId ?? controlEnvelopeId ?? projectId,
-          causationId: controlEnvelopeId ?? invocationTraceId ?? projectId,
+          ...runtimeProjectViewIdentity({
+            invocationId: acquiredInvocationId,
+            traceId: invocationTraceId,
+            envelopeId: controlEnvelopeId,
+            projectId,
+          }),
           payload: {
             code: 1,
             command: primaryCommand,

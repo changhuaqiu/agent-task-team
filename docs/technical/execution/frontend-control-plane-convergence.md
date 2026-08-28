@@ -187,7 +187,7 @@ Implementation：复用 `consumeProjectViewEvent`、项目 room 和消息快照�
 
 项目活动的读侧投影遵守以下消息身份规则：
 
-1. `invocationId` 是一次 Agent 回复的稳定身份；同一 Invocation 的文本、工具事件和最终消息即使被并行 Agent 事件穿插，也投影到同一个回复实体。实时 stream message、delta buffer、watchdog 和完成动作同样按 Invocation 定域，同一 Agent 的并发 Invocation 不能共享活动消息。
+1. `invocationId` 是一次 Agent 回复的稳定身份；同一 Invocation 的文本、工具事件和最终消息即使被并行 Agent 事件穿插，也投影到同一个回复实体。实时 stream message、delta buffer、watchdog 和完成动作同样按 Invocation 定域，同一 Agent 的并发 Invocation 不能共享活动消息；正常完成、超时和 setup failure fallback 发布的 Runtime Project View 事件都必须携带已经取得的 Invocation subject。
 2. 没有 `invocationId` 的人工消息按持久消息 ID 独立展示；不同 Invocation 绝不按 `agentId` 合并。
 3. `task_status` 和 system sender 投影为活动提示，不进入 Agent 气泡分组；原始通知正文只作为可展开的审计详情。
 4. 活跃的 provisional 回复与同 Invocation 的 durable 消息重叠时只显示 provisional；完成并对账后只显示 durable，避免刷新前后裂成两个回复。
