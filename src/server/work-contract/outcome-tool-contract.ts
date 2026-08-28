@@ -49,7 +49,9 @@ const HANDOFF_PAYLOAD_SCHEMA: JsonSchema = {
     maxHops: { type: 'integer' },
   },
   required: ['branches'],
-  additionalProperties: false,
+  // Older Agents may attach explanatory root metadata. The canonical parser
+  // ignores it, so keep that compatibility while branches remain strict.
+  additionalProperties: true,
 };
 
 export function outcomePayloadSchema(outcomeType: AgentOutcomeType): JsonSchema {
@@ -71,8 +73,6 @@ export function adaptAcpOutcomePayload(
   const record = payload as Record<string, unknown>;
   return {
     ...record,
-    idempotencyKey: typeof record.idempotencyKey === 'string' && record.idempotencyKey.trim()
-      ? record.idempotencyKey.trim()
-      : idempotencyKey,
+    idempotencyKey: idempotencyKey.trim(),
   };
 }

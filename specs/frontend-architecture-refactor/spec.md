@@ -41,7 +41,7 @@
 25. 全局 surface 使用一个共享的有界工作区网格；header、filter、main 与 252px context rail 在超宽屏保持同轴且相邻，子 surface 不得再次独立居中收缩。
 26. Agent possession、派发与交接摘要属于当前 Project 的运行状态，不属于任何一条聊天消息；必须由 Project 工作区会话显式定域并位于 Project 标题与视图导航下方、当前主内容上方的顶部状态栏，不能跟随子任务选择漂移，也不能进入可滚动消息时间线或输入器区域。正常状态只显示一行，完整记录面板从状态栏向下浮层展开且不改变主内容、时间线或输入器高度，切换 Project 时必须关闭旧 Project 的展开状态；所有状态和失败原因必须转译为用户可理解的文案，不得显示内部枚举或 reason code。
 27. Project 的“工作”镜头以 WorkItem 列表为主对象，不再用统计卡和说明卡包围任务。WorkItem 按生命周期状态分组，整行打开统一详情；列表只承担快速扫描，展示标题、必要描述、负责人、更新时间及有事实时的产物数，状态同时由分组与进度图形表达，不重复堆叠状态徽章。窄宽度按优先级隐藏次级元数据，不能把一条工作退化成拥挤的小卡片。同一 Project 页面在任一列表状态只能出现一个创建入口；对象选中、详情解析及编辑、状态、进度请求、删除等写操作必须使用 `conversationId + taskId` 复合身份，mutation epoch、请求中/错误状态与重试 idempotency key 也必须用该身份隔离。禁止裸 `taskId` 跨作用域解析对象或复用临时状态，也禁止在当前会话重复触发运行投影重置。
-28. 全局收件箱是跨 Project 的用户事实与可行动更新镜头，不是 Runtime 观察日志。`tool_use`、`tool_result` 等工具生命周期不得作为独立收件箱条目；Project 协作流也只显示 Invocation 级操作回执，逐条轨迹留在观察详情。工具失败只有先被领域 owner 转译为阻塞、待决策或其他可行动事实后才能进入收件箱，禁止按“使用工具”文案做 UI 字符串过滤。
+28. 全局收件箱是跨 Project 的用户事实与可行动更新镜头，不是 Runtime 观察日志。`thinking`、`tool_use`、`tool_result` 等 Runtime 观察不得作为独立收件箱条目；Project 协作流只把 thinking 作为回复内的低权重摘要、把工具轨迹压成 Invocation 级操作回执，逐条轨迹留在观察详情。工具失败只有先被领域 owner 转译为阻塞、待决策或其他可行动事实后才能进入收件箱，禁止按“使用工具”文案做 UI 字符串过滤。
 29. Project 拥有可变的 Agent 成员关系，Agent Team 只是可复用的初始成员与协作拓扑模板。部署 Team 时以其成员初始化当前 Project；随后在 Project 内添加或移除 Agent 只改变该 Project，不反向修改 Agent Definition 或 Team。成员变化必须经 `CommandService` 产生幂等回执和领域事件，并立即成为聊天 `@`、默认派发、任务负责人候选和服务端 Conversation Runtime 的共同权威来源；Renderer 不得用全局 `activeAgentIds` 猜测 Project 成员。
 
 ## 3. 范围

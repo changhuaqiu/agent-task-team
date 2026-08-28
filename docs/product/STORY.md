@@ -36,7 +36,8 @@ updated: 2026-08-28
 - Project 聊天与 Agent Activity 使用同一个响应投影：Runtime thinking 以低权重摘要呈现，最终答复直接可读；
 - 同一 Invocation 的工具事件只形成一个“已处理 N 个操作”回执，执行问题保留计数，工具名、参数与逐条结果只在用户主动打开调用详情后出现；
 - 实时 thinking delta 与持久 thinking segment 使用同一数据语义，刷新或重连后不会退化为普通正文；
-- `work_handoff` MCP 直接声明 branches 字段，Agent 只提交一个公共幂等键，ACP Adapter 负责映射到 A2A canonical payload，不再要求模型猜测并重复内部身份字段。
+- thinking 与工具观察不会成为跨 Project 收件箱条目，只在对应回复和调用详情中出现；
+- `work_handoff` MCP 直接声明 branches 字段，Agent 只提交一个公共幂等键，ACP Adapter 负责映射到 A2A canonical payload，不再要求模型猜测并重复内部身份字段；可纠正的 lifecycle 拒绝要求 Agent 在同一轮修复重试，不能再把内部 reason code 当作最终用户答复。
 
 ### 已验证的效果
 

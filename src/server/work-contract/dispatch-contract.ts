@@ -353,6 +353,8 @@ export function renderWorkContractInstruction(contract: WorkContract): string {
       + '{ schemaVersion: 1, reason: multi_step | context_boundary | verification_follow_up, summary, nextAction, completedSteps: string[], remainingSteps: non-empty string[] }. '
       + 'The platform will start a bounded continuation from that checkpoint; do not use work_continue for an external or human blocker.',
     'Tool calls are visible in the platform trace. Do not narrate or repeat the tool sequence in assistant text.',
+    'If a lifecycle tool rejects candidate input, correct the structured payload and retry within this turn. '
+      + 'Never expose raw platform reason codes as the final user-facing result or treat a correctable contract rejection as an external blocker.',
     '',
     '```json',
     JSON.stringify({

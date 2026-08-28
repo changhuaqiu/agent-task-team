@@ -49,7 +49,7 @@ describe('WorkspaceInboxRepository', () => {
     });
   });
 
-  it('keeps Runtime tool observations out of the Inbox while preserving chat trace rows', () => {
+  it('keeps Runtime observations out of the Inbox while preserving chat trace rows', () => {
     const project = projectRepo.create({ name: 'Alpha', rootPath: 'C:/alpha' });
     const conversationId = project.workspace_conversation_id;
     const messageId = messageRepo.append({
@@ -66,14 +66,48 @@ describe('WorkspaceInboxRepository', () => {
       contentType: 'tool_use',
       metadata: { toolEvent: { type: 'tool_use', name: 'Read' } },
     });
+    const thinkingMessageId = messageRepo.append({
+      conversationId,
+      senderType: 'agent',
+      senderId: 'builder',
+      content: 'I should inspect the implementation before answering.',
+      contentType: 'thinking',
+    });
 
     const repo = new WorkspaceInboxRepository();
     repo.reconcile();
 
     expect(messageRepo.getByConversation(conversationId).map((message) => message.id))
-      .toEqual([messageId, toolMessageId]);
+      .toEqual([messageId, toolMessageId, thinkingMessageId]);
     expect(repo.list().filter((item) => item.kind === 'message_thread'))
       .toMatchObject([{ latestEventId: messageId, title: 'Verified result' }]);
+  });
+
+  it('removes legacy thinking rows during reconciliation', () => {
+    const project = projectRepo.create({ name: 'Alpha', rootPath: 'C:/alpha' });
+    const conversationId = project.workspace_conversation_id;
+    const thinkingId = messageRepo.append({
+      conversationId,
+      senderType: 'agent',
+      senderId: 'builder',
+      content: 'Internal reasoning summary',
+      contentType: 'thinking',
+    });
+    const repo = new WorkspaceInboxRepository();
+    repo.project({
+      conversationKey: `message:${conversationId}:${thinkingId}`,
+      kind: 'message_thread',
+      projectId: project.id,
+      subject: { type: 'message_thread', id: thinkingId },
+      actor: { type: 'agent', id: 'builder' },
+      title: 'Internal reasoning summary',
+      latestEventId: thinkingId,
+      latestAt: '2026-08-28T00:00:00.000Z',
+    });
+
+    repo.reconcile();
+
+    expect(repo.list().filter((item) => item.kind === 'message_thread')).toEqual([]);
   });
 
   it('removes legacy tool rows and restores an eligible message when a tool advanced its thread', () => {

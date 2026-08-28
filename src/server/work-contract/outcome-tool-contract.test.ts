@@ -5,11 +5,13 @@ describe('ACP outcome tool contract', () => {
   it('publishes the actionable handoff shape instead of an opaque payload object', () => {
     expect(outcomePayloadSchema('handoff_to_agent')).toMatchObject({
       required: ['branches'],
+      additionalProperties: true,
       properties: {
         branches: {
           type: 'array',
           items: {
             required: ['toAgentId', 'intent', 'title', 'requestedAction'],
+            additionalProperties: false,
           },
         },
       },
@@ -32,6 +34,17 @@ describe('ACP outcome tool contract', () => {
         title: '实现在线面试',
         requestedAction: '完成任务并提交结果',
       }],
+    });
+  });
+
+  it('makes the public tool key canonical when a legacy payload repeats it', () => {
+    expect(adaptAcpOutcomePayload('handoff_to_agent', {
+      idempotencyKey: 'stale-inner-key',
+      branches: [],
+      summary: 'legacy explanatory metadata',
+    }, ' current-tool-key ')).toMatchObject({
+      idempotencyKey: 'current-tool-key',
+      summary: 'legacy explanatory metadata',
     });
   });
 });

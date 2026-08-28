@@ -91,7 +91,7 @@ Project 活动输入、任务创建/编辑/流转/图操作、阶段写入与拆
   - 选择行为回调 `ProjectWorkspace`，再通过 Project 的 workspace conversation identity 切换兼容 Store 边界
 - [`ProjectsOverview.tsx`](../../src/components/project/ProjectsOverview.tsx)
   - 读取跨 Project 的持久 Inbox、工作、评审与产物投影
-  - Workspace Inbox repository 按 `chat_message.content_type` 排除 `tool_use` / `tool_result`，并在每次对账时清理旧版本已写入的工具条目；原始消息与对应 Invocation Trace 仍保留在 Project 协作流
+  - Workspace Inbox repository 按 `chat_message.content_type` 排除 `thinking` / `tool_use` / `tool_result`，并在每次对账时清理旧版本已写入的 Runtime 观察条目；原始消息与对应 Invocation Trace 仍保留在 Project 协作流
   - 与 `ProjectWorkspace` 的 header、filter 和 context rail 共用同一个最大宽度框架
 
 ### Project 主视图与连续协作
