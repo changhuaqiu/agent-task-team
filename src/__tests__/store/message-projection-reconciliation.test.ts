@@ -330,6 +330,34 @@ describe('durable message reconciliation', () => {
     });
   });
 
+  it('does not complete Invocation streams for an identity-less setup failure exit', () => {
+    const store = useTaskHubStore.getState();
+    const firstId = store.ensureStreamMessage('mario', 'project-a', 'inv-1');
+    const secondId = store.ensureStreamMessage('mario', 'project-a', 'inv-2');
+
+    expect(consumeProjectViewEvent({
+      version: 2,
+      envelopeVersion: 1,
+      eventId: 'terminal-exit-before-invocation',
+      projectId: 'project-a',
+      occurredAt: timestamp,
+      type: 'terminal.exited',
+      delivery: 'transient',
+      actor: { type: 'runtime', id: 'local-daemon' },
+      agent: { type: 'agent', id: 'mario' },
+      correlationId: 'setup-failure',
+      causationId: 'setup-failure',
+      payload: { code: 1, reasonCode: 'internal_error' },
+    })).toBe(true);
+
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: firstId, invocationId: 'inv-1', isStreaming: true }),
+        expect.objectContaining({ id: secondId, invocationId: 'inv-2', isStreaming: true }),
+      ]),
+    );
+  });
+
   it('reconciles a post-persistence notification without duplicating the completed stream', () => {
     useTaskHubStore.setState({
       chatMessagesByConversation: {

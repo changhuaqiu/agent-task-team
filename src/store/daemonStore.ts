@@ -39,8 +39,15 @@ function activeStreamKeysForAgent(state: any, agentId: string): string[] {
     .map(([key]) => key);
 }
 
-export function hasActiveStreamForAgent(state: any, agentId: string): boolean {
-  return activeStreamKeysForAgent(state, agentId).length > 0;
+export function hasActiveStreamForAgent(
+  state: any,
+  agentId: string,
+  excludingInvocationId?: string,
+): boolean {
+  const excludedKey = excludingInvocationId
+    ? streamIdentityKey(agentId, excludingInvocationId)
+    : undefined;
+  return activeStreamKeysForAgent(state, agentId).some((key) => key !== excludedKey);
 }
 
 export function resetWatchdog(
@@ -75,11 +82,19 @@ export function resetWatchdog(
 }
 
 export function clearWatchdog(agentId: string, invocationId?: string) {
-  const keys = invocationId
-    ? [streamIdentityKey(agentId, invocationId)]
-    : Object.keys(streamWatchdogs).filter((key) => streamWatchdogAgents[key] === agentId || key === agentId);
+  const keys = [streamIdentityKey(agentId, invocationId)];
   for (const key of keys) {
     if (!streamWatchdogs[key]) continue;
+    clearTimeout(streamWatchdogs[key]);
+    delete streamWatchdogs[key];
+    delete streamWatchdogAgents[key];
+  }
+}
+
+export function clearAllWatchdogs(agentId: string) {
+  const keys = Object.keys(streamWatchdogs)
+    .filter((key) => streamWatchdogAgents[key] === agentId || key === agentId);
+  for (const key of keys) {
     clearTimeout(streamWatchdogs[key]);
     delete streamWatchdogs[key];
     delete streamWatchdogAgents[key];
@@ -272,7 +287,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       const exactKey = invocationId ? streamIdentityKey(agentId, invocationId) : undefined;
       const streamKeys = exactKey
         ? (state.activeStreamMessageId[exactKey] ? [exactKey] : [])
-        : activeStreamKeysForAgent(state, agentId);
+        : (state.activeStreamMessageId[agentId] ? [agentId] : []);
       if (streamKeys.length === 0) return;
       clearWatchdog(agentId, invocationId);
       for (const key of streamKeys) {

@@ -15,6 +15,7 @@ import {
   socket,
   resetWatchdog,
   clearWatchdog,
+  clearAllWatchdogs,
   streamIdentityKey,
   hasActiveStreamForAgent,
 } from './daemonStore';
@@ -837,7 +838,7 @@ export const useTaskHubStore = create<TaskHubState>()(
         const conv = get().conversations.find((c) => c.id === conversationId);
         if (previousConversationId) {
           socket.emit('conversation:leave', { conversationId: previousConversationId });
-          for (const agentId of Object.keys(get().agentStatus)) clearWatchdog(agentId);
+          for (const agentId of Object.keys(get().agentStatus)) clearAllWatchdogs(agentId);
         }
         if (conversationId) {
           socket.emit('conversation:join', { conversationId });
@@ -2150,11 +2151,12 @@ function handleAgentSession(input: {
   useTaskHubStore.getState().upsertAgentSession(input.projectId, input.agentId, input.sessionId);
 }
 
-function handleAgentActivity({ projectId, taskId, agentId, sessionId, status, reason }: {
+function handleAgentActivity({ projectId, taskId, agentId, sessionId, invocationId, status, reason }: {
   projectId: string;
   taskId?: string;
   agentId: string;
   sessionId?: string;
+  invocationId?: string;
   status: 'running' | 'awaiting_children' | 'idle';
   reason?: string;
 }): void {
@@ -2164,25 +2166,28 @@ function handleAgentActivity({ projectId, taskId, agentId, sessionId, status, re
   }
 
   if (status === 'running') {
-    resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState);
+    resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState, invocationId);
     return;
   }
   if (status === 'awaiting_children') {
-    clearWatchdog(agentId);
+    clearWatchdog(agentId, invocationId);
+    const hasOtherActiveStream = hasActiveStreamForAgent(state, agentId, invocationId);
     const existing = state.activeRunsByAgent[agentId];
-    useTaskHubStore.setState((s) => ({
-      agentStatus: { ...s.agentStatus, [agentId]: 'background' },
-      activeRunsByAgent: {
-        ...s.activeRunsByAgent,
-        [agentId]: {
-          runId: existing?.runId ?? `background-${agentId}-${Date.now()}`,
-          taskId: taskId ?? existing?.taskId,
-          conversationId: projectId,
-          startedAt: existing?.startedAt ?? new Date().toISOString(),
-          activity: 'awaiting_children',
+    if (!hasOtherActiveStream) {
+      useTaskHubStore.setState((s) => ({
+        agentStatus: { ...s.agentStatus, [agentId]: 'background' },
+        activeRunsByAgent: {
+          ...s.activeRunsByAgent,
+          [agentId]: {
+            runId: existing?.runId ?? `background-${agentId}-${Date.now()}`,
+            taskId: taskId ?? existing?.taskId,
+            conversationId: projectId,
+            startedAt: existing?.startedAt ?? new Date().toISOString(),
+            activity: 'awaiting_children',
+          },
         },
-      },
-    }));
+      }));
+    }
     state.addEvent({
       conversationId: projectId,
       type: 'run.background_waiting',
@@ -2192,11 +2197,12 @@ function handleAgentActivity({ projectId, taskId, agentId, sessionId, status, re
   }
 
   if (status === 'idle') {
+    state.completeStreamMessage(agentId, invocationId);
+    if (hasActiveStreamForAgent(useTaskHubStore.getState(), agentId)) return;
     useTaskHubStore.setState((s) => ({
       agentStatus: { ...s.agentStatus, [agentId]: 'idle' },
       activeRunsByAgent: { ...s.activeRunsByAgent, [agentId]: undefined },
     }));
-    state.completeStreamMessage(agentId);
   }
 }
 
@@ -2329,6 +2335,7 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
         agentId,
         taskId: typeof payload.taskId === 'string' ? payload.taskId : undefined,
         sessionId: typeof payload.sessionId === 'string' ? payload.sessionId : undefined,
+        invocationId,
         status,
         reason: typeof payload.reason === 'string' ? payload.reason : undefined,
       });
