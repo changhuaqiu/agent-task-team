@@ -39,6 +39,10 @@ function activeStreamKeysForAgent(state: any, agentId: string): string[] {
     .map(([key]) => key);
 }
 
+export function hasActiveStreamForAgent(state: any, agentId: string): boolean {
+  return activeStreamKeysForAgent(state, agentId).length > 0;
+}
+
 export function resetWatchdog(
   agentId: string,
   getState: () => any,

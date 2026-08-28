@@ -288,6 +288,48 @@ describe('durable message reconciliation', () => {
     ]);
   });
 
+  it('completes only the Invocation named by terminal exit', () => {
+    const store = useTaskHubStore.getState();
+    const firstId = store.ensureStreamMessage('mario', 'project-a', 'inv-1');
+    const secondId = store.ensureStreamMessage('mario', 'project-a', 'inv-2');
+    useTaskHubStore.setState({
+      agentStatus: { mario: 'busy' },
+      activeRunsByAgent: {
+        mario: {
+          runId: 'run-2', conversationId: 'project-a', startedAt: timestamp,
+          activity: 'foreground',
+        },
+      },
+    });
+
+    expect(consumeProjectViewEvent({
+      version: 2,
+      envelopeVersion: 1,
+      eventId: 'terminal-exit-inv-1',
+      projectId: 'project-a',
+      occurredAt: timestamp,
+      type: 'terminal.exited',
+      delivery: 'durable',
+      actor: { type: 'runtime', id: 'local-daemon' },
+      agent: { type: 'agent', id: 'mario' },
+      subject: { type: 'invocation', id: 'inv-1' },
+      correlationId: 'inv-1',
+      causationId: 'runtime-inv-1',
+      payload: { code: 0, activity: 'idle' },
+    })).toBe(true);
+
+    expect(useTaskHubStore.getState()).toMatchObject({
+      agentStatus: { mario: 'busy' },
+      activeStreamMessageId: { 'invocation:inv-2': secondId },
+      chatMessagesByConversation: {
+        'project-a': expect.arrayContaining([
+          expect.objectContaining({ id: firstId, isStreaming: false }),
+          expect.objectContaining({ id: secondId, isStreaming: true }),
+        ]),
+      },
+    });
+  });
+
   it('reconciles a post-persistence notification without duplicating the completed stream', () => {
     useTaskHubStore.setState({
       chatMessagesByConversation: {

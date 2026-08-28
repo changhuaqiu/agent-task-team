@@ -13,6 +13,7 @@
 - [x] 同一 Invocation 在并行 Agent 事件穿插时仍只显示一个回复，不同 Invocation 不因发送者相同而被整组折叠。
 - [x] Task/唤醒/系统通知不渲染为 Agent 气泡；thinking 摘要与最终结论是回复主线，工具调用只显示一个 Invocation 级操作回执。
 - [x] 同一 Agent 的并发 Invocation 使用独立实时 stream/buffer/watchdog，完成其中一个不会关闭或合并另一个。
+- [x] `runtime.completed`、watchdog 与 `terminal.exited` 都携带 Invocation identity 完成精确 stream；单个进程退出不把同 Agent 其他活动回复置为完成或 idle。
 - [x] 工具完成/失败状态进入持久消息观察投影，刷新后操作回执仍保留执行问题数且不会成为答复正文。
 - [x] 主时间线不显示最近工具名称、参数或逐条结果；完整 Trace 从观察入口查看，超长 Agent 正文默认收敛，任务引用、证据卡和阻塞事实保持可见。
 - [x] 活动区首次只渲染最近 120 个聚合项，用户可按批次显示更早活动；服务端历史不被删除。

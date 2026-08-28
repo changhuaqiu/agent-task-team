@@ -16,6 +16,7 @@ import {
   resetWatchdog,
   clearWatchdog,
   streamIdentityKey,
+  hasActiveStreamForAgent,
 } from './daemonStore';
 import {
   isProjectViewEnvelope,
@@ -2459,6 +2460,7 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
     handleTerminalExit({
       projectId: event.projectId,
       agentId,
+      invocationId,
       code: payload.code,
       command: typeof payload.command === 'string' ? payload.command : undefined,
       reasonCode: typeof payload.reasonCode === 'string' ? payload.reasonCode : undefined,
@@ -2504,9 +2506,10 @@ function handleDispatchReceipt(receipt: DispatchReceipt): void {
   useTaskHubStore.getState().recordDispatchReceipt(receipt);
 }
 
-function handleTerminalExit({ projectId, agentId, code, command, reasonCode, activity }: {
+function handleTerminalExit({ projectId, agentId, invocationId, code, command, reasonCode, activity }: {
   projectId: string;
   agentId: string;
+  invocationId?: string;
   code: number;
   command?: string;
   reasonCode?: string;
@@ -2529,7 +2532,7 @@ function handleTerminalExit({ projectId, agentId, code, command, reasonCode, act
   }
 
   if (backgroundWaiting) {
-    clearWatchdog(agentId);
+    clearWatchdog(agentId, invocationId);
     if (active?.activity !== 'awaiting_children') {
       store.addEvent({
         conversationId: projectId,
@@ -2556,13 +2559,18 @@ function handleTerminalExit({ projectId, agentId, code, command, reasonCode, act
   }
 
   const exitComposeKey = `${projectId}:${agentId}`;
+  store.completeStreamMessage(agentId, invocationId);
+  const hasRemainingStream = hasActiveStreamForAgent(useTaskHubStore.getState(), agentId);
 
   useTaskHubStore.setState((state) => ({
-    agentStatus: { ...state.agentStatus, [agentId]: 'idle' },
-    activeRunsByAgent: { ...state.activeRunsByAgent, [agentId]: undefined },
+    agentStatus: hasRemainingStream
+      ? state.agentStatus
+      : { ...state.agentStatus, [agentId]: 'idle' },
+    activeRunsByAgent: hasRemainingStream
+      ? state.activeRunsByAgent
+      : { ...state.activeRunsByAgent, [agentId]: undefined },
     needsFullCompose: { ...state.needsFullCompose, [exitComposeKey]: true },
   }));
-  useTaskHubStore.getState().completeStreamMessage(agentId);
 }
 
 interface TaskStateSocketRow {
