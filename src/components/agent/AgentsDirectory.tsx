@@ -1,14 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, Bot, ChevronRight, Clock3, Cpu, Hash, Loader2, MessageSquareText, Plus, RotateCcw, Settings2, Sparkles, Square, TerminalSquare, X } from 'lucide-react';
+import { Activity, Bot, ChevronRight, Clock3, Cpu, Hash, Loader2, MessageSquareText, Plus, RotateCcw, Settings2, Sparkles, Square, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { loadAgentRuntimeCatalog, type AgentRuntimeCatalogItem } from '@/lib/agent-runtime-catalog-client';
 import type { RuntimeCliEngine } from '@/lib/team-runtime/runtimeEngine';
 import { loadAgents, type Agent } from '@/store/agentStore';
 import { useTaskHubStore, type ActiveAgentRun, type ChatMessage, type Conversation, type WorkspaceProject } from '@/store/taskHubStore';
 import { cn } from '@/lib/utils';
+import { projectAgentResponse } from '@/lib/agent-response-presentation';
 import { SettingsTeamPacksTab } from '@/components/task-hub/SettingsTeamPacksTab';
+import { AgentOperationReceipt, AgentThinkingDisclosure } from '@/components/task-hub/AgentResponseActivity';
+import { MarkdownContent } from '@/components/task-hub/MarkdownContent';
+import { openAgentObservabilityDrawer } from '@/components/project/agent-observability-controller';
 import {
   AgentDefinitionDialog,
   type AgentDefinitionDraft,
@@ -412,8 +416,23 @@ function AgentActivityPanel({ agentName, activeRun, activity, conversations, pro
   }
 
   if (!activeRun && !activity.length) {
-    return <EmptyPanel title="还没有运行活动" description={`${agentName} 开始参与项目工作后，这里会展示接纳状态、工具轨迹和最终回复。`} />;
+    return <EmptyPanel title="还没有运行活动" description={`${agentName} 开始参与项目工作后，这里会展示思考状态、执行结果和可追溯的运行摘要。`} />;
   }
+
+  const responses = Array.from(activity.reduce((groups, message) => {
+    const key = message.invocationId
+      ? `${message.conversationId}:${message.invocationId}`
+      : `${message.conversationId}:${message.id}`;
+    const group = groups.get(key) ?? [];
+    group.push(message);
+    groups.set(key, group);
+    return groups;
+  }, new Map<string, Array<ChatMessage & { conversationId: string }>>()).entries())
+    .map(([id, segments]) => ({
+      id,
+      segments: segments.sort((left, right) => left.timestamp.localeCompare(right.timestamp)),
+    }))
+    .sort((left, right) => right.segments.at(-1)!.timestamp.localeCompare(left.segments.at(-1)!.timestamp));
 
   return <div className="space-y-3">
     {activeRun && <section className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900 dark:bg-emerald-950/20" aria-label="当前运行">
@@ -421,12 +440,29 @@ function AgentActivityPanel({ agentName, activeRun, activity, conversations, pro
       <div className="mt-3 grid gap-2 text-[11px] text-[hsl(var(--text-secondary))] sm:grid-cols-2"><span>Project：{contextName(activeRun.conversationId)}</span><span>Activity：{activeRun.activity === 'awaiting_children' ? '等待子 Agent' : '处理事件'}</span><span className="truncate sm:col-span-2" title={activeRun.runId}>Run：{activeRun.runId}</span></div>
     </section>}
     <section className="overflow-hidden rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))]">
-      {activity.map((message) => <article key={`${message.conversationId}:${message.id}`} className="border-b border-[hsl(var(--border-subtle))] p-4 last:border-b-0">
-        <div className="flex items-center gap-2 text-[10px] text-[hsl(var(--text-tertiary))]"><Activity className="size-3" /><span className="font-medium text-[hsl(var(--text-secondary))]">{contextName(message.conversationId)}</span>{message.invocationId && <span className="rounded bg-[hsl(var(--bg-muted))] px-1.5 py-0.5">Invocation</span>}<span className="ml-auto">{formatActivityTime(message.timestamp)}</span></div>
-        {message.content && <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-[hsl(var(--text-secondary))]">{message.content}</p>}
-        {(message.toolEvents?.length ?? 0) > 0 && <div className="mt-3 space-y-1.5">{message.toolEvents!.map((event) => <div key={event.id} className="flex items-start gap-2 rounded-lg bg-[hsl(var(--bg-muted))] px-2.5 py-2 text-[10px]"><TerminalSquare className="mt-0.5 size-3 shrink-0" /><span className="min-w-0"><span className="font-medium">{event.label}</span>{event.detail && <span className="ml-1 break-all text-[hsl(var(--text-tertiary))]">{event.detail}</span>}</span></div>)}</div>}
-        {message.tokenUsage && <div className="mt-2 text-[10px] text-[hsl(var(--text-tertiary))]">{message.tokenUsage.model} · 输入 {message.tokenUsage.inputTokens} · 输出 {message.tokenUsage.outputTokens}</div>}
-      </article>)}
+      {responses.map(({ id, segments }) => {
+        const first = segments[0];
+        const latest = segments.at(-1)!;
+        const presentation = projectAgentResponse(segments);
+        const tokenUsage = [...segments].reverse().find((message) => message.tokenUsage)?.tokenUsage;
+        return <article key={id} className="border-b border-[hsl(var(--border-subtle))] p-4 last:border-b-0">
+          <div className="flex items-center gap-2 text-[10px] text-[hsl(var(--text-tertiary))]"><Activity className="size-3" /><span className="font-medium text-[hsl(var(--text-secondary))]">{contextName(first.conversationId)}</span>{first.invocationId && <span className="rounded bg-[hsl(var(--bg-muted))] px-1.5 py-0.5">一次响应</span>}<span className="ml-auto">{formatActivityTime(latest.timestamp)}</span></div>
+          <div className="mt-3">
+            <AgentThinkingDisclosure text={presentation.thinkingText} isStreaming={presentation.operation?.isActive ?? false} />
+            {presentation.finalText && <div className="text-xs leading-5 text-[hsl(var(--text-secondary))]"><MarkdownContent content={presentation.finalText} /></div>}
+            {presentation.operation && <AgentOperationReceipt
+              summary={presentation.operation}
+              onOpenDetails={() => openAgentObservabilityDrawer({
+                conversationId: first.conversationId,
+                invocationId: first.invocationId,
+                agentId: first.agentId,
+                timestamp: first.timestamp,
+              })}
+            />}
+          </div>
+          {tokenUsage && <div className="mt-2 text-[10px] text-[hsl(var(--text-tertiary))]">{tokenUsage.model} · 输入 {tokenUsage.inputTokens} · 输出 {tokenUsage.outputTokens}</div>}
+        </article>;
+      })}
     </section>
   </div>;
 }

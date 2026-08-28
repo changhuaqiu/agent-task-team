@@ -21,7 +21,7 @@
 5. 建立 Project Work Projection 和 `CommandService` 两个深 Module；MCP、CLI 与 Web/Desktop 只是 Adapter，不新增第二个全局事实 Store，也不各自实现写入规则。
 6. 浏览器最终不得发出 `terminal:start`，任务 mutation 不得自动调用 `dispatchToAgent`。
 7. 外部项目只作为研究参考，Implementation、视觉和文案独立完成；不得去除复制代码本应保留的许可声明。
-8. 团队活动以 Invocation 回复为单位：同一次调用不裂泡，不同调用不按 Agent 合并；系统活动与 Agent 正文分面渲染。工具名称与目标始终可见，长回复正文可渐进展开，结构化证据和阻塞不随正文折叠。
+8. 团队活动以 Invocation 回复为单位：同一次调用不裂泡，不同调用不按 Agent 合并；实时 stream、buffer、watchdog 与完成动作也必须以 Invocation identity 隔离，不能因同一 Agent 并发而串泡。缺少 Invocation identity 的兼容/早期失败事件最多关闭 legacy Agent-keyed stream，禁止关闭任何 Invocation-keyed stream。系统活动与 Agent 正文分面渲染。Runtime 提供的 thinking 与最终答复构成回复主线，thinking 以低权重摘要渐进展开，最终答复保持直接可读；工具事件在主时间线只合并为一次操作回执，不显示工具名、参数或逐条结果，完整轨迹从 Invocation 观察入口查看。工具开始、完成与失败状态必须可持久恢复，刷新后操作数与执行问题数不能退化。结构化证据、业务阻塞与执行问题计数不随正文折叠。
 9. Agent 文本、工具观察和 `runtime.completed` 都不是完成事实。WorkItem 只有在当前 authority 接纳终态 CommandReceipt、正式 Artifact 已登记且要求的 Review/Gate 通过后才完成；可选 Release 只聚合这些事实。
 10. 验收进度必须可追溯到正式验收证据。主视图按验收标准展示结论与证据引用，并提供验证方式、验证人、报告、规格、代码版本和完成时间；Agent 聊天中的口头声明不得计入验收进度或证据包。
 11. 交付首屏采用有界水合和按需加载：状态快照不携带未被首屏消费的调试记录，只携带每个交付最近一段活动；设置、弹窗、评估与调试组件按用户意图加载；任务关系图只在用户打开关系图时请求。完整历史仍保留在服务端，并通过选中交付后的后台对账与时间线渐进展开访问。
@@ -41,7 +41,7 @@
 25. 全局 surface 使用一个共享的有界工作区网格；header、filter、main 与 252px context rail 在超宽屏保持同轴且相邻，子 surface 不得再次独立居中收缩。
 26. Agent possession、派发与交接摘要属于当前 Project 的运行状态，不属于任何一条聊天消息；必须由 Project 工作区会话显式定域并位于 Project 标题与视图导航下方、当前主内容上方的顶部状态栏，不能跟随子任务选择漂移，也不能进入可滚动消息时间线或输入器区域。正常状态只显示一行，完整记录面板从状态栏向下浮层展开且不改变主内容、时间线或输入器高度，切换 Project 时必须关闭旧 Project 的展开状态；所有状态和失败原因必须转译为用户可理解的文案，不得显示内部枚举或 reason code。
 27. Project 的“工作”镜头以 WorkItem 列表为主对象，不再用统计卡和说明卡包围任务。WorkItem 按生命周期状态分组，整行打开统一详情；列表只承担快速扫描，展示标题、必要描述、负责人、更新时间及有事实时的产物数，状态同时由分组与进度图形表达，不重复堆叠状态徽章。窄宽度按优先级隐藏次级元数据，不能把一条工作退化成拥挤的小卡片。同一 Project 页面在任一列表状态只能出现一个创建入口；对象选中、详情解析及编辑、状态、进度请求、删除等写操作必须使用 `conversationId + taskId` 复合身份，mutation epoch、请求中/错误状态与重试 idempotency key 也必须用该身份隔离。禁止裸 `taskId` 跨作用域解析对象或复用临时状态，也禁止在当前会话重复触发运行投影重置。
-28. 全局收件箱是跨 Project 的用户事实与可行动更新镜头，不是 Runtime 观察日志。`tool_use`、`tool_result` 等工具生命周期不得作为独立收件箱条目；它们只附着在对应 Agent Invocation 回复的“运行记录”中渐进展开。工具失败只有先被领域 owner 转译为阻塞、待决策或其他可行动事实后才能进入收件箱，禁止按“使用工具”文案做 UI 字符串过滤。
+28. 全局收件箱是跨 Project 的用户事实与可行动更新镜头，不是 Runtime 观察日志。`thinking`、`tool_use`、`tool_result` 等 Runtime 观察不得作为独立收件箱条目；Project 协作流只把 thinking 作为回复内的低权重摘要、把工具轨迹压成 Invocation 级操作回执，逐条轨迹留在观察详情。工具失败只有先被领域 owner 转译为阻塞、待决策或其他可行动事实后才能进入收件箱，禁止按“使用工具”文案做 UI 字符串过滤。
 29. Project 拥有可变的 Agent 成员关系，Agent Team 只是可复用的初始成员与协作拓扑模板。部署 Team 时以其成员初始化当前 Project；随后在 Project 内添加或移除 Agent 只改变该 Project，不反向修改 Agent Definition 或 Team。成员变化必须经 `CommandService` 产生幂等回执和领域事件，并立即成为聊天 `@`、默认派发、任务负责人候选和服务端 Conversation Runtime 的共同权威来源；Renderer 不得用全局 `activeAgentIds` 猜测 Project 成员。
 
 ## 3. 范围

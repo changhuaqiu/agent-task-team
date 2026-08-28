@@ -82,6 +82,30 @@ describe('AutomationRuntime', () => {
     expect(repository.listRuns('schedule-1')).toHaveLength(1);
   });
 
+  it('never treats Runtime observation messages as user message triggers', () => {
+    const project = projectRepo.create({ name: 'Runtime boundary', rootPath: 'C:/runtime-boundary' });
+    const repository = new AutomationRepository();
+    repository.create({
+      id: 'message-trigger', projectId: project.id, name: '收到消息后通知', enabled: true,
+      trigger: { type: 'event', eventType: 'chat.message.persisted', conditions: [] },
+      actions: [{ id: 'notify', type: 'notify', message: '收到正式消息' }],
+    });
+    const eventLog = new PlatformEventLog();
+    const runtime = new AutomationRuntime();
+    const append = (contentType: string, suffix: string) => eventLog.append({
+      type: 'chat.message.persisted', category: 'domain', projectId: project.workspace_conversation_id,
+      streamKey: `message:${suffix}`, aggregate: { type: 'message', id: suffix },
+      actor: { type: 'agent', id: 'mario' }, correlationId: suffix,
+      payload: { messageId: suffix, contentType, content: suffix },
+    });
+
+    for (const contentType of ['thinking', 'tool_use', 'tool_result']) {
+      expect(runtime.processEvent(append(contentType, contentType))).toEqual({ matched: 0, created: 0 });
+    }
+    expect(runtime.processEvent(append('text', 'answer'))).toEqual({ matched: 1, created: 1 });
+    expect(repository.listRuns('message-trigger')).toHaveLength(1);
+  });
+
   it('does not replay events recorded before a definition was enabled', () => {
     const project = projectRepo.create({ name: 'Gamma', rootPath: 'C:/gamma' });
     const eventLog = new PlatformEventLog({ now: () => new Date('2026-08-25T08:00:00.000Z') });

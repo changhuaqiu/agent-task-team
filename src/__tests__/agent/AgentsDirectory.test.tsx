@@ -60,7 +60,8 @@ describe('AgentsDirectory', () => {
     render(<AgentsDirectory />);
     expect(screen.getByRole('button', { name: '活动' })).toBeDefined();
     expect(screen.getByText('完成结果已提交。')).toBeDefined();
-    expect(screen.getByText('ath task submit')).toBeDefined();
+    expect(screen.getByRole('button', { name: /已处理 1 个操作.*查看运行详情/ })).toBeDefined();
+    expect(screen.queryByText('ath task submit')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '频道' }));
     expect(screen.getByText('Owned Project')).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: '编辑 Agent' }));

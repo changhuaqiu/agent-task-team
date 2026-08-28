@@ -10,8 +10,9 @@ export const socket = io(undefined, { path: '/api/socketio', autoConnect: false 
 
 const STREAM_WATCHDOG_MS = 300_000;
 const streamWatchdogs: Record<string, ReturnType<typeof setTimeout>> = {};
+const streamWatchdogAgents: Record<string, string> = {};
 
-const streamBuffer: Record<string, string> = {};
+const streamBuffer: Record<string, { content: string; thinking: string }> = {};
 let bufferFlushScheduled = false;
 
 type AgentRunStatus = 'idle' | 'busy' | 'background';
@@ -23,30 +24,80 @@ type ActiveAgentRun = {
   activity?: 'foreground' | 'awaiting_children';
 };
 
-export function resetWatchdog(agentId: string, getState: () => any, setState: (partial: any) => void) {
-  if (streamWatchdogs[agentId]) clearTimeout(streamWatchdogs[agentId]);
-  streamWatchdogs[agentId] = setTimeout(() => {
+export function streamIdentityKey(agentId: string, invocationId?: string): string {
+  return invocationId ? `invocation:${invocationId}` : agentId;
+}
+
+function activeStreamKeysForAgent(state: any, agentId: string): string[] {
+  return Object.entries(state.activeStreamMessageId)
+    .filter(([key, messageId]) => {
+      if (key === agentId) return true;
+      const conversationId = state.activeStreamConversationId[key];
+      return (state.chatMessagesByConversation[conversationId] ?? [])
+        .some((message: any) => message.id === messageId && message.agentId === agentId);
+    })
+    .map(([key]) => key);
+}
+
+export function hasActiveStreamForAgent(
+  state: any,
+  agentId: string,
+  excludingInvocationId?: string,
+): boolean {
+  const excludedKey = excludingInvocationId
+    ? streamIdentityKey(agentId, excludingInvocationId)
+    : undefined;
+  return activeStreamKeysForAgent(state, agentId).some((key) => key !== excludedKey);
+}
+
+export function resetWatchdog(
+  agentId: string,
+  getState: () => any,
+  setState: (partial: any) => void,
+  invocationId?: string,
+) {
+  const streamKey = streamIdentityKey(agentId, invocationId);
+  if (streamWatchdogs[streamKey]) clearTimeout(streamWatchdogs[streamKey]);
+  streamWatchdogAgents[streamKey] = agentId;
+  streamWatchdogs[streamKey] = setTimeout(() => {
     const state = getState();
     if (state.activeRunsByAgent[agentId]?.activity === 'awaiting_children') {
-      delete streamWatchdogs[agentId];
+      delete streamWatchdogs[streamKey];
+      delete streamWatchdogAgents[streamKey];
       return;
     }
-    if (state.activeStreamMessageId[agentId]) {
-      console.warn(`[watchdog] Stream for ${agentId} timed out after ${STREAM_WATCHDOG_MS / 1000}s, auto-completing`);
-      setState((s: any) => ({
-        agentStatus: { ...s.agentStatus, [agentId]: 'idle' },
-        activeRunsByAgent: { ...s.activeRunsByAgent, [agentId]: undefined },
-      }));
-      getState().completeStreamMessage(agentId);
+    if (state.activeStreamMessageId[streamKey]) {
+      console.warn(`[watchdog] Stream for ${streamKey} timed out after ${STREAM_WATCHDOG_MS / 1000}s, auto-completing`);
+      getState().completeStreamMessage(agentId, invocationId);
+      if (activeStreamKeysForAgent(getState(), agentId).length === 0) {
+        setState((s: any) => ({
+          agentStatus: { ...s.agentStatus, [agentId]: 'idle' },
+          activeRunsByAgent: { ...s.activeRunsByAgent, [agentId]: undefined },
+        }));
+      }
     }
-    delete streamWatchdogs[agentId];
+    delete streamWatchdogs[streamKey];
+    delete streamWatchdogAgents[streamKey];
   }, STREAM_WATCHDOG_MS);
 }
 
-export function clearWatchdog(agentId: string) {
-  if (streamWatchdogs[agentId]) {
-    clearTimeout(streamWatchdogs[agentId]);
-    delete streamWatchdogs[agentId];
+export function clearWatchdog(agentId: string, invocationId?: string) {
+  const keys = [streamIdentityKey(agentId, invocationId)];
+  for (const key of keys) {
+    if (!streamWatchdogs[key]) continue;
+    clearTimeout(streamWatchdogs[key]);
+    delete streamWatchdogs[key];
+    delete streamWatchdogAgents[key];
+  }
+}
+
+export function clearAllWatchdogs(agentId: string) {
+  const keys = Object.keys(streamWatchdogs)
+    .filter((key) => streamWatchdogAgents[key] === agentId || key === agentId);
+  for (const key of keys) {
+    clearTimeout(streamWatchdogs[key]);
+    delete streamWatchdogs[key];
+    delete streamWatchdogAgents[key];
   }
 }
 
@@ -58,7 +109,7 @@ function scheduleBufferFlush(getState: () => any, setState: (partial: any) => vo
     const state = getState();
     const entries = Object.entries(streamBuffer);
     for (const [messageId, pending] of entries) {
-      if (!pending) continue;
+      if (!pending.content && !pending.thinking) continue;
       delete streamBuffer[messageId];
       const agentEntry = Object.entries(state.activeStreamMessageId).find(([, id]) => id === messageId);
       const convId = agentEntry ? state.activeStreamConversationId[agentEntry[0]] : undefined;
@@ -70,7 +121,11 @@ function scheduleBufferFlush(getState: () => any, setState: (partial: any) => vo
           chatMessagesByConversation: {
             ...s.chatMessagesByConversation,
             [convId]: msgs.map((m: any) =>
-              m.id === messageId ? { ...m, content: m.content + pending } : m
+              m.id === messageId ? {
+                ...m,
+                content: m.content + pending.content,
+                thinking: (m.thinking ?? '') + pending.thinking,
+              } : m
             ),
           },
         };
@@ -85,7 +140,7 @@ function flushStreamBufferForMessage(
   setState: (partial: any) => void,
 ) {
   const pending = streamBuffer[messageId];
-  if (!pending) return;
+  if (!pending || (!pending.content && !pending.thinking)) return;
   delete streamBuffer[messageId];
   setState((s: any) => {
     const msgs = s.chatMessagesByConversation[conversationId];
@@ -94,22 +149,32 @@ function flushStreamBufferForMessage(
       chatMessagesByConversation: {
         ...s.chatMessagesByConversation,
         [conversationId]: msgs.map((m: any) =>
-          m.id === messageId ? { ...m, content: m.content + pending } : m
+          m.id === messageId ? {
+            ...m,
+            content: m.content + pending.content,
+            thinking: (m.thinking ?? '') + pending.thinking,
+          } : m
         ),
       },
     };
   });
 }
 
-function appendToStreamBuffer(messageId: string, content: string) {
-  streamBuffer[messageId] = (streamBuffer[messageId] || '') + content;
+function appendToStreamBuffer(messageId: string, patch: { content?: string; thinking?: string }) {
+  const pending = streamBuffer[messageId] ?? { content: '', thinking: '' };
+  streamBuffer[messageId] = {
+    content: pending.content + (patch.content ?? ''),
+    thinking: pending.thinking + (patch.thinking ?? ''),
+  };
 }
 
 // --- Daemon Slice Creator ---
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- set/get typed as any to avoid circular dependency with TaskHubState
 export const createDaemonSlice = (set: any, get: () => any) => {
-  const _resetWatchdog = (agentId: string) => resetWatchdog(agentId, get, set);
+  const _resetWatchdog = (agentId: string, invocationId?: string) => (
+    resetWatchdog(agentId, get, set, invocationId)
+  );
   const _scheduleFlush = () => scheduleBufferFlush(get, set);
 
   return {
@@ -157,40 +222,45 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       })),
 
     ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string): string => {
-      const existing = get().activeStreamMessageId[agentId];
+      const streamKey = streamIdentityKey(agentId, invocationId);
+      const existing = get().activeStreamMessageId[streamKey];
       if (existing) {
-        const existingConvId = get().activeStreamConversationId[agentId];
+        const existingConvId = get().activeStreamConversationId[streamKey];
         const msgs = get().chatMessagesByConversation[existingConvId ?? conversationId] ?? [];
         if (msgs.some((m: any) => m.id === existing)) {
-          _resetWatchdog(agentId);
+          _resetWatchdog(agentId, invocationId);
           return existing;
         }
       }
-      const id = `msg-${Date.now()}-${agentId}`;
+      const id = `msg-${Date.now()}-${agentId}-${Math.random().toString(36).slice(2, 7)}`;
       const stamp = new Date().toISOString();
       set((state: any) => ({
-        activeStreamMessageId: { ...state.activeStreamMessageId, [agentId]: id },
-        activeStreamConversationId: { ...state.activeStreamConversationId, [agentId]: conversationId },
+        activeStreamMessageId: { ...state.activeStreamMessageId, [streamKey]: id },
+        activeStreamConversationId: { ...state.activeStreamConversationId, [streamKey]: conversationId },
         chatMessagesByConversation: {
           ...state.chatMessagesByConversation,
           [conversationId]: [
             ...(state.chatMessagesByConversation[conversationId] || []),
-            { id, agentId, content: '', timestamp: stamp, conversationId, invocationId, isStreaming: true, toolEvents: [] },
+            { id, agentId, content: '', thinking: '', contentType: 'text', timestamp: stamp, conversationId, invocationId, isStreaming: true, toolEvents: [] },
           ],
         },
       }));
-      _resetWatchdog(agentId);
+      _resetWatchdog(agentId, invocationId);
       return id;
     },
 
-    appendToStreamMessage: (messageId: string, patch: { content?: string; toolEvent?: any }) => {
+    appendToStreamMessage: (messageId: string, patch: { content?: string; thinking?: string; toolEvent?: any }) => {
       const agentEntry = Object.entries(get().activeStreamMessageId).find(([, id]) => id === messageId);
       const trackedConvId = agentEntry ? get().activeStreamConversationId[agentEntry[0]] : undefined;
       if (!trackedConvId) return;
-      if (agentEntry) _resetWatchdog(agentEntry[0]);
+      if (agentEntry) {
+        const message = (get().chatMessagesByConversation[trackedConvId] ?? [])
+          .find((candidate: any) => candidate.id === messageId);
+        if (message) _resetWatchdog(message.agentId, message.invocationId);
+      }
 
-      if (patch.content != null) {
-        appendToStreamBuffer(messageId, patch.content);
+      if (patch.content != null || patch.thinking != null) {
+        appendToStreamBuffer(messageId, patch);
         _scheduleFlush();
       }
 
@@ -212,28 +282,41 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       }
     },
 
-    completeStreamMessage: (agentId: string) => {
-      const activeId = get().activeStreamMessageId[agentId];
-      if (!activeId) return;
-      clearWatchdog(agentId);
-      const trackedConvId = get().activeStreamConversationId[agentId];
-      if (trackedConvId) {
-        flushStreamBufferForMessage(activeId, trackedConvId, set);
+    completeStreamMessage: (agentId: string, invocationId?: string) => {
+      const state = get();
+      const exactKey = invocationId ? streamIdentityKey(agentId, invocationId) : undefined;
+      const streamKeys = exactKey
+        ? (state.activeStreamMessageId[exactKey] ? [exactKey] : [])
+        : (state.activeStreamMessageId[agentId] ? [agentId] : []);
+      if (streamKeys.length === 0) return;
+      clearWatchdog(agentId, invocationId);
+      for (const key of streamKeys) {
+        const messageId = state.activeStreamMessageId[key];
+        const conversationId = state.activeStreamConversationId[key];
+        if (messageId && conversationId) flushStreamBufferForMessage(messageId, conversationId, set);
       }
       set((state: any) => {
-        const { [agentId]: _, ...restMsgIds } = state.activeStreamMessageId;
-        const { [agentId]: __, ...restConvIds } = state.activeStreamConversationId;
-        if (!trackedConvId) return { activeStreamMessageId: restMsgIds, activeStreamConversationId: restConvIds };
-        const msgs = state.chatMessagesByConversation[trackedConvId];
+        const restMsgIds = { ...state.activeStreamMessageId };
+        const restConvIds = { ...state.activeStreamConversationId };
+        const completedIds = new Set<string>();
+        for (const key of streamKeys) {
+          if (restMsgIds[key]) completedIds.add(restMsgIds[key]);
+          delete restMsgIds[key];
+          delete restConvIds[key];
+        }
+        const changedConversations = new Set(
+          streamKeys.map((key) => state.activeStreamConversationId[key]).filter(Boolean),
+        );
+        const messages = { ...state.chatMessagesByConversation };
+        for (const conversationId of changedConversations) {
+          messages[conversationId] = (messages[conversationId] ?? []).map((message: any) => (
+            completedIds.has(message.id) ? { ...message, isStreaming: false } : message
+          ));
+        }
         return {
           activeStreamMessageId: restMsgIds,
           activeStreamConversationId: restConvIds,
-          chatMessagesByConversation: {
-            ...state.chatMessagesByConversation,
-            [trackedConvId]: msgs
-              ? msgs.map((m: any) => m.id === activeId ? { ...m, isStreaming: false } : m)
-              : msgs,
-          },
+          chatMessagesByConversation: messages,
         };
       });
     },

@@ -230,6 +230,8 @@ describe('issueDispatchWorkContract', () => {
     expect(instruction).toContain('command-only recovery turn');
     expect(instruction).toContain('Do not repeat implementation');
     expect(instruction).toContain('Do not send a narrative assistant reply');
+    expect(instruction).toContain('correct the structured payload and retry');
+    expect(instruction).toContain('Never expose raw platform reason codes');
   });
 
   it('binds an A2A reconciliation possession into callback authority', () => {

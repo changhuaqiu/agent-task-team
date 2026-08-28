@@ -3,8 +3,9 @@
 import { useTaskHubStore, type ChatMessage } from '@/store/taskHubStore';
 import { useState } from 'react';
 import { PixelAvatar } from './PixelAvatar';
-import { CliOutputBlock } from './CliOutputBlock';
+import { AgentOperationReceipt, AgentThinkingDisclosure } from './AgentResponseActivity';
 import { cn } from '@/lib/utils';
+import { projectAgentResponse } from '@/lib/agent-response-presentation';
 import { parsePhaseBreakdown } from '@/lib/breakdownParser';
 import { User, Lightbulb, Play, Eye, Link2, Copy, ExternalLink, Activity, CornerUpLeft } from 'lucide-react';
 import { openAgentObservabilityDrawer } from '@/components/project/agent-observability-controller';
@@ -172,16 +173,11 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
 
   const segments = responseSegments?.length ? responseSegments : [message];
   const responseMessage = segments[0];
-  const responseText = segments
-    .map((segment) => segment.content)
-    .filter(Boolean)
-    .join('\n\n');
   const isHuman = responseMessage.agentId === 'human';
+  const presentation = projectAgentResponse(segments);
+  const responseText = presentation.finalText;
   const agent = allAgents.find((a) => a.id === responseMessage.agentId);
-  const hasToolTrace = !isHuman && segments.some((segment) => (segment.toolEvents?.length ?? 0) > 0);
-  const toolEvents = segments.flatMap((segment) => segment.toolEvents ?? []);
   const responseIsStreaming = segments.some((segment) => segment.isStreaming === true);
-  const streamingToolText = segments.find((segment) => segment.isStreaming)?.content;
   const tokenUsage = [...segments].reverse().find((segment) => segment.tokenUsage)?.tokenUsage;
   const responseTaskRefs = Array.from(new Map(
     segments.flatMap(taskRefsFromMessage).map((task) => [task.id, task]),
@@ -193,14 +189,9 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
     .reverse()
     .map((segment) => segment.metadata?.collaborationCard)
     .find(isEngineeringCollaborationCard);
-  const plainTextSegments = segments.filter((segment) =>
-    Boolean(segment.content) && (segment.toolEvents?.length ?? 0) === 0
-  );
-  const finalPlainTextId = plainTextSegments.at(-1)?.id;
-  const intermediateNarrativeSegments = hasToolTrace
-    ? plainTextSegments.filter((segment) => segment.id !== finalPlainTextId)
-    : [];
+  const intermediateNarrativeSegments = presentation.intermediateSegments;
   const intermediateNarrativeIds = new Set(intermediateNarrativeSegments.map((segment) => segment.id));
+  const finalNarrativeId = presentation.answerSegments.at(-1)?.id;
   const acknowledgements = isHuman
     ? Array.from(new Map(
       dispatchReceipts
@@ -213,6 +204,14 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
     : [];
 
   const timeString = new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const openRunDetails = !isHuman && (responseMessage.conversationId || selectedConversationId)
+    ? () => openAgentObservabilityDrawer({
+        conversationId: responseMessage.conversationId || selectedConversationId!,
+        invocationId: responseMessage.invocationId,
+        agentId: responseMessage.agentId,
+        timestamp: responseMessage.timestamp,
+      })
+    : undefined;
   return (
     <div
       data-testid={message.invocationId ? `agent-response-${message.invocationId}` : undefined}
@@ -267,6 +266,13 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
         <div
           className="relative break-words pr-2 text-[12px] leading-relaxed text-[hsl(var(--text-primary))]"
         >
+          {!isHuman && (
+            <AgentThinkingDisclosure
+              text={presentation.thinkingText}
+              isStreaming={responseIsStreaming}
+            />
+          )}
+
           {intermediateNarrativeSegments.length > 0 && (
             <details
               data-testid="agent-progress-details"
@@ -285,12 +291,17 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
 
           {segments.map((segment) => {
             const segmentHasToolEvents = (segment.toolEvents?.length ?? 0) > 0;
-            const hideSegmentNarrative = segmentHasToolEvents || intermediateNarrativeIds.has(segment.id);
-            const segmentProposals = parsePhaseBreakdown(segment.content);
+            const hideSegmentNarrative = segment.contentType === 'thinking'
+              || segment.contentType === 'tool_use'
+              || intermediateNarrativeIds.has(segment.id)
+              || (!isHuman && segment.id !== finalNarrativeId);
+            const segmentProposals = segment.contentType === 'thinking'
+              ? []
+              : parsePhaseBreakdown(segment.content);
 
             return (
               <div key={segment.id} data-message-segment-id={segment.id} className="mt-2 first:mt-0">
-                {segment.isStreaming && !segment.content && !segmentHasToolEvents ? (
+                {segment.isStreaming && !segment.content && !presentation.thinkingText && !segmentHasToolEvents ? (
                   <span className="inline-block w-1.5 h-4 bg-current animate-pulse rounded-full opacity-50" />
                 ) : segment.content && !hideSegmentNarrative ? (
                   isHuman ? (
@@ -341,12 +352,8 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
             <EngineeringCollaborationCard card={responseCollaborationCard} onSelectTask={setSelectedTaskId} />
           )}
 
-          {toolEvents.length > 0 && (
-            <CliOutputBlock
-              events={toolEvents}
-              isStreaming={responseIsStreaming}
-              streamText={responseIsStreaming ? streamingToolText : undefined}
-            />
+          {presentation.operation && (
+            <AgentOperationReceipt summary={presentation.operation} onOpenDetails={openRunDetails} />
           )}
 
           {tokenUsage && (
@@ -379,12 +386,7 @@ export function ChatMessageItem({ message, responseSegments }: ChatMessageItemPr
               {!isHuman && (message.conversationId || selectedConversationId) && (
                 <button
                   type="button"
-                  onClick={() => openAgentObservabilityDrawer({
-                    conversationId: message.conversationId || selectedConversationId!,
-                    invocationId: message.invocationId,
-                    agentId: message.agentId,
-                    timestamp: message.timestamp,
-                  })}
+                  onClick={openRunDetails}
                   className="rounded-[2px] p-1 text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--accent))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent))]"
                   title="查看这次 Agent 调用"
                   aria-label="查看这次 Agent 调用"

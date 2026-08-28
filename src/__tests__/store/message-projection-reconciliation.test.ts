@@ -223,6 +223,141 @@ describe('durable message reconciliation', () => {
     expect(reconcileConversationMessages([alone], [inSnapshot])).toEqual([inSnapshot]);
   });
 
+  it('hydrates a persisted tool failure as an operation error instead of answer text', () => {
+    const failureRow = {
+      ...persistedEnvelope().payload.message,
+      id: 'msg-tool-failure',
+      content: 'permission denied',
+      content_type: 'tool_result',
+      metadata: JSON.stringify({
+        sourceEventId: 'event-tool-failure',
+        toolEvent: { type: 'error', name: 'Shell', output: 'permission denied', callId: 'call-1' },
+      }),
+    };
+
+    expect(mapMessagesToState({ 'project-a': [failureRow] })['project-a'][0]).toMatchObject({
+      id: 'msg-tool-failure',
+      content: '',
+      contentType: 'tool_result',
+      invocationId: 'inv-1',
+      toolEvents: [expect.objectContaining({
+        type: 'error', label: 'Shell', detail: 'permission denied',
+      })],
+    });
+  });
+
+  it('keeps a persisted thinking segment distinct from the final answer', () => {
+    const thinkingRow = {
+      ...persistedEnvelope().payload.message,
+      id: 'msg-thinking',
+      content: '先理解任务边界。',
+      content_type: 'thinking',
+    };
+
+    expect(mapMessagesToState({ 'project-a': [thinkingRow] })['project-a'][0]).toMatchObject({
+      content: '先理解任务边界。',
+      contentType: 'thinking',
+      invocationId: 'inv-1',
+    });
+  });
+
+  it('projects live thinking deltas into the active Agent response', () => {
+    expect(consumeProjectViewEvent({
+      version: 2,
+      envelopeVersion: 1,
+      eventId: 'event-thinking-delta',
+      projectId: 'project-a',
+      occurredAt: timestamp,
+      type: 'runtime.thinking.delta',
+      delivery: 'transient',
+      actor: { type: 'runtime', id: 'local-daemon' },
+      agent: { type: 'agent', id: 'mario' },
+      subject: { type: 'invocation', id: 'inv-1' },
+      correlationId: 'inv-1',
+      causationId: 'runtime-event-1',
+      payload: { content: '正在分析。', invocationId: 'inv-1' },
+    })).toBe(true);
+
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toEqual([
+      expect.objectContaining({
+        agentId: 'mario',
+        thinking: '正在分析。',
+        content: '',
+        isStreaming: true,
+      }),
+    ]);
+  });
+
+  it('completes only the Invocation named by terminal exit', () => {
+    const store = useTaskHubStore.getState();
+    const firstId = store.ensureStreamMessage('mario', 'project-a', 'inv-1');
+    const secondId = store.ensureStreamMessage('mario', 'project-a', 'inv-2');
+    useTaskHubStore.setState({
+      agentStatus: { mario: 'busy' },
+      activeRunsByAgent: {
+        mario: {
+          runId: 'run-2', conversationId: 'project-a', startedAt: timestamp,
+          activity: 'foreground',
+        },
+      },
+    });
+
+    expect(consumeProjectViewEvent({
+      version: 2,
+      envelopeVersion: 1,
+      eventId: 'terminal-exit-inv-1',
+      projectId: 'project-a',
+      occurredAt: timestamp,
+      type: 'terminal.exited',
+      delivery: 'durable',
+      actor: { type: 'runtime', id: 'local-daemon' },
+      agent: { type: 'agent', id: 'mario' },
+      subject: { type: 'invocation', id: 'inv-1' },
+      correlationId: 'inv-1',
+      causationId: 'runtime-inv-1',
+      payload: { code: 0, activity: 'idle' },
+    })).toBe(true);
+
+    expect(useTaskHubStore.getState()).toMatchObject({
+      agentStatus: { mario: 'busy' },
+      activeStreamMessageId: { 'invocation:inv-2': secondId },
+      chatMessagesByConversation: {
+        'project-a': expect.arrayContaining([
+          expect.objectContaining({ id: firstId, isStreaming: false }),
+          expect.objectContaining({ id: secondId, isStreaming: true }),
+        ]),
+      },
+    });
+  });
+
+  it('does not complete Invocation streams for an identity-less setup failure exit', () => {
+    const store = useTaskHubStore.getState();
+    const firstId = store.ensureStreamMessage('mario', 'project-a', 'inv-1');
+    const secondId = store.ensureStreamMessage('mario', 'project-a', 'inv-2');
+
+    expect(consumeProjectViewEvent({
+      version: 2,
+      envelopeVersion: 1,
+      eventId: 'terminal-exit-before-invocation',
+      projectId: 'project-a',
+      occurredAt: timestamp,
+      type: 'terminal.exited',
+      delivery: 'transient',
+      actor: { type: 'runtime', id: 'local-daemon' },
+      agent: { type: 'agent', id: 'mario' },
+      correlationId: 'setup-failure',
+      causationId: 'setup-failure',
+      payload: { code: 1, reasonCode: 'internal_error' },
+    })).toBe(true);
+
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: firstId, invocationId: 'inv-1', isStreaming: true }),
+        expect.objectContaining({ id: secondId, invocationId: 'inv-2', isStreaming: true }),
+      ]),
+    );
+  });
+
   it('reconciles a post-persistence notification without duplicating the completed stream', () => {
     useTaskHubStore.setState({
       chatMessagesByConversation: {
@@ -233,8 +368,8 @@ describe('durable message reconciliation', () => {
           isStreaming: true,
         })],
       },
-      activeStreamMessageId: { mario: 'stream-1' },
-      activeStreamConversationId: { mario: 'project-a' },
+      activeStreamMessageId: { 'invocation:inv-1': 'stream-1' },
+      activeStreamConversationId: { 'invocation:inv-1': 'project-a' },
     });
 
     expect(consumeProjectViewEvent(persistedEnvelope())).toBe(true);

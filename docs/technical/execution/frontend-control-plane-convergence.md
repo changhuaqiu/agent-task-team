@@ -187,11 +187,11 @@ Implementation：复用 `consumeProjectViewEvent`、项目 room 和消息快照�
 
 项目活动的读侧投影遵守以下消息身份规则：
 
-1. `invocationId` 是一次 Agent 回复的稳定身份；同一 Invocation 的文本、工具事件和最终消息即使被并行 Agent 事件穿插，也投影到同一个回复实体。
+1. `invocationId` 是一次 Agent 回复的稳定身份；同一 Invocation 的文本、工具事件和最终消息即使被并行 Agent 事件穿插，也投影到同一个回复实体。实时 stream message、delta buffer、watchdog 和完成动作同样按 Invocation 定域，同一 Agent 的并发 Invocation 不能共享活动消息；正常完成、超时和 setup failure fallback 发布的 Runtime Project View 事件都必须携带已经取得的 Invocation subject。
 2. 没有 `invocationId` 的人工消息按持久消息 ID 独立展示；不同 Invocation 绝不按 `agentId` 合并。
 3. `task_status` 和 system sender 投影为活动提示，不进入 Agent 气泡分组；原始通知正文只作为可展开的审计详情。
 4. 活跃的 provisional 回复与同 Invocation 的 durable 消息重叠时只显示 provisional；完成并对账后只显示 durable，避免刷新前后裂成两个回复。
-5. 工具调用的名称和主要目标始终可见，完整输入输出可折叠；中间自然语言过程默认折叠。最终自然语言回复超过阅读阈值时只收起正文容器，不得收起工具、结构化证据、任务引用或阻塞事实。
+5. Runtime thinking 与最终自然语言答复是回复主线；thinking 使用低权重 disclosure，最终答复直接可读。工具事件只投影为 Invocation 级操作回执（进行中/已完成、操作数、执行问题数），工具名、参数和逐条结果只进入观察详情；`tool.completed` / `tool.failed` 作为 Runtime 观察消息持久化，使刷新后的回执与实时状态一致，但不会发布用户消息领域事件。最终回复超过阅读阈值时只收起正文容器，不得收起结构化证据、任务引用或阻塞事实。
 
 这些规则由纯时间线投影函数持有，`GlobalChatRoom` 只渲染投影结果，不再按连续发送者临时分组。
 
@@ -452,7 +452,7 @@ Delivery 详情中的 overview / activity / evaluation 是页面局部 surface�
 - 真实浏览器回归：在 Next.js 16.2.4 开发服务中新建非自主交付，切换任务看板/关系图，通过 Human Command
   提交补充要求并看到权威活动；最终刷新后阶段/验收/当前工作/需关注与任务/调试层级正确，交付与活动只出现一次，
   控制台错误为 0。
-- 真实历史回归：3000 页面显示最新交付已完成且验收 100%；2 条超长 Agent 正文默认收敛，11 个已完成 Trace 在收起态直接投影最近工具名称/目标，工具详情仍可展开，控制台无应用错误。
+- 历史基线曾在收起态直接投影最近工具名称/目标；现行交互已由统一 Agent response presentation 替代：thinking 与最终答复为主线，Trace 在聊天中只保留操作回执，完整工具详情从 Invocation 观察入口查看。
 - 自主链路实跑：Delivery `delivery-0001786897386331-006536-140198c5` 在无人代写 Gate 结论的前提下完成 Task Review
   与 Delivery Review；Acceptance Verification 因目标明确要求 Web UI E2E、而 Playwright 权限被拒绝，稳定收敛到
   `waiting_human`。该结果验证了 evaluator 工具调用、Gate-scoped Work、严格 receipt admission、下一阶段自动推进，

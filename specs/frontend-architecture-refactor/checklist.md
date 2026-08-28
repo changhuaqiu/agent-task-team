@@ -11,8 +11,11 @@
 - [x] 验收进度可展开为逐条证据包；每条结论来自正式 DeliveryBundle，展示验证方式、验证人、报告/规格引用、代码版本和完成时间，Agent 口头声明不计数。
 - [x] 团队活动是次级信息，Runtime/Session/Receipt/Lease 等实现词不出现在主视图。
 - [x] 同一 Invocation 在并行 Agent 事件穿插时仍只显示一个回复，不同 Invocation 不因发送者相同而被整组折叠。
-- [x] Task/唤醒/系统通知不渲染为 Agent 气泡；工具调用摘要始终可见，最终结论无需展开历史分组即可阅读。
-- [x] 已完成 Trace 收起时仍显示最近工具名称和目标；超长 Agent 正文默认收敛，但工具、任务引用、证据卡和阻塞事实保持可见。
+- [x] Task/唤醒/系统通知不渲染为 Agent 气泡；thinking 摘要与最终结论是回复主线，工具调用只显示一个 Invocation 级操作回执。
+- [x] 同一 Agent 的并发 Invocation 使用独立实时 stream/buffer/watchdog，完成其中一个不会关闭或合并另一个。
+- [x] `runtime.completed`、watchdog 与 `terminal.exited` 都携带 Invocation identity 完成精确 stream；单个进程退出不把同 Agent 其他活动回复置为完成或 idle。
+- [x] 工具完成/失败状态进入持久消息观察投影，刷新后操作回执仍保留执行问题数且不会成为答复正文。
+- [x] 主时间线不显示最近工具名称、参数或逐条结果；完整 Trace 从观察入口查看，超长 Agent 正文默认收敛，任务引用、证据卡和阻塞事实保持可见。
 - [x] 活动区首次只渲染最近 120 个聚合项，用户可按批次显示更早活动；服务端历史不被删除。
 - [x] 右面板一级入口只有任务和调试；看板、列表、关系图为视图模式。
 - [x] 页面没有外部参考项目的名称、品牌、猫形象、文案、CSS/token 或组件命名痕迹。
@@ -34,7 +37,7 @@
 - [x] Project 状态栏不随子任务会话选择漂移，记录面板可查看完整混合历史，失败原因不暴露内部代码。
 - [x] 切换 Project 会关闭旧 Project 的记录浮层，历史状态枚举全部使用用户文案。
 - [x] Project 工作页以 WorkItem 为主对象；任务按生命周期分组、整行可打开，状态不以重复徽章堆叠，窄窗口会按信息优先级收敛。
-- [x] 收件箱不展示独立工具调用/结果条目；工具轨迹仍可从对应 Agent 回复的运行记录查看，可行动失败以业务事实而非内部工具名呈现。
+- [x] 收件箱不展示独立 thinking/工具调用/结果条目；Project 回复在正文内保留低权重 thinking 摘要、操作计数与执行问题，完整工具轨迹从 Invocation 观察详情查看，可行动失败以业务事实而非内部工具名呈现。
 
 ## 投影与项目隔离
 
@@ -51,7 +54,8 @@
 - [x] 持久消息在刷新重连后自动对账，不重复、不回滚实时内容。
 - [x] 服务端能依据交付完成前已持久化的评审通过记录幂等修复 Task 投影回退，并发布可审计的 Task/Proof 事实。
 - [x] Conversation 兼容映射只存在于投影 producer/repository 边界并有退出条件；工作区子组件与侧栏只消费统一 View。
-- [x] Workspace Inbox 在持久投影边界按消息类型排除 Runtime 工具观察，并能幂等清理历史已投影工具条目，不依赖 UI 文案匹配。
+- [x] Workspace Inbox 在持久投影边界按消息类型排除 Runtime thinking 与工具观察，并能幂等清理历史已投影条目，不依赖 UI 文案匹配。
+- [x] Runtime thinking/tool 观察不发布为用户消息事实，也不能匹配 Project message Automation；兼容历史事件时在 Automation 边界再次过滤。
 
 ## Command 与控制面
 

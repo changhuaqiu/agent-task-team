@@ -115,15 +115,19 @@ Agent 本身就是完整能力对象。名称、头像、结构化主要职责�
 ## 5. Inbox 与连续协作体验
 
 - Inbox 不是把 Task、Message 和 Review 临时拼数组，而是统一事件投影的用户镜头；每个条目保存 subject、project、actor、timestamp、read/action state 和可回到原上下文的引用。
-- Inbox 只承载人类消息、Agent 对人可读的更新以及 Work、Review、Blocker、Artifact 等业务事实；ACP/Runtime 的工具调用与工具结果属于对应回复的运行记录，不得提升为跨 Project 条目。需要用户处理的工具失败必须先转译成正式阻塞或待决策事实，不能直接显示工具名、参数或内部错误。
+- Inbox 只承载人类消息、Agent 对人可读的更新以及 Work、Review、Blocker、Artifact 等业务事实；ACP/Runtime 的工具调用与工具结果属于对应 Invocation 的观察详情，不得提升为跨 Project 条目。Project 回复只保留操作回执和执行问题计数。需要用户处理的工具失败必须先转译成正式阻塞或待决策事实，不能直接显示工具名、参数或内部错误。
 - 连续协作流按 Project 保存草稿；切换 Project、Thread 或应用重启后仍恢复各自草稿。
 - 提及 Agent 先显示接纳/排队/运行状态，实例真正建立后才显示执行中；失败提供稳定原因和重试入口。
-- 正式 CommandReceipt 卡与普通消息、thinking、tool trace 使用不同类型和视觉语义。
+- 正式 CommandReceipt 卡与普通消息、thinking、operation receipt 使用不同类型和视觉语义。
 - Thread、引用、未读边界、回到最新和发送中/失败重试都属于消息产品能力，不以日志面板替代。
 - 回复关系必须以 `replyToMessageId + threadRootId` 持久化；引用预览只是展示，不能把 `> 引用…` 文本当作 Thread 身份。Inbox、消息流和深链必须使用同一 `threadRootId` 聚合。
 - 同一对象、同一活动类型、同一内容在短时间内重复出现时，消息流合并为一条带次数的活动摘要；原始事件仍保留在观察/诊断层，避免心跳和同步噪声淹没正式事实。
 
-### 5.1 Project 消息输入器
+### 5.1 Agent 回复层级
+
+真实 Buzz Transcript 会先把 ACP 更新规范化为 message、thought、tool 等 typed item：thought 作为低权重 disclosure，最终 assistant message 直接呈现；连续 tool item 在 presentation 层归组为一次 “Ran N tool calls”，子项默认不展开。这里学习的是信息层级而不是组件外观：本产品保留完整 Runtime Event 作为 canonical data，但聊天和 Agent Activity 共用一次响应投影，只显示思考摘要、最终答复与一个操作回执。需要排障时从 Invocation 观察入口进入完整工具轨迹。
+
+### 5.2 Project 消息输入器
 
 真实 Buzz 桌面端的输入体验采用“一个输入面、两组低权重动作、一个主发送动作”的层级。Agent Task Hub 采纳这一交互思想，但只呈现本产品已经可用的能力：
 
@@ -140,13 +144,13 @@ Agent 本身就是完整能力对象。名称、头像、结构化主要职责�
 - Agent 接纳、派发与交接属于 Project 运行状态，不是聊天内容：不得插入消息时间线或输入器区域。它固定绑定当前 Project 的工作区会话，位于 Project 标题与视图导航下方、主内容上方，不跟随用户临时打开的子任务会话切换；状态栏正常状态压缩为可展开的单行摘要，完整历史记录向下浮层展开且不推动主内容；阻塞或失败才使用警示色并显示用户可理解的原因，内部 reason code 不得直接露出。
 - 日期分隔使用细线与小号日期标签；主消息流不使用装饰性粗边框、硬投影或重复计数制造额外层级。
 
-### 5.2 全局工作区宽屏布局
+### 5.3 全局工作区宽屏布局
 
 - 收件箱、Projects、工作、评审和产物共享同一个有最大宽度的工作区框架；顶部视图导航、筛选、主内容和右侧上下文必须对齐到同一网格。
 - 最大化或超宽屏只增加框架两侧留白，不得把主列表留在屏幕中央、上下文面板推到最右边。上下文面板始终紧邻主内容；窄屏按既有断点隐藏。
 - 全局页面的内容列在框架内自然占满可用宽度，不再由子页面单独套一个更窄的居中容器造成二次收缩。
 
-### 5.3 Project Agent 成员
+### 5.4 Project Agent 成员
 
 - Project 是 Agent 可触达范围的产品边界；Project context 展示当前成员，并提供一个“添加 Agent”主入口。添加器只列出已有且尚未加入的 Agent，不重复询问 Runtime、账号、Skill 或 Team。
 - Agent Team 是复用协作组合的模板，部署时初始化 Project 成员；Project 后续增减成员不修改 Team，也不修改 Agent 自身配置。

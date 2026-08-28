@@ -196,9 +196,9 @@ describe('ChatMessageItem invocation surface', () => {
     expect(screen.queryByTestId('agent-acknowledgements')).toBeNull();
   });
 
-  it('folds progress, keeps the final answer visible, and exposes tool calls in a compact trace', () => {
+  it('shows thinking and the final answer while reducing tool calls to one operation receipt', () => {
     const segments = [
-      message({ id: 'progress', agentId: 'peach', invocationId: 'inv-review', content: '正在核对文件' }),
+      message({ id: 'thinking', agentId: 'peach', invocationId: 'inv-review', contentType: 'thinking', content: '先核对改动，再确认测试证据。' }),
       message({ id: 'write', agentId: 'peach', invocationId: 'inv-review', content: '', toolEvents: [{
         id: 'tool-write', type: 'tool_use', label: 'Write', timestamp: '2026-07-30T02:30:01.000Z',
       }] }),
@@ -211,14 +211,11 @@ describe('ChatMessageItem invocation surface', () => {
     render(<ChatMessageItem message={segments[0]} responseSegments={segments} />);
 
     expect(screen.getByText('评审完成，证据已确认。')).toBeDefined();
-    expect(screen.getByTestId('agent-progress-details').hasAttribute('open')).toBe(false);
-    const traceToggle = screen.getByRole('button', { name: /运行记录.*已完成.*2 次工具调用.*Read/ });
-    expect(traceToggle).toBeDefined();
-    expect(screen.queryByTestId('cli-trace-preview')).toBeNull();
+    expect(screen.getByText('思考过程')).toBeDefined();
+    expect(screen.getAllByText('先核对改动，再确认测试证据。')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /已处理 2 个操作.*查看运行详情/ })).toBeDefined();
     expect(screen.queryByText('Write')).toBeNull();
-    fireEvent.click(traceToggle);
-    expect(screen.getByText('Write')).toBeDefined();
-    expect(screen.getByText('Read')).toBeDefined();
+    expect(screen.queryByText('Read')).toBeNull();
   });
 
   it('collapses long agent prose without hiding the full response permanently', () => {

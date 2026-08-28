@@ -4,7 +4,7 @@ import { getDb } from '../db';
 export type WorkspaceInboxKind = 'message_thread' | 'work' | 'review' | 'agent_activity' | 'reminder' | 'draft';
 export type WorkspaceInboxFilter = 'all' | 'needs_action' | 'agents' | 'reviews';
 
-const RUNTIME_OBSERVATION_CONTENT_TYPES = ['tool_use', 'tool_result'] as const;
+const RUNTIME_OBSERVATION_CONTENT_TYPES = ['thinking', 'tool_use', 'tool_result'] as const;
 
 export interface WorkspaceInboxItem {
   conversationKey: string;

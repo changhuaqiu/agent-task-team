@@ -91,6 +91,8 @@ interface CommandReceipt<T = unknown> {
 
 公共工具使用单意图名称和单意图 Schema，统一映射到同一 CommandService。旧的聚合 outcome 工具不再暴露；Agent 不需要理解 Delivery Run、Control Action 或 Repository。
 
+`work_handoff` 的 MCP Schema 必须直接描述 `branches[]` 以及 `toAgentId / intent / title / requestedAction` 等字段，不能只暴露不透明 `payload: object` 让 Agent 猜协议。公共工具只接收一个外层 `idempotency_key`；ACP Adapter 将它映射为 A2A owner 仍需的 payload identity，禁止要求 Agent 在外层与 payload 内重复提交同一幂等键。格式错误返回可纠正的工具回执，不得让 Agent 把 `a2a_outcome_invalid`、重派合同或平台等待策略写进面向用户的最终答复。
+
 ## 6. 新交付模型
 
 页面和流程围绕 `Project`、`WorkItem`（当前 Task）、`Artifact`、`Review/Gate` 和可选 `Release` 组织。“交付完成”是投影而不是按钮：所选 Release/目标范围内的必需 WorkItem 已通过、要求的 Artifact 存在、Gate 已通过、外部动作有可验证回执。没有 Release 的日常协作也能持续产出，不要求先创建“交付”。
@@ -169,7 +171,7 @@ WorkContract 必须保存准入决定、Agent revision、Task owner/revision 快
 ## 7. 页面行为
 
 - Workspace 默认打开跨 Project 的 Inbox/Activity；Project 默认进入绑定该 Project identity 的 Telegram 式协作流。协作流中的消息、Agent 运行观察和正式事实共享作用域与因果身份，但仍是不同事件类别。
-- Runtime observation 使用轻量、可折叠的活动表现，不与正式产物混排为同等事实。
+- Runtime observation 使用轻量、可折叠的活动表现，不与正式产物混排为同等事实。聊天主线只展示 thinking 摘要、最终答复和一个操作回执；逐条工具调用只属于 Invocation 观察详情。
 - 回复使用持久 `replyToMessageId` 和由服务端校验/派生的 `threadRootId`；客户端不得靠引用文本解析 Thread。Inbox 与消息流必须按同一 root 聚合。
 - 重复 Runtime/同步活动在产品时间线按稳定语义键折叠，保留次数和最后时间；正式 Command Fact 不参与噪声折叠。
 - `CommandReceipt` 投影成任务提交评审、产物登记、评审要求修改、发布确认等事实卡片。
@@ -228,7 +230,7 @@ Project 添加器的首个实现切片固定为：`浏览/搜索已有 Project -
 ### 7.5 Automation 定义与运行
 
 - `automation.create/update/set_enabled/trigger/retry` 进入 Command Kernel；Definition 必须属于一个 Project，并以 revision 防止覆盖编辑。幂等重放比较完整命令信封（command name、Project、subject、expected revision 与规范化 input），空 command identity 直接拒绝。
-- Trigger 首批覆盖 domain event、Project message 与 schedule；Condition 只读取标准化 trigger context，不执行任意代码。
+- Trigger 首批覆盖 domain event、Project message 与 schedule；Condition 只读取标准化 trigger context，不执行任意代码。Project message 只接受正式 text 消息事实，Runtime thinking/tool 观察即使来自兼容历史 `chat.message.persisted` 事件也必须在 Automation 边界过滤。
 - Action 是有序、带稳定 step id 的单意图列表；首批动作覆盖发送 Project 通知、触发 Agent 和调用已注册 Product Command。
 - Event trigger 使用 PlatformEventDispatcher 的 durable process manager；自身 `automation.*` 事件永不匹配，`automationId + sourceEventId` 唯一。
 - Schedule 使用持久 fire claim；多进程 tick 竞争只有一个执行者获得 Run，进程重启后仍可恢复。

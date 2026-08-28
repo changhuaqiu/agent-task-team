@@ -42,7 +42,7 @@ describe('Runtime Event consumer projections', () => {
     db.close();
   });
 
-  function recordTrace(withSessionLifecycle = false) {
+  function recordTrace(withSessionLifecycle = false, toolStatus: 'completed' | 'failed' = 'completed') {
     const coordinator = new AcpRuntimeEventCoordinator({
       context: {
         projectId: 'project-1',
@@ -73,7 +73,10 @@ describe('Runtime Event consumer projections', () => {
     coordinator.adapterEvent({
       type: 'tool_result',
       content: 'ok',
-      tool: { name: 'Shell', callId: 'call-1', output: 'ok' },
+      tool: {
+        name: 'Shell', callId: 'call-1', output: toolStatus === 'failed' ? 'permission denied' : 'ok',
+        status: toolStatus === 'failed' ? 'failed' : 'completed',
+      },
     });
     coordinator.terminate({ status: 'completed', durationMs: 20 });
     return log.listStream('invocation:inv-1');
@@ -107,16 +110,24 @@ describe('Runtime Event consumer projections', () => {
     }
 
     expect(messageRepo.getByConversation('project-1').map((row) => row.content)).toEqual([
+      'reasoning summary',
       'hello',
       '🔧 使用工具：Shell',
+      'ok',
     ]);
     expect(db.prepare('SELECT COUNT(*) count FROM runtime_message_projection').get())
-      .toEqual({ count: 2 });
-    expect(onProjected).toHaveBeenCalledTimes(2);
+      .toEqual({ count: 4 });
+    expect(onProjected).toHaveBeenCalledTimes(4);
     expect(onProjected.mock.calls.map(([message]) => message.content)).toEqual([
+      'reasoning summary',
       'hello',
       '🔧 使用工具：Shell',
+      'ok',
     ]);
+    expect(log.listByInvocation('inv-1')
+      .filter((event) => event.type === 'chat.message.persisted')
+      .map((event) => (event.payload as { contentType?: string }).contentType))
+      .toEqual(['text']);
     expect(db.prepare('SELECT COUNT(*) count FROM runtime_observability_projection').get())
       .toEqual({ count: events.length });
     expect(db.prepare(`
@@ -130,6 +141,29 @@ describe('Runtime Event consumer projections', () => {
       { span_id: 'runtime-message:inv-1', status: 'ok' },
       { span_id: 'runtime-tool:inv-1:call-1', status: 'ok' },
     ]);
+  });
+
+  it('persists failed operation state for durable hydration without creating message facts', async () => {
+    const events = recordTrace(false, 'failed');
+    const messages = new RuntimeMessageProjection({ db });
+    const context = { signal: new AbortController().signal };
+
+    for (const event of events) await messages.handle(event, context);
+
+    const rows = messageRepo.getByConversation('project-1');
+    expect(rows.map((row) => row.content_type)).toEqual([
+      'thinking', 'text', 'tool_use', 'tool_result',
+    ]);
+    expect(JSON.parse(rows.at(-1)?.metadata ?? '{}')).toMatchObject({
+      toolEvent: {
+        type: 'error', name: 'Shell', output: 'permission denied',
+        reasonCode: 'runtime_tool_failed', callId: 'call-1',
+      },
+    });
+    expect(log.listByInvocation('inv-1')
+      .filter((event) => event.type === 'chat.message.persisted')
+      .map((event) => (event.payload as { contentType?: string }).contentType))
+      .toEqual(['text']);
   });
 
   it('projects structured runtime events through the isolated project view channel', () => {
