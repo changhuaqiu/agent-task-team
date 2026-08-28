@@ -223,6 +223,29 @@ describe('durable message reconciliation', () => {
     expect(reconcileConversationMessages([alone], [inSnapshot])).toEqual([inSnapshot]);
   });
 
+  it('hydrates a persisted tool failure as an operation error instead of answer text', () => {
+    const failureRow = {
+      ...persistedEnvelope().payload.message,
+      id: 'msg-tool-failure',
+      content: 'permission denied',
+      content_type: 'tool_result',
+      metadata: JSON.stringify({
+        sourceEventId: 'event-tool-failure',
+        toolEvent: { type: 'error', name: 'Shell', output: 'permission denied', callId: 'call-1' },
+      }),
+    };
+
+    expect(mapMessagesToState({ 'project-a': [failureRow] })['project-a'][0]).toMatchObject({
+      id: 'msg-tool-failure',
+      content: '',
+      contentType: 'tool_result',
+      invocationId: 'inv-1',
+      toolEvents: [expect.objectContaining({
+        type: 'error', label: 'Shell', detail: 'permission denied',
+      })],
+    });
+  });
+
   it('keeps a persisted thinking segment distinct from the final answer', () => {
     const thinkingRow = {
       ...persistedEnvelope().payload.message,
@@ -275,8 +298,8 @@ describe('durable message reconciliation', () => {
           isStreaming: true,
         })],
       },
-      activeStreamMessageId: { mario: 'stream-1' },
-      activeStreamConversationId: { mario: 'project-a' },
+      activeStreamMessageId: { 'invocation:inv-1': 'stream-1' },
+      activeStreamConversationId: { 'invocation:inv-1': 'project-a' },
     });
 
     expect(consumeProjectViewEvent(persistedEnvelope())).toBe(true);

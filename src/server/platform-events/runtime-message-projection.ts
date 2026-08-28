@@ -52,15 +52,17 @@ export class RuntimeMessageProjection {
             ...(content.metadata ?? {}),
           },
         });
-        new PlatformEventLog({ db }).append({
-          type: 'chat.message.persisted', category: 'domain', projectId: event.projectId,
-          streamKey: `message:${messageId}`, aggregate: { type: 'message', id: messageId },
-          actor: { type: 'agent', id: projectAgentId }, subject: { type: 'message', id: messageId },
-          projectAgentId, invocationId,
-          correlationId: event.correlationId, causationId: event.eventId,
-          dedupeKey: `chat-message-persisted:${messageId}`,
-          payload: { messageId, content: content.text, senderId: projectAgentId, contentType: content.type },
-        });
+        if (content.type === 'text') {
+          new PlatformEventLog({ db }).append({
+            type: 'chat.message.persisted', category: 'domain', projectId: event.projectId,
+            streamKey: `message:${messageId}`, aggregate: { type: 'message', id: messageId },
+            actor: { type: 'agent', id: projectAgentId }, subject: { type: 'message', id: messageId },
+            projectAgentId, invocationId,
+            correlationId: event.correlationId, causationId: event.eventId,
+            dedupeKey: `chat-message-persisted:${messageId}`,
+            payload: { messageId, content: content.text, senderId: projectAgentId, contentType: content.type },
+          });
+        }
         const logicalSessionId = event.subject?.type === 'logical_session'
           ? event.subject.id
           : invocation?.session_id;
@@ -118,6 +120,44 @@ export class RuntimeMessageProjection {
             type: 'tool_use',
             name: payload.toolName,
             input: payload.input?.slice(0, 500),
+            callId: payload.callId,
+          },
+        },
+      };
+    }
+    if (event.type === 'runtime.tool.completed') {
+      const payload = event.payload as { toolName?: string; output?: string; callId?: string };
+      if (!payload.toolName) return undefined;
+      return {
+        text: payload.output?.slice(0, 500) || `已完成操作：${payload.toolName}`,
+        type: 'tool_result',
+        metadata: {
+          toolEvent: {
+            type: 'tool_result',
+            name: payload.toolName,
+            output: payload.output?.slice(0, 500),
+            callId: payload.callId,
+          },
+        },
+      };
+    }
+    if (event.type === 'runtime.tool.failed') {
+      const payload = event.payload as {
+        toolName?: string;
+        message?: string;
+        reasonCode?: string;
+        callId?: string;
+      };
+      if (!payload.toolName) return undefined;
+      return {
+        text: payload.message?.slice(0, 500) || `操作失败：${payload.toolName}`,
+        type: 'tool_result',
+        metadata: {
+          toolEvent: {
+            type: 'error',
+            name: payload.toolName,
+            output: payload.message?.slice(0, 500),
+            reasonCode: payload.reasonCode,
             callId: payload.callId,
           },
         },

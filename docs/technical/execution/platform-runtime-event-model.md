@@ -517,7 +517,7 @@ terminal UI 由 `RuntimeSocketProjection` 消费；A2A/closure outcome 由 durab
 `runtime-completion-process-manager:v1` 从 canonical 完成消息段重建；
 Session 身份仍由 coordinator 上半部守护；背景活动与 heartbeat 留在 invocation 控制层。
 低延迟 text/thinking delta 通过同一个带项目隔离的 `project:view` 瞬态信封发布；
-其 durable 边界仍是完成消息段。`forwardAgentEvent` 与生产 `agent_event` 写入均已删除。
+其 durable 边界仍是完成消息段。Runtime Message Projection 同时保存 thinking 与 tool start/completed/failed 观察段，供刷新后重建同一 Invocation 的 thinking 与操作回执；只有最终 text segment 发布 `chat.message.persisted` 用户消息事实，thinking/tool 观察不得触发 Project message Automation。`forwardAgentEvent` 与生产 `agent_event` 写入均已删除。
 
 2026-08-23 起，`PlatformEvent` 与 `ProjectViewEnvelope` 复用
 `src/shared/event-envelope.ts` 的 event identity、project identity、actor/subject 和 causality 语义。

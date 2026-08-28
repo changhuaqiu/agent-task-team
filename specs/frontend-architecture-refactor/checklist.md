@@ -12,6 +12,8 @@
 - [x] 团队活动是次级信息，Runtime/Session/Receipt/Lease 等实现词不出现在主视图。
 - [x] 同一 Invocation 在并行 Agent 事件穿插时仍只显示一个回复，不同 Invocation 不因发送者相同而被整组折叠。
 - [x] Task/唤醒/系统通知不渲染为 Agent 气泡；thinking 摘要与最终结论是回复主线，工具调用只显示一个 Invocation 级操作回执。
+- [x] 同一 Agent 的并发 Invocation 使用独立实时 stream/buffer/watchdog，完成其中一个不会关闭或合并另一个。
+- [x] 工具完成/失败状态进入持久消息观察投影，刷新后操作回执仍保留执行问题数且不会成为答复正文。
 - [x] 主时间线不显示最近工具名称、参数或逐条结果；完整 Trace 从观察入口查看，超长 Agent 正文默认收敛，任务引用、证据卡和阻塞事实保持可见。
 - [x] 活动区首次只渲染最近 120 个聚合项，用户可按批次显示更早活动；服务端历史不被删除。
 - [x] 右面板一级入口只有任务和调试；看板、列表、关系图为视图模式。
@@ -52,6 +54,7 @@
 - [x] 服务端能依据交付完成前已持久化的评审通过记录幂等修复 Task 投影回退，并发布可审计的 Task/Proof 事实。
 - [x] Conversation 兼容映射只存在于投影 producer/repository 边界并有退出条件；工作区子组件与侧栏只消费统一 View。
 - [x] Workspace Inbox 在持久投影边界按消息类型排除 Runtime thinking 与工具观察，并能幂等清理历史已投影条目，不依赖 UI 文案匹配。
+- [x] Runtime thinking/tool 观察不发布为用户消息事实，也不能匹配 Project message Automation；兼容历史事件时在 Automation 边界再次过滤。
 
 ## Command 与控制面
 

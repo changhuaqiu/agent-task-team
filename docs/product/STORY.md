@@ -37,13 +37,14 @@ updated: 2026-08-28
 - 同一 Invocation 的工具事件只形成一个“已处理 N 个操作”回执，执行问题保留计数，工具名、参数与逐条结果只在用户主动打开调用详情后出现；
 - 实时 thinking delta 与持久 thinking segment 使用同一数据语义，刷新或重连后不会退化为普通正文；
 - thinking 与工具观察不会成为跨 Project 收件箱条目，只在对应回复和调用详情中出现；
+- 同一 Agent 同时执行多个 Invocation 时，每个回复拥有独立的实时气泡和完成边界；工具失败刷新后仍保留执行问题计数，同时不会误触发“收到项目消息”类 Automation；
 - `work_handoff` MCP 直接声明 branches 字段，Agent 只提交一个公共幂等键，ACP Adapter 负责映射到 A2A canonical payload，不再要求模型猜测并重复内部身份字段；可纠正的 lifecycle 拒绝要求 Agent 在同一轮修复重试，不能再把内部 reason code 当作最终用户答复。
 
 ### 已验证的效果
 
 - 真实历史数据副本中 43 个 Invocation 操作回执均未在聊天主线暴露工具名，点击回执仍能打开完整调用详情；
-- thinking/final/tool presentation、实时与持久消息投影、Agent Activity 和 ACP handoff contract 的定向回归通过；
-- 全量 Vitest 267 个文件、1910 项测试通过，2 个文件/2 项按既有配置跳过；TypeScript 与生产构建通过。
+- thinking/final/tool presentation、并发 Invocation 隔离、实时与持久消息投影、Automation 边界、Agent Activity 和 ACP handoff contract 的定向回归 52 项通过；
+- 两轮全量并行 Vitest 均完成 269 个文件：每轮 1915 项通过、2 项按既有配置跳过，并各自遇到 1 个不同的非本次范围并发敏感基线用例失败；两个失败用例隔离复跑均通过。TypeScript 与生产构建通过。
 
 ### 仍然保留的边界
 

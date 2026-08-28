@@ -83,6 +83,7 @@ export class AutomationRuntime {
 
   processEvent(event: PlatformEvent): AutomationEventResult {
     if (event.type.startsWith('automation.')) return { matched: 0, created: 0 };
+    if (isRuntimeObservationMessage(event)) return { matched: 0, created: 0 };
     const identity = this.resolveProject(event.projectId);
     if (!identity) return { matched: 0, created: 0 };
     const definitions = this.repository.listEventRevisionsAt(identity.projectId, event.type, event.recordedAt)
@@ -587,6 +588,14 @@ export class AutomationRuntime {
   private db(): Database.Database {
     return this.database ?? getDb();
   }
+}
+
+function isRuntimeObservationMessage(event: PlatformEvent): boolean {
+  if (event.type !== 'chat.message.persisted') return false;
+  const payload = event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+    ? event.payload as Record<string, unknown>
+    : {};
+  return ['thinking', 'tool_use', 'tool_result'].includes(String(payload.contentType ?? 'text'));
 }
 
 function eventContext(event: PlatformEvent): Record<string, unknown> {

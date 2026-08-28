@@ -140,3 +140,4 @@
 - [x] 将 Project 工作页从统计仪表盘重构为按生命周期分组的 WorkItem 对象列表，统一整行打开、响应式元数据与选中态，并删除重复的产物/完成口径说明卡。
 - [x] 将 `tool_use` / `tool_result` 从持久 Workspace Inbox 投影中排除，清理已有工具条目，并保持工具运行记录在 Project 协作流中可追溯。
 - [x] 按 Buzz 真实 Transcript 层级收敛 Agent 回复：thinking 与最终答复为主线，工具事件合并为一个操作回执，完整轨迹进入 Invocation 观察详情；实时与持久 thinking 使用同一展示投影。
+- [x] 将实时 stream identity 从 Agent 提升为 Invocation，覆盖同 Agent 并发隔离；持久化 tool completion/failure 并阻止 Runtime 观察触发消息 Automation。

@@ -327,8 +327,8 @@ export function renderWorkContractInstruction(contract: WorkContract): string {
     '',
     'This invocation is authorized only by the immutable contract below.',
     outcomeRecovery
-      ? `This is a command-only recovery turn. Immediately call exactly one matching lifecycle tool: ${lifecycleTools.join(', ')}.`
-      : `Submit candidate results with exactly one matching lifecycle tool: ${lifecycleTools.join(', ')}.`,
+      ? `This is a command-only recovery turn. Obtain exactly one accepted lifecycle result using: ${lifecycleTools.join(', ')}.`
+      : `Submit candidate results using a matching lifecycle tool: ${lifecycleTools.join(', ')}.`,
     'The tool binds the private fencing token and authoritative revisions for this invocation.',
     'A stale epoch or superseded attempt will be rejected; do not mutate domain state directly.',
     'Treat TASKS.md, task status, assignee, deliverable metadata, and gate state as read-only projections.',
@@ -348,7 +348,7 @@ export function renderWorkContractInstruction(contract: WorkContract): string {
       'Use the previous durable reply and evidence already present in context to choose one allowed structured exit.',
       'Do not send a narrative assistant reply before calling the lifecycle tool.',
     ] : []),
-    'Before ending, submit exactly one terminal command or one work_continue checkpoint; the CommandService applies task and gate transitions atomically.',
+    'Before ending, obtain exactly one accepted terminal command or one accepted work_continue checkpoint; rejected validation attempts must be corrected and retried. The CommandService applies task and gate transitions atomically.',
     'If substantial work remains but this Invocation must stop, call work_continue with payload '
       + '{ schemaVersion: 1, reason: multi_step | context_boundary | verification_follow_up, summary, nextAction, completedSteps: string[], remainingSteps: non-empty string[] }. '
       + 'The platform will start a bounded continuation from that checkpoint; do not use work_continue for an external or human blocker.',

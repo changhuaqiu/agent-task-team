@@ -12,7 +12,7 @@ export interface ChatMessage {
   content: string;
   /** Runtime-provided reasoning summary. Kept separate from the user-facing answer. */
   thinking?: string;
-  contentType?: 'text' | 'thinking' | 'tool_use';
+  contentType?: 'text' | 'thinking' | 'tool_use' | 'tool_result';
   timestamp: string;
   conversationId?: string;
   invocationId?: string;

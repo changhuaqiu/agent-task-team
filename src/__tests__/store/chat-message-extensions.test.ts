@@ -181,6 +181,38 @@ describe('ChatMessage extensions', () => {
       expect(message?.isStreaming).toBe(false);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+
+    it('isolates simultaneous invocations from the same Agent', () => {
+      useTaskHubStore.setState({
+        selectedConversationId: 'conv-1',
+        chatMessagesByConversation: { 'conv-1': [] },
+      });
+
+      const store = useTaskHubStore.getState();
+      const firstId = store.ensureStreamMessage('mario', 'conv-1', 'invocation-1');
+      const secondId = store.ensureStreamMessage('mario', 'conv-1', 'invocation-2');
+      expect(secondId).not.toBe(firstId);
+
+      store.appendToStreamMessage(firstId, { thinking: 'first thought', content: 'first answer' });
+      store.appendToStreamMessage(secondId, { thinking: 'second thought', content: 'second answer' });
+      store.completeStreamMessage('mario', 'invocation-1');
+
+      const afterFirst = useTaskHubStore.getState();
+      expect(afterFirst.chatMessagesByConversation['conv-1']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: firstId, invocationId: 'invocation-1', content: 'first answer', thinking: 'first thought', isStreaming: false }),
+        expect.objectContaining({ id: secondId, invocationId: 'invocation-2', isStreaming: true }),
+      ]));
+      expect(afterFirst.activeStreamMessageId).toMatchObject({
+        'invocation:invocation-2': secondId,
+      });
+      expect(afterFirst.activeStreamMessageId).not.toHaveProperty('invocation:invocation-1');
+
+      store.completeStreamMessage('mario', 'invocation-2');
+      expect(useTaskHubStore.getState().chatMessagesByConversation['conv-1'])
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ id: secondId, content: 'second answer', thinking: 'second thought', isStreaming: false }),
+        ]));
+    });
   });
 
   describe('confirmBreakdown system feedback', () => {

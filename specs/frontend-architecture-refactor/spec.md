@@ -21,7 +21,7 @@
 5. 建立 Project Work Projection 和 `CommandService` 两个深 Module；MCP、CLI 与 Web/Desktop 只是 Adapter，不新增第二个全局事实 Store，也不各自实现写入规则。
 6. 浏览器最终不得发出 `terminal:start`，任务 mutation 不得自动调用 `dispatchToAgent`。
 7. 外部项目只作为研究参考，Implementation、视觉和文案独立完成；不得去除复制代码本应保留的许可声明。
-8. 团队活动以 Invocation 回复为单位：同一次调用不裂泡，不同调用不按 Agent 合并；系统活动与 Agent 正文分面渲染。Runtime 提供的 thinking 与最终答复构成回复主线，thinking 以低权重摘要渐进展开，最终答复保持直接可读；工具事件在主时间线只合并为一次操作回执，不显示工具名、参数或逐条结果，完整轨迹从 Invocation 观察入口查看。结构化证据、业务阻塞与执行问题计数不随正文折叠。
+8. 团队活动以 Invocation 回复为单位：同一次调用不裂泡，不同调用不按 Agent 合并；实时 stream、buffer、watchdog 与完成动作也必须以 Invocation identity 隔离，不能因同一 Agent 并发而串泡。系统活动与 Agent 正文分面渲染。Runtime 提供的 thinking 与最终答复构成回复主线，thinking 以低权重摘要渐进展开，最终答复保持直接可读；工具事件在主时间线只合并为一次操作回执，不显示工具名、参数或逐条结果，完整轨迹从 Invocation 观察入口查看。工具开始、完成与失败状态必须可持久恢复，刷新后操作数与执行问题数不能退化。结构化证据、业务阻塞与执行问题计数不随正文折叠。
 9. Agent 文本、工具观察和 `runtime.completed` 都不是完成事实。WorkItem 只有在当前 authority 接纳终态 CommandReceipt、正式 Artifact 已登记且要求的 Review/Gate 通过后才完成；可选 Release 只聚合这些事实。
 10. 验收进度必须可追溯到正式验收证据。主视图按验收标准展示结论与证据引用，并提供验证方式、验证人、报告、规格、代码版本和完成时间；Agent 聊天中的口头声明不得计入验收进度或证据包。
 11. 交付首屏采用有界水合和按需加载：状态快照不携带未被首屏消费的调试记录，只携带每个交付最近一段活动；设置、弹窗、评估与调试组件按用户意图加载；任务关系图只在用户打开关系图时请求。完整历史仍保留在服务端，并通过选中交付后的后台对账与时间线渐进展开访问。

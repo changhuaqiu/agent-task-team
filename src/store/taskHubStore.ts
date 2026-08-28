@@ -15,6 +15,7 @@ import {
   socket,
   resetWatchdog,
   clearWatchdog,
+  streamIdentityKey,
 } from './daemonStore';
 import {
   isProjectViewEnvelope,
@@ -534,17 +535,19 @@ export function mapMessagesToState(recentMessages: Record<string, any[]>): Recor
   for (const [convId, msgs] of Object.entries(recentMessages)) {
     const mapped: ChatMessage[] = [];
     for (const m of msgs) {
-      const isToolUse = m.content_type === 'tool_use';
+      const isToolObservation = m.content_type === 'tool_use' || m.content_type === 'tool_result';
       const isThinking = m.content_type === 'thinking';
 
-      if (isToolUse) {
+      if (isToolObservation) {
         const meta = m.metadata ? (typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata) : {};
         const invocationId = m.invocation_id ?? meta?.invocationId;
         const toolEvent: ToolEvent = {
           id: m.id,
-          type: 'tool_use',
+          type: meta?.toolEvent?.type === 'error'
+            ? 'error'
+            : m.content_type === 'tool_result' ? 'tool_result' : 'tool_use',
           label: meta?.toolEvent?.name || m.content.replace(/^🔧\s*使用工具：/, ''),
-          detail: meta?.toolEvent?.input || undefined,
+          detail: meta?.toolEvent?.input || meta?.toolEvent?.output || undefined,
           timestamp: m.created_at,
         };
         mapped.push({
@@ -554,6 +557,7 @@ export function mapMessagesToState(recentMessages: Record<string, any[]>): Recor
           timestamp: m.created_at,
           conversationId: convId,
           invocationId,
+          contentType: m.content_type,
           metadata: meta,
           toolEvents: [toolEvent],
         });
@@ -771,7 +775,7 @@ export interface TaskHubState {
   appendTerminalLog: (agentId: string, log: string) => void;
   ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string) => string;
   appendToStreamMessage: (messageId: string, patch: { content?: string; thinking?: string; toolEvent?: ToolEvent }) => void;
-  completeStreamMessage: (agentId: string) => void;
+  completeStreamMessage: (agentId: string, invocationId?: string) => void;
   cleanupStaleStreams: () => void;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
@@ -2223,16 +2227,16 @@ function handleAgentEvent(event: {
   }
 
   if (type === 'heartbeat') {
-    resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState);
+    resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState, invocationId);
     return;
   }
 
   if (type === 'done') {
-    state.completeStreamMessage(agentId);
+    state.completeStreamMessage(agentId, invocationId);
     return;
   }
 
-  let activeId = state.activeStreamMessageId[agentId];
+  let activeId = state.activeStreamMessageId[streamIdentityKey(agentId, invocationId)];
   if (!activeId) {
     activeId = state.ensureStreamMessage(agentId, conversationId, invocationId);
   }
@@ -2290,10 +2294,10 @@ function handleAgentDelta(event: {
   const state = useTaskHubStore.getState();
   if (sessionId) state.upsertAgentSession(projectId, agentId, sessionId);
   if (type === 'heartbeat') {
-    resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState);
+    resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState, invocationId);
     return;
   }
-  const activeId = state.activeStreamMessageId[agentId]
+  const activeId = state.activeStreamMessageId[streamIdentityKey(agentId, invocationId)]
     ?? state.ensureStreamMessage(agentId, projectId, invocationId);
   state.appendToStreamMessage(activeId, type === 'thinking'
     ? { thinking: content || '' }
@@ -2392,10 +2396,10 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
   } else if (event.type === 'runtime.warning' && agentId) {
     const message = typeof payload.message === 'string' ? payload.message : 'Runtime warning';
     const state = useTaskHubStore.getState();
-    const activeId = state.activeStreamMessageId[agentId];
+    const activeId = state.activeStreamMessageId[streamIdentityKey(agentId, invocationId)];
     if (activeId) {
       state.appendToStreamMessage(activeId, { content: `\n⚠️ ${message}` });
-      state.completeStreamMessage(agentId);
+      state.completeStreamMessage(agentId, invocationId);
     } else {
       appendProjectedChatMessage(event.projectId, agentId, `⚠️ ${message}`);
     }

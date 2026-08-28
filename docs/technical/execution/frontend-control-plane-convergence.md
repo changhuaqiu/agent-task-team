@@ -187,11 +187,11 @@ Implementation：复用 `consumeProjectViewEvent`、项目 room 和消息快照�
 
 项目活动的读侧投影遵守以下消息身份规则：
 
-1. `invocationId` 是一次 Agent 回复的稳定身份；同一 Invocation 的文本、工具事件和最终消息即使被并行 Agent 事件穿插，也投影到同一个回复实体。
+1. `invocationId` 是一次 Agent 回复的稳定身份；同一 Invocation 的文本、工具事件和最终消息即使被并行 Agent 事件穿插，也投影到同一个回复实体。实时 stream message、delta buffer、watchdog 和完成动作同样按 Invocation 定域，同一 Agent 的并发 Invocation 不能共享活动消息。
 2. 没有 `invocationId` 的人工消息按持久消息 ID 独立展示；不同 Invocation 绝不按 `agentId` 合并。
 3. `task_status` 和 system sender 投影为活动提示，不进入 Agent 气泡分组；原始通知正文只作为可展开的审计详情。
 4. 活跃的 provisional 回复与同 Invocation 的 durable 消息重叠时只显示 provisional；完成并对账后只显示 durable，避免刷新前后裂成两个回复。
-5. Runtime thinking 与最终自然语言答复是回复主线；thinking 使用低权重 disclosure，最终答复直接可读。工具事件只投影为 Invocation 级操作回执（进行中/已完成、操作数、执行问题数），工具名、参数和逐条结果只进入观察详情。最终回复超过阅读阈值时只收起正文容器，不得收起结构化证据、任务引用或阻塞事实。
+5. Runtime thinking 与最终自然语言答复是回复主线；thinking 使用低权重 disclosure，最终答复直接可读。工具事件只投影为 Invocation 级操作回执（进行中/已完成、操作数、执行问题数），工具名、参数和逐条结果只进入观察详情；`tool.completed` / `tool.failed` 作为 Runtime 观察消息持久化，使刷新后的回执与实时状态一致，但不会发布用户消息领域事件。最终回复超过阅读阈值时只收起正文容器，不得收起结构化证据、任务引用或阻塞事实。
 
 这些规则由纯时间线投影函数持有，`GlobalChatRoom` 只渲染投影结果，不再按连续发送者临时分组。
 

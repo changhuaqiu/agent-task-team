@@ -230,7 +230,7 @@ Project 添加器的首个实现切片固定为：`浏览/搜索已有 Project -
 ### 7.5 Automation 定义与运行
 
 - `automation.create/update/set_enabled/trigger/retry` 进入 Command Kernel；Definition 必须属于一个 Project，并以 revision 防止覆盖编辑。幂等重放比较完整命令信封（command name、Project、subject、expected revision 与规范化 input），空 command identity 直接拒绝。
-- Trigger 首批覆盖 domain event、Project message 与 schedule；Condition 只读取标准化 trigger context，不执行任意代码。
+- Trigger 首批覆盖 domain event、Project message 与 schedule；Condition 只读取标准化 trigger context，不执行任意代码。Project message 只接受正式 text 消息事实，Runtime thinking/tool 观察即使来自兼容历史 `chat.message.persisted` 事件也必须在 Automation 边界过滤。
 - Action 是有序、带稳定 step id 的单意图列表；首批动作覆盖发送 Project 通知、触发 Agent 和调用已注册 Product Command。
 - Event trigger 使用 PlatformEventDispatcher 的 durable process manager；自身 `automation.*` 事件永不匹配，`automationId + sourceEventId` 唯一。
 - Schedule 使用持久 fire claim；多进程 tick 竞争只有一个执行者获得 Run，进程重启后仍可恢复。

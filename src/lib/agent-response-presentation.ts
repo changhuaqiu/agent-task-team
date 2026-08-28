@@ -41,6 +41,7 @@ export function projectAgentResponse(segments: ChatMessage[]): AgentResponsePres
   const answerSegments = segments.filter((segment) => (
     segment.contentType !== 'thinking'
     && segment.contentType !== 'tool_use'
+    && segment.contentType !== 'tool_result'
     && Boolean(segment.content.trim())
   ));
   const finalSegment = answerSegments.at(-1);

@@ -19,6 +19,9 @@ describe('projectAgentResponse', () => {
         { id: 'use', type: 'tool_use', label: 'Read', timestamp: '2026-08-28T01:00:01.000Z' },
         { id: 'result', type: 'tool_result', label: 'Read', timestamp: '2026-08-28T01:00:02.000Z' },
       ] }),
+      message({ id: 'failed-tool', contentType: 'tool_result', content: '', toolEvents: [
+        { id: 'error', type: 'error', label: 'Shell', timestamp: '2026-08-28T01:00:03.000Z' },
+      ] }),
       message({ id: 'final', content: '实现已经完成。' }),
     ]);
 
@@ -26,9 +29,9 @@ describe('projectAgentResponse', () => {
     expect(presentation.finalText).toBe('实现已经完成。');
     expect(presentation.intermediateSegments.map((segment) => segment.id)).toEqual(['progress']);
     expect(presentation.operation).toEqual({
-      eventCount: 2,
+      eventCount: 3,
       operationCount: 1,
-      errorCount: 0,
+      errorCount: 1,
       isActive: false,
     });
   });
