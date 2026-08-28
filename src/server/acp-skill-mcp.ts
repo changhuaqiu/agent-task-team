@@ -19,6 +19,11 @@ import {
   AGENT_OUTCOME_TOOL_BY_TYPE,
   AGENT_OUTCOME_TYPE_BY_TOOL,
 } from './work-contract/outcome-tools';
+import {
+  adaptAcpOutcomePayload,
+  outcomePayloadSchema,
+  type JsonSchema,
+} from './work-contract/outcome-tool-contract';
 
 export { AGENT_OUTCOME_TOOL_BY_TYPE } from './work-contract/outcome-tools';
 
@@ -40,7 +45,7 @@ type AcpSkillToolDefinition = {
   description?: string;
   inputSchema: {
     type: 'object';
-    properties: Record<string, { type: string; description?: string }>;
+    properties: Record<string, JsonSchema>;
     required?: string[];
     additionalProperties: boolean;
   };
@@ -118,7 +123,7 @@ for (const outcomeType of AGENT_OUTCOME_TYPES) {
     inputSchema: {
       type: 'object',
       properties: {
-        payload: { type: 'object', description: `Structured ${outcomeType} payload.` },
+        payload: outcomePayloadSchema(outcomeType),
         evidence_refs: {
           type: 'array',
           description: 'Immutable artifact, test, review, or trace references supporting this command.',
@@ -266,7 +271,11 @@ export async function executeAcpSkillMcpTool(
         idempotencyKey: idempotencyKey.trim(),
         contractId: contract.contractId,
         outcomeType: outcomeType as AgentOutcomeType,
-        payload: input.payload ?? {},
+        payload: adaptAcpOutcomePayload(
+          outcomeType as AgentOutcomeType,
+          input.payload,
+          idempotencyKey.trim(),
+        ),
         evidenceRefs: evidenceRefs.map((item) => String(item).trim()),
         projectId: contract.projectId,
         workId: contract.workId,

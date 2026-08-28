@@ -76,7 +76,7 @@ Project 活动输入、任务创建/编辑/流转/图操作、阶段写入与拆
 
 切换项目时会离开旧 room、加入新 room，并清空终端日志、流式缓冲和 Agent 活跃态等瞬态投影。服务端 room 隔离与浏览器 `projectId` 校验共同防止跨项目污染。
 
-聊天消息采用双通路收敛：`project:view` 的文本 delta 提供实时显示，`chat_message` 快照提供
+聊天消息采用双通路收敛：`project:view` 的文本与 thinking delta 提供实时显示，`chat_message` 快照提供
 持久事实。Socket 连接/重连、项目切换以及服务端消息投影完成时都会执行幂等消息对账；
 后台水合使用合并而非整表替换，不能覆盖请求期间刚到达的实时消息。用户不需要通过反复刷新
 页面才能看到已经持久化的消息。
@@ -107,9 +107,11 @@ Project 活动输入、任务创建/编辑/流转/图操作、阶段写入与拆
   - Agent 候选通过按需 `@` 弹层选择；已触达 Agent 在提及控件内紧凑显示，输入器周围不常驻 Agent 管理、任务语法、路由或 Runtime 提示
   - `dispatch.receipt:acknowledged` 通过原始 message identity 投影为用户消息下的确认反应；requested/sent 不伪装为已收到
   - 筛选状态按 Project 隔离；短时间线不渲染且不应用旧筛选，长时间线才提供按需搜索与类型过滤
-- [`CliOutputBlock.tsx`](../../src/components/task-hub/CliOutputBlock.tsx)
-  - 将工具事件渲染为一行“运行记录”；折叠时仍保留状态、调用次数与最近工具，不形成第二张主内容卡
-  - 每条工具事件支持展开查看参数或结果，避免正文只剩工具噪音
+- [`AgentResponseActivity.tsx`](../../src/components/task-hub/AgentResponseActivity.tsx)
+  - 将 Runtime thinking 作为低权重、可展开的思考摘要，将最终答复保持为回复正文
+  - 将同一 Invocation 的全部工具事件合并为一个操作回执，只显示进行中/已完成、操作数与执行问题数；工具名、参数和逐条结果只在观察详情出现
+- [`agent-response-presentation.ts`](../../src/lib/agent-response-presentation.ts)
+  - 统一实时 provisional message 与持久 thinking/text/tool segments 的展示语义，聊天页和 Agent 活动页共用同一投影
 - [`A2APossessionStrip.tsx`](../../src/components/task-hub/A2APossessionStrip.tsx)
   - 由 `ProjectObjectWorkspace` 用 `workspaceConversationId` 显式定域并挂载在 Project 标题与视图导航下方、中央主内容上方的顶部状态栏，不进入 `GlobalChatRoom` 的可滚动消息时间线或输入器区域，也不受子任务会话选择影响；正常状态低权重，阻止与失败才使用警示色
   - 完整记录详情从顶部状态栏向下浮层展开，不挤压主内容、消息时间线或输入器；展开状态由 `conversationId` 定域，切换 Project 时自动重置

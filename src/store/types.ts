@@ -10,6 +10,9 @@ export interface ChatMessage {
   id: string;
   agentId: string | 'human' | 'system';
   content: string;
+  /** Runtime-provided reasoning summary. Kept separate from the user-facing answer. */
+  thinking?: string;
+  contentType?: 'text' | 'thinking' | 'tool_use';
   timestamp: string;
   conversationId?: string;
   invocationId?: string;

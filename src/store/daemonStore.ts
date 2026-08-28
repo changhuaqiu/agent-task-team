@@ -11,7 +11,7 @@ export const socket = io(undefined, { path: '/api/socketio', autoConnect: false 
 const STREAM_WATCHDOG_MS = 300_000;
 const streamWatchdogs: Record<string, ReturnType<typeof setTimeout>> = {};
 
-const streamBuffer: Record<string, string> = {};
+const streamBuffer: Record<string, { content: string; thinking: string }> = {};
 let bufferFlushScheduled = false;
 
 type AgentRunStatus = 'idle' | 'busy' | 'background';
@@ -58,7 +58,7 @@ function scheduleBufferFlush(getState: () => any, setState: (partial: any) => vo
     const state = getState();
     const entries = Object.entries(streamBuffer);
     for (const [messageId, pending] of entries) {
-      if (!pending) continue;
+      if (!pending.content && !pending.thinking) continue;
       delete streamBuffer[messageId];
       const agentEntry = Object.entries(state.activeStreamMessageId).find(([, id]) => id === messageId);
       const convId = agentEntry ? state.activeStreamConversationId[agentEntry[0]] : undefined;
@@ -70,7 +70,11 @@ function scheduleBufferFlush(getState: () => any, setState: (partial: any) => vo
           chatMessagesByConversation: {
             ...s.chatMessagesByConversation,
             [convId]: msgs.map((m: any) =>
-              m.id === messageId ? { ...m, content: m.content + pending } : m
+              m.id === messageId ? {
+                ...m,
+                content: m.content + pending.content,
+                thinking: (m.thinking ?? '') + pending.thinking,
+              } : m
             ),
           },
         };
@@ -85,7 +89,7 @@ function flushStreamBufferForMessage(
   setState: (partial: any) => void,
 ) {
   const pending = streamBuffer[messageId];
-  if (!pending) return;
+  if (!pending || (!pending.content && !pending.thinking)) return;
   delete streamBuffer[messageId];
   setState((s: any) => {
     const msgs = s.chatMessagesByConversation[conversationId];
@@ -94,15 +98,23 @@ function flushStreamBufferForMessage(
       chatMessagesByConversation: {
         ...s.chatMessagesByConversation,
         [conversationId]: msgs.map((m: any) =>
-          m.id === messageId ? { ...m, content: m.content + pending } : m
+          m.id === messageId ? {
+            ...m,
+            content: m.content + pending.content,
+            thinking: (m.thinking ?? '') + pending.thinking,
+          } : m
         ),
       },
     };
   });
 }
 
-function appendToStreamBuffer(messageId: string, content: string) {
-  streamBuffer[messageId] = (streamBuffer[messageId] || '') + content;
+function appendToStreamBuffer(messageId: string, patch: { content?: string; thinking?: string }) {
+  const pending = streamBuffer[messageId] ?? { content: '', thinking: '' };
+  streamBuffer[messageId] = {
+    content: pending.content + (patch.content ?? ''),
+    thinking: pending.thinking + (patch.thinking ?? ''),
+  };
 }
 
 // --- Daemon Slice Creator ---
@@ -175,7 +187,7 @@ export const createDaemonSlice = (set: any, get: () => any) => {
           ...state.chatMessagesByConversation,
           [conversationId]: [
             ...(state.chatMessagesByConversation[conversationId] || []),
-            { id, agentId, content: '', timestamp: stamp, conversationId, invocationId, isStreaming: true, toolEvents: [] },
+            { id, agentId, content: '', thinking: '', contentType: 'text', timestamp: stamp, conversationId, invocationId, isStreaming: true, toolEvents: [] },
           ],
         },
       }));
@@ -183,14 +195,14 @@ export const createDaemonSlice = (set: any, get: () => any) => {
       return id;
     },
 
-    appendToStreamMessage: (messageId: string, patch: { content?: string; toolEvent?: any }) => {
+    appendToStreamMessage: (messageId: string, patch: { content?: string; thinking?: string; toolEvent?: any }) => {
       const agentEntry = Object.entries(get().activeStreamMessageId).find(([, id]) => id === messageId);
       const trackedConvId = agentEntry ? get().activeStreamConversationId[agentEntry[0]] : undefined;
       if (!trackedConvId) return;
       if (agentEntry) _resetWatchdog(agentEntry[0]);
 
-      if (patch.content != null) {
-        appendToStreamBuffer(messageId, patch.content);
+      if (patch.content != null || patch.thinking != null) {
+        appendToStreamBuffer(messageId, patch);
         _scheduleFlush();
       }
 

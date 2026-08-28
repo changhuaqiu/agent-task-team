@@ -535,6 +535,7 @@ export function mapMessagesToState(recentMessages: Record<string, any[]>): Recor
     const mapped: ChatMessage[] = [];
     for (const m of msgs) {
       const isToolUse = m.content_type === 'tool_use';
+      const isThinking = m.content_type === 'thinking';
 
       if (isToolUse) {
         const meta = m.metadata ? (typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata) : {};
@@ -562,6 +563,7 @@ export function mapMessagesToState(recentMessages: Record<string, any[]>): Recor
           id: m.id,
           agentId: m.sender_type === 'human' ? 'human' : m.sender_id,
           content: m.content,
+          contentType: isThinking ? 'thinking' : 'text',
           timestamp: m.created_at,
           conversationId: convId,
           invocationId: m.invocation_id ?? meta?.invocationId,
@@ -768,7 +770,7 @@ export interface TaskHubState {
   upsertAgentSession: (projectId: ProjectId, agentId: string, sessionId: string) => void;
   appendTerminalLog: (agentId: string, log: string) => void;
   ensureStreamMessage: (agentId: string, conversationId: string, invocationId?: string) => string;
-  appendToStreamMessage: (messageId: string, patch: { content?: string; toolEvent?: ToolEvent }) => void;
+  appendToStreamMessage: (messageId: string, patch: { content?: string; thinking?: string; toolEvent?: ToolEvent }) => void;
   completeStreamMessage: (agentId: string) => void;
   cleanupStaleStreams: () => void;
   selectedTaskId: string | null;
@@ -2238,7 +2240,7 @@ function handleAgentEvent(event: {
   if (type === 'text') {
     state.appendToStreamMessage(activeId, { content: content || '' });
   } else if (type === 'thinking') {
-    // skip
+    state.appendToStreamMessage(activeId, { thinking: content || '' });
   } else if (type === 'plan') {
     // Plan updates are projected in observability; they are not chat content.
   } else if (type === 'tool_use') {
@@ -2291,10 +2293,11 @@ function handleAgentDelta(event: {
     resetWatchdog(agentId, useTaskHubStore.getState, useTaskHubStore.setState);
     return;
   }
-  if (type !== 'text') return;
   const activeId = state.activeStreamMessageId[agentId]
     ?? state.ensureStreamMessage(agentId, projectId, invocationId);
-  state.appendToStreamMessage(activeId, { content: content || '' });
+  state.appendToStreamMessage(activeId, type === 'thinking'
+    ? { thinking: content || '' }
+    : { content: content || '' });
 }
 
 export function consumeProjectViewEvent(envelope: unknown): boolean {

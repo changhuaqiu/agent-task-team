@@ -107,13 +107,15 @@ describe('Runtime Event consumer projections', () => {
     }
 
     expect(messageRepo.getByConversation('project-1').map((row) => row.content)).toEqual([
+      'reasoning summary',
       'hello',
       '🔧 使用工具：Shell',
     ]);
     expect(db.prepare('SELECT COUNT(*) count FROM runtime_message_projection').get())
-      .toEqual({ count: 2 });
-    expect(onProjected).toHaveBeenCalledTimes(2);
+      .toEqual({ count: 3 });
+    expect(onProjected).toHaveBeenCalledTimes(3);
     expect(onProjected.mock.calls.map(([message]) => message.content)).toEqual([
+      'reasoning summary',
       'hello',
       '🔧 使用工具：Shell',
     ]);

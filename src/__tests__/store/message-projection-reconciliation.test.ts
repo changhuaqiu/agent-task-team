@@ -223,6 +223,48 @@ describe('durable message reconciliation', () => {
     expect(reconcileConversationMessages([alone], [inSnapshot])).toEqual([inSnapshot]);
   });
 
+  it('keeps a persisted thinking segment distinct from the final answer', () => {
+    const thinkingRow = {
+      ...persistedEnvelope().payload.message,
+      id: 'msg-thinking',
+      content: '先理解任务边界。',
+      content_type: 'thinking',
+    };
+
+    expect(mapMessagesToState({ 'project-a': [thinkingRow] })['project-a'][0]).toMatchObject({
+      content: '先理解任务边界。',
+      contentType: 'thinking',
+      invocationId: 'inv-1',
+    });
+  });
+
+  it('projects live thinking deltas into the active Agent response', () => {
+    expect(consumeProjectViewEvent({
+      version: 2,
+      envelopeVersion: 1,
+      eventId: 'event-thinking-delta',
+      projectId: 'project-a',
+      occurredAt: timestamp,
+      type: 'runtime.thinking.delta',
+      delivery: 'transient',
+      actor: { type: 'runtime', id: 'local-daemon' },
+      agent: { type: 'agent', id: 'mario' },
+      subject: { type: 'invocation', id: 'inv-1' },
+      correlationId: 'inv-1',
+      causationId: 'runtime-event-1',
+      payload: { content: '正在分析。', invocationId: 'inv-1' },
+    })).toBe(true);
+
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toEqual([
+      expect.objectContaining({
+        agentId: 'mario',
+        thinking: '正在分析。',
+        content: '',
+        isStreaming: true,
+      }),
+    ]);
+  });
+
   it('reconciles a post-persistence notification without duplicating the completed stream', () => {
     useTaskHubStore.setState({
       chatMessagesByConversation: {

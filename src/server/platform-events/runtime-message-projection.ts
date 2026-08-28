@@ -89,6 +89,15 @@ export class RuntimeMessageProjection {
     type: string;
     metadata?: Record<string, unknown>;
   } | undefined {
+    if (event.type === 'runtime.thinking.segment.completed') {
+      const payload = event.payload as { text?: string; segmentId?: string };
+      if (!payload.text) return undefined;
+      return {
+        text: payload.text,
+        type: 'thinking',
+        metadata: { segmentId: payload.segmentId },
+      };
+    }
     if (event.type === 'runtime.message.segment.completed') {
       const payload = event.payload as { text?: string; segmentId?: string };
       if (!payload.text) return undefined;

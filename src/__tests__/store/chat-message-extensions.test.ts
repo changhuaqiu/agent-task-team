@@ -167,6 +167,7 @@ describe('ChatMessage extensions', () => {
 
       const store = useTaskHubStore.getState();
       const messageId = store.ensureStreamMessage('mario', 'conv-1');
+      store.appendToStreamMessage(messageId, { thinking: '先分析任务。' });
       store.appendToStreamMessage(messageId, { content: '最终答复文本' });
       store.completeStreamMessage('mario');
 
@@ -176,6 +177,7 @@ describe('ChatMessage extensions', () => {
         .find((m) => m.id === messageId);
 
       expect(message?.content).toBe('最终答复文本');
+      expect(message?.thinking).toBe('先分析任务。');
       expect(message?.isStreaming).toBe(false);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });

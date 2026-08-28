@@ -56,4 +56,5 @@
 - [x] Runtime 无 outcome、transport failure、Worker replacement、session load 与 retry/fencing 定向流程通过。
 - [x] Human/A2A/Workflow/Gate 在 WorkContract 前共用 `DispatchAdmission`；Agent Definition revision 和能力已冻结进合同。
 - [x] “未分配 Work + @Mario 开始处理”真实服务链只生成 planning grant，且 Claude ACP planning turn 强制使用无工具执行的 `plan` Session Mode。
+- [x] `work_handoff` 暴露显式 branches Schema，Agent 只提交一个公共幂等键；ACP Adapter 产生 A2A canonical payload，合法分派不再因重复身份字段缺失被拒绝。
 - [x] TypeScript、Vitest、build 和真实桌面/Web 页面验证通过。

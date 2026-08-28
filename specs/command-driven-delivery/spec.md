@@ -91,6 +91,8 @@ interface CommandReceipt<T = unknown> {
 
 公共工具使用单意图名称和单意图 Schema，统一映射到同一 CommandService。旧的聚合 outcome 工具不再暴露；Agent 不需要理解 Delivery Run、Control Action 或 Repository。
 
+`work_handoff` 的 MCP Schema 必须直接描述 `branches[]` 以及 `toAgentId / intent / title / requestedAction` 等字段，不能只暴露不透明 `payload: object` 让 Agent 猜协议。公共工具只接收一个外层 `idempotency_key`；ACP Adapter 将它映射为 A2A owner 仍需的 payload identity，禁止要求 Agent 在外层与 payload 内重复提交同一幂等键。格式错误返回可纠正的工具回执，不得让 Agent 把 `a2a_outcome_invalid`、重派合同或平台等待策略写进面向用户的最终答复。
+
 ## 6. 新交付模型
 
 页面和流程围绕 `Project`、`WorkItem`（当前 Task）、`Artifact`、`Review/Gate` 和可选 `Release` 组织。“交付完成”是投影而不是按钮：所选 Release/目标范围内的必需 WorkItem 已通过、要求的 Artifact 存在、Gate 已通过、外部动作有可验证回执。没有 Release 的日常协作也能持续产出，不要求先创建“交付”。
@@ -169,7 +171,7 @@ WorkContract 必须保存准入决定、Agent revision、Task owner/revision 快
 ## 7. 页面行为
 
 - Workspace 默认打开跨 Project 的 Inbox/Activity；Project 默认进入绑定该 Project identity 的 Telegram 式协作流。协作流中的消息、Agent 运行观察和正式事实共享作用域与因果身份，但仍是不同事件类别。
-- Runtime observation 使用轻量、可折叠的活动表现，不与正式产物混排为同等事实。
+- Runtime observation 使用轻量、可折叠的活动表现，不与正式产物混排为同等事实。聊天主线只展示 thinking 摘要、最终答复和一个操作回执；逐条工具调用只属于 Invocation 观察详情。
 - 回复使用持久 `replyToMessageId` 和由服务端校验/派生的 `threadRootId`；客户端不得靠引用文本解析 Thread。Inbox 与消息流必须按同一 root 聚合。
 - 重复 Runtime/同步活动在产品时间线按稳定语义键折叠，保留次数和最后时间；正式 Command Fact 不参与噪声折叠。
 - `CommandReceipt` 投影成任务提交评审、产物登记、评审要求修改、发布确认等事实卡片。
