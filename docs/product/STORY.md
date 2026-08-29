@@ -2,7 +2,7 @@
 topics: [product-story, user-outcomes, optimization, evidence]
 doc_kind: product-story
 created: 2026-08-02
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 # Agent Task Hub 产品故事
@@ -22,6 +22,35 @@ updated: 2026-08-28
 - 对应 spec、产品文档或技术设计的链接。
 
 只有直接覆盖所述用户效果的证据，才能支持“已经改善”：例如针对性自动化测试、真实界面观察或实际运行链验证。构建通过只能作为可交付性的辅助证据，不能单独证明用户体验已经改善。未验证目标不进入本故事文档，应留在 spec、计划或任务清单中。
+
+---
+
+## 2026-08-30：规划与续作的“已接纳”终于等于真的会执行
+
+### 原来的处境
+
+协调 Agent 可以收到 `propose_task_graph` 已应用回执，但任务图 payload 随后才在异步处理器中失败，Task 仍是 todo、没有负责人；它再提交 `continue_work` 时，平台也可能只保存一条检查点而不启动下一轮。用户看到的是一份完整的恢复说明，系统实际没有任何 Agent 会继续工作。
+
+### 优化后的变化
+
+- planning Contract 冻结任务图 revision，结构化 MCP 公开真实 tasks 字段，由平台补齐 authority；
+- 任务图、已有 WorkItem 负责人、依赖和可运行 Agent Inbox 与 accepted outcome 同事务落账，任一步失败只返回 rejected；
+- 项目外 Agent、过期 revision、循环依赖以及执行中/终态任务改写都会在占用退出槽前拒绝；
+- 独立任务和 A2A 恢复的 `continue_work` 会原子排入下一轮命令并保留 Possession authority，最多三次；Delivery 仍沿用既有控制面容量与续作策略。
+
+### 已验证的效果
+
+定向测试覆盖合法规划即时派发、依赖完成后唤醒、历史升级/事件幂等重放、错误 payload、冻结 revision 绕过、项目外 Agent、执行中任务保护、Delivery 接管，以及 standalone/A2A continuation 的即时排队、去重、stage/subject/Possession 权限保持和预算耗尽。最终 ESLint、TypeScript、269 个测试文件（1941 项通过、2 项按配置跳过）和桌面服务 production build 通过；三轮独立代码审查最终无 Critical/Important。
+
+### 仍然保留的边界
+
+升级前已经 accepted、但 payload 本身不完整的历史任务图 outcome 不会被伪造为成功；恢复处理器会保留其失败证据，需要以新 Contract 提交合法 proposal。Delivery continuation 的调度与容量模型没有改变。
+
+### 设计与实现依据
+
+- [Outcome Commit Atomicity 归档规格](../archive/specs/outcome-commit-atomicity/spec.md)
+- [平台 Harness 状态机设计](../technical/execution/platform-harness-state-machine-design.md)
+- [前端控制面收敛设计](../technical/execution/frontend-control-plane-convergence.md)
 
 ---
 

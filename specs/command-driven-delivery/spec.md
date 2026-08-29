@@ -93,6 +93,12 @@ interface CommandReceipt<T = unknown> {
 
 `work_handoff` 的 MCP Schema 必须直接描述 `branches[]` 以及 `toAgentId / intent / title / requestedAction` 等字段，不能只暴露不透明 `payload: object` 让 Agent 猜协议。公共工具只接收一个外层 `idempotency_key`；ACP Adapter 将它映射为 A2A owner 仍需的 payload identity，禁止要求 Agent 在外层与 payload 内重复提交同一幂等键。格式错误返回可纠正的工具回执，不得让 Agent 把 `a2a_outcome_invalid`、重派合同或平台等待策略写进面向用户的最终答复。
 
+`task_propose_graph` 与 `work_continue` 同样必须公开完整字段级 Schema。Task Graph revision 由平台从
+WorkContract authority 注入，不要求 Agent 猜测；确定性的 Task Graph commit、standalone Task 派发与
+standalone continuation 必须和 accepted outcome 同事务完成。只有领域 owner 已经落账，回执才可使用
+accepted/applied；owner 仍须强制 payload revision 等于冻结 authority，不能把安全性只交给 Adapter。
+异步事件处理器不能作为首次提交后仍可能失败的隐藏第二阶段。
+
 ## 6. 新交付模型
 
 页面和流程围绕 `Project`、`WorkItem`（当前 Task）、`Artifact`、`Review/Gate` 和可选 `Release` 组织。“交付完成”是投影而不是按钮：所选 Release/目标范围内的必需 WorkItem 已通过、要求的 Artifact 存在、Gate 已通过、外部动作有可验证回执。没有 Release 的日常协作也能持续产出，不要求先创建“交付”。

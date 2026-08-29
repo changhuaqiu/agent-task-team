@@ -256,27 +256,37 @@ export async function executeAcpSkillMcpTool(
     const outcomeType = structuredOutcomeType;
     const evidenceRefs = input.evidence_refs;
     const idempotencyKey = input.idempotency_key;
+    const invalidField = typeof idempotencyKey !== 'string' || !idempotencyKey.trim()
+      ? 'idempotency_key'
+      : !Array.isArray(evidenceRefs)
+        || evidenceRefs.some((item) => typeof item !== 'string' || !item.trim())
+        ? 'evidence_refs'
+        : undefined;
     if (
       typeof outcomeType !== 'string'
       || !AGENT_OUTCOME_TYPES.includes(outcomeType as AgentOutcomeType)
-      || typeof idempotencyKey !== 'string'
-      || !idempotencyKey.trim()
-      || !Array.isArray(evidenceRefs)
-      || evidenceRefs.some((item) => typeof item !== 'string' || !item.trim())
+      || invalidField
     ) {
-      return { success: false, error: 'invalid_agent_outcome_input' };
+      return {
+        success: false,
+        error: 'invalid_agent_outcome_input',
+        data: { field: invalidField ?? 'outcome_type' },
+      };
     }
+    const acceptedIdempotencyKey = (idempotencyKey as string).trim();
+    const acceptedEvidenceRefs = (evidenceRefs as string[]).map((item) => item.trim());
     const receipt = commandService.execute(asWorkSubmitOutcomeCommand({
         outcomeId: generateSortableId('outcome'),
-        idempotencyKey: idempotencyKey.trim(),
+        idempotencyKey: acceptedIdempotencyKey,
         contractId: contract.contractId,
         outcomeType: outcomeType as AgentOutcomeType,
         payload: adaptAcpOutcomePayload(
           outcomeType as AgentOutcomeType,
           input.payload,
-          idempotencyKey.trim(),
+          acceptedIdempotencyKey,
+          contract.authoritativeRevisions,
         ),
-        evidenceRefs: evidenceRefs.map((item) => String(item).trim()),
+        evidenceRefs: acceptedEvidenceRefs,
         projectId: contract.projectId,
         workId: contract.workId,
         workEpoch: contract.workEpoch,

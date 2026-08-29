@@ -73,6 +73,8 @@
 - [x] Replace full task retry after `invocation_completed_without_outcome` with one outcome-only recovery WorkContract that grants no implementation tools and terminates deterministically if recovery does not submit an accepted Outcome.
 - [x] Add a durable Work Lifecycle Reconciler for terminal Task/Delivery ownership cleanup and historical orphan repair.
 - [x] Enforce one accepted exit per WorkContract and remove direct Task mutation tools from WorkContract execution.
+- [x] Make `propose_task_graph` admission atomically commit canonical Task Graph changes, assign eligible existing WorkItems, and enqueue runnable standalone Tasks before returning accepted.
+- [x] Queue bounded standalone/A2A `continue_work` commands atomically while keeping Delivery continuation under `ContinueGateLite`.
 - [x] Rotate confirmed ACP session generations on cumulative context/Invocation budget exhaustion.
 - [x] Replace blind `task.blocked` redispatch with a server-owned Blocked Recovery probe and idempotent Task resume.
 - [ ] Add diagnostics view for proof timeline and runtime health.

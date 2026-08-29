@@ -403,6 +403,16 @@ Delivery 详情中的 overview / activity / evaluation 是页面局部 surface�
   migration v83 将 `continue` 纳入 Control Action schema、唯一 slot 索引、claim/release 和 terminal Inbox 回收；活动 Inbox 会把
   `continuation_pending` 投影为带 slot 的 `queued`，同一 checkpoint 不能重复派发或绕过 role/global capacity。升级前已 accepted
   但不满足 v1 schema 的历史 `continue_work` 继续走原 Invocation retry，不会被新 Adapter 错误接管。
+- `ContinueGateLite` 只拥有 Delivery Control Plane 内的 continuation。没有 `delivery_run_id` 的 standalone/A2A Work 在 admission
+  接纳 `continue_work` 时，必须在同一事务内写入稳定的 continuation Inbox command，保留 Work identity、A2A chain/Possession
+  authority、execution mode/subject、由冻结 execution profile 推导的 planning/review/verify/recovery/closure stage 与 checkpoint；Runtime 消费该命令时再签发新的 fenced epoch。每个 standalone Work 最多三次 continuation，第四次在
+  占用 Contract 退出槽前返回 `continuation_budget_exhausted`。因此 accepted 不再只是事件记录，重复提交或重启也不会重复排队。
+- `propose_task_graph` 同样改为 admission 原子提交：planning Contract 冻结 Task Graph revision，MCP Adapter 注入该 revision；共享
+  parser/owner 校验 canonical tasks、Project 成员、已有 WorkItem 状态和 DAG。accepted/applied 回执返回前，Task Graph commit、负责人、
+  依赖与所有可运行 standalone Task 的 Inbox command 已存在；owner 强制 payload revision 等于 Contract 冻结值。异步 handler 仅恢复
+  历史 accepted outcome（包括缺 graph authority、缺冻结 result 的 v1 event-id commit），不能再作为首次业务写入。尚未 commit 的旧 accepted
+  proposal 只允许沿旧 payload revision 做一次 stale-fenced 恢复。依赖完成和延迟 Outcome 重放都只认触达该 Task 的最新 graph commit；若最新
+  owner 是 Delivery 或其他写入路径，不得回看旧 standalone proposal 重复派发。
 - `handoff_to_agent` 是终态、事件驱动的协作出口，不是统筹 Agent 的轮询检查点。WorkContract admission 与 A2A Process Manager
   复用同一解析/标准化模块：字符串证据引用兼容归一为结构化引用，非法 branch 在占用终态 Outcome 前拒绝。已接纳交接直接投影为
   `waiting_dependency`，无论单人派工还是多人协作，接收者全部收口后都由 durable A2A result callback 为原持有者开启新 fenced epoch；统筹角色不得用
