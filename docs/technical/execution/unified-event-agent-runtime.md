@@ -335,7 +335,7 @@ Release 是按需的 Project aggregate，不是 Runtime/Delivery 状态机。`pr
 
 参考 Clowder 的 artifact tracking，Artifact Ledger 是只读深模块而不是第二个写内核。它从 `runtime.tool.started/completed` 的成功配对中确定性提取 Project 根目录内的写入路径，并与已接纳 `agent_outcome.evidence_refs_json` 及 Task owner 的 `task_artifact_ref` 按 ref 合并。前者状态为 `working`，后两者状态为 `registered`；因此直接 A2A 与传统 Task 不分叉，Runtime 观察也永远不能自行升级为正式完成证据。
 
-Ledger 对外只有 `list(projectId)` / `listAll()`，内部负责路径归一、越界拒绝、`.ath`/构建目录过滤、工具输入差异适配、来源 Agent/Invocation/Work 关联与同 ref 去重。Project 页面、Workspace 全局镜头/计数和 `ArtifactLedgerContextContributor` 共用该接口；每次 Agent 唤醒自动收到最近产物导航，并被要求在终态 outcome 中使用精确 evidence ref。Task 旧 `artifacts` JSON 不再进入这些页面或 context。
+Ledger 对外只有 `list(projectId)` / `listAll()`，内部负责路径归一、越界拒绝、`.ath`/构建目录过滤、工具输入差异适配、来源 Agent/Invocation/Work 关联与同 ref 去重。Outcome 与 `task_artifact_ref` 必须共用 evidence 拆分和 canonical ref 解析，不能让传统 Task 再制造一套组合路径或证据类型；Windows 内部目录按大小写不敏感规则过滤，带远程 authority、解码失败或越界的 `file://` 引用失败关闭。生产者归属按 Runtime 实际写入、Task owner 交付、直接协作交付、评审/合并回执依次降级；保留更强生产者时，Agent、Invocation 与 Work provenance 必须作为一个原子元组保留，后续 reviewer/coordinator 只能升级状态和补充操作。Project 页面、Workspace 全局镜头/计数和 `ArtifactLedgerContextContributor` 共用该接口；每次 Agent 唤醒自动收到最近产物导航，并被要求在终态 outcome 中使用精确 evidence ref。Task 旧 `artifacts` JSON 不再进入这些页面或 context。
 
 ### 12.4 Harness Catalog 与 Agent Team
 

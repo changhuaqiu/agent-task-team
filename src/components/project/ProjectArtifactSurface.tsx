@@ -25,6 +25,23 @@ import type {
 } from '@/shared/project-artifact-ledger';
 
 type StatusFilter = 'all' | ProjectArtifactLedgerStatus;
+type ArtifactCategory = 'implementation' | 'design_docs' | 'verification' | 'external' | 'other';
+
+interface AgentIdentity {
+  id: string;
+  label: string;
+  emoji?: string;
+  order: number;
+}
+
+interface ContributorColumn {
+  identity: AgentIdentity;
+  artifacts: ProjectArtifactLedgerItem[];
+  categories: Array<{
+    category: ArtifactCategory;
+    artifacts: ProjectArtifactLedgerItem[];
+  }>;
+}
 
 const KIND_LABEL: Record<ProjectArtifactLedgerKind, string> = {
   code: '代码',
@@ -48,6 +65,42 @@ const KIND_ICON: Record<ProjectArtifactLedgerKind, ComponentType<{ className?: s
   pull_request: GitPullRequest,
   review: ShieldCheck,
   proof: FileCheck2,
+};
+
+const CATEGORY_ORDER: ArtifactCategory[] = [
+  'implementation',
+  'design_docs',
+  'verification',
+  'external',
+  'other',
+];
+
+const CATEGORY_LABEL: Record<ArtifactCategory, string> = {
+  implementation: '实现',
+  design_docs: '设计与文档',
+  verification: '验证与评审',
+  external: '外部交付',
+  other: '其他',
+};
+
+const CATEGORY_ICON: Record<ArtifactCategory, ComponentType<{ className?: string }>> = {
+  implementation: Code2,
+  design_docs: FileText,
+  verification: ShieldCheck,
+  external: GitPullRequest,
+  other: File,
+};
+
+const KIND_CATEGORY: Record<ProjectArtifactLedgerKind, ArtifactCategory> = {
+  code: 'implementation',
+  document: 'design_docs',
+  design: 'design_docs',
+  test: 'verification',
+  proof: 'verification',
+  review: 'verification',
+  link: 'external',
+  pull_request: 'external',
+  file: 'other',
 };
 
 const OPERATION_LABEL = {
@@ -99,12 +152,24 @@ export function ProjectArtifactSurface({ project, agents = [] }: {
     return artifacts.filter((artifact) => {
       if (filter !== 'all' && artifact.status !== filter) return false;
       if (!normalizedQuery) return true;
-      return [artifact.label, artifact.ref, artifact.workTitle, artifact.updatedBy]
+      const identity = agentIdentity(artifact.updatedBy, agents);
+      return [
+        artifact.label,
+        artifact.ref,
+        artifact.workTitle,
+        artifact.updatedBy,
+        identity.label,
+        KIND_LABEL[artifact.kind],
+        CATEGORY_LABEL[KIND_CATEGORY[artifact.kind]],
+      ]
         .filter(Boolean)
         .some((value) => value!.toLocaleLowerCase().includes(normalizedQuery));
     });
-  }, [artifacts, filter, query]);
-  const selected = filtered.find((artifact) => artifact.id === selectedId) ?? filtered[0] ?? null;
+  }, [agents, artifacts, filter, query]);
+  const contributors = useMemo(() => groupByContributor(filtered, agents), [agents, filtered]);
+  const selected = filtered.find((artifact) => artifact.id === selectedId)
+    ?? contributors[0]?.artifacts[0]
+    ?? null;
   const registeredCount = artifacts.filter((artifact) => artifact.status === 'registered').length;
 
   async function copyReference() {
@@ -119,12 +184,12 @@ export function ProjectArtifactSurface({ project, agents = [] }: {
   }
 
   return <main className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-app))] p-4 sm:p-6" aria-label="项目产物">
-    <section className="mx-auto flex min-h-[520px] max-w-5xl flex-col overflow-hidden rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))]">
+    <section className="mx-auto flex min-h-[520px] max-w-7xl flex-col overflow-hidden rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))]">
       <header className="border-b border-[hsl(var(--border-subtle))] px-4 py-4 sm:px-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2"><h3 className="text-sm font-semibold">最近产物</h3>{artifacts.length > 0 && <span className="rounded-full bg-[hsl(var(--bg-muted))] px-2 py-0.5 text-[10px] text-[hsl(var(--text-secondary))]">{registeredCount}/{artifacts.length} 已登记</span>}</div>
-            <p className="mt-1 max-w-2xl text-xs leading-5 text-[hsl(var(--text-tertiary))]">自动汇总 Agent 的实际写入与已提交证据；不需要另外创建产物。</p>
+            <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-medium">角色交付</h3>{artifacts.length > 0 && <><span className="rounded-full bg-[hsl(var(--bg-muted))] px-2 py-0.5 text-xs text-[hsl(var(--text-secondary))]">{artifacts.length} 项</span><span className="text-xs text-[hsl(var(--text-tertiary))]">{registeredCount} 项已登记</span></>}</div>
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-[hsl(var(--text-tertiary))]">先看每个角色交付了什么，再按实现、文档与验证分类；无需另外创建产物。</p>
           </div>
           <button type="button" onClick={() => void refresh(true)} disabled={refreshing} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-2.5 text-xs hover:bg-[hsl(var(--bg-muted))] disabled:opacity-50"><RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />刷新</button>
         </div>
@@ -139,22 +204,47 @@ export function ProjectArtifactSurface({ project, agents = [] }: {
       {loading ? <div className="flex flex-1 items-center justify-center gap-2 px-6 py-16 text-xs text-[hsl(var(--text-tertiary))]"><RefreshCw className="size-3.5 animate-spin" />正在发现项目产物</div>
         : error ? <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center"><div role="alert" className="text-sm font-medium">产物暂时无法加载</div><p className="mt-1.5 text-xs text-[hsl(var(--text-tertiary))]">{error}</p><button type="button" onClick={() => void refresh()} className="mt-4 h-8 rounded-md border border-[hsl(var(--border))] px-3 text-xs">重试</button></div>
           : artifacts.length === 0 ? <EmptyLedger />
-            : <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(280px,0.92fr)_minmax(340px,1.08fr)]">
-              <div className="border-b border-[hsl(var(--border-subtle))] lg:border-b-0 lg:border-r">
-                {filtered.length === 0 ? <div className="px-5 py-14 text-center"><div className="text-sm font-medium">没有匹配的产物</div><p className="mt-1.5 text-xs text-[hsl(var(--text-tertiary))]">换一个关键词或状态。</p></div>
-                  : <div className="divide-y divide-[hsl(var(--border-subtle))]">{filtered.map((artifact) => <ArtifactRow key={artifact.id} artifact={artifact} selected={artifact.id === selected?.id} onSelect={() => setSelectedId(artifact.id)} />)}</div>}
-              </div>
-              <div className="min-h-[280px] bg-[hsl(var(--bg-card))]">{selected ? <ArtifactDetail artifact={selected} actorLabel={actorLabel(selected.updatedBy, agents)} copied={copied} onCopy={() => void copyReference()} /> : <div className="flex h-full items-center justify-center p-8 text-xs text-[hsl(var(--text-tertiary))]">选择一个产物查看来源</div>}</div>
-            </div>}
+            : filtered.length === 0 ? <div className="px-5 py-14 text-center"><div className="text-sm font-medium">没有匹配的产物</div><p className="mt-1.5 text-xs text-[hsl(var(--text-tertiary))]">换一个关键词或状态。</p></div>
+              : <div className="min-h-0 flex-1">
+                <div className="border-b border-[hsl(var(--border-subtle))] px-4 py-4 sm:px-5">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div className="text-xs font-medium">按贡献角色查看</div><div className="text-xs text-[hsl(var(--text-tertiary))]">{contributors.length} 位贡献者 · {filtered.length} 项产物</div></div>
+                  <div className="flex snap-x gap-3 overflow-x-auto pb-2" aria-label="按贡献角色归类的产物">
+                    {contributors.map((contributor) => <ContributorArtifacts key={contributor.identity.id} contributor={contributor} selectedId={selected?.id ?? null} onSelect={setSelectedId} />)}
+                  </div>
+                </div>
+                <div className="min-h-[280px] bg-[hsl(var(--bg-card))]">{selected ? <ArtifactDetail artifact={selected} actorLabel={agentIdentity(selected.updatedBy, agents).label} copied={copied} onCopy={() => void copyReference()} /> : <div className="flex h-full items-center justify-center p-8 text-xs text-[hsl(var(--text-tertiary))]">选择一个产物查看详情</div>}</div>
+              </div>}
     </section>
   </main>;
 }
 
+function ContributorArtifacts({ contributor, selectedId, onSelect }: {
+  contributor: ContributorColumn;
+  selectedId: string | null;
+  onSelect: (artifactId: string) => void;
+}) {
+  const registered = contributor.artifacts.filter((artifact) => artifact.status === 'registered').length;
+  return <section aria-label={`${contributor.identity.label} 的交付`} className="w-[min(82vw,300px)] shrink-0 snap-start overflow-hidden rounded-xl bg-[hsl(var(--bg-muted))]/55">
+    <header className="flex items-center justify-between gap-3 px-3 py-3">
+      <div className="flex min-w-0 items-center gap-2"><span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--bg-card))] text-sm">{contributor.identity.emoji ?? '●'}</span><div className="min-w-0"><h4 className="truncate text-sm font-medium">{contributor.identity.label.replace(/^\S+\s/, '')}</h4><p className="text-xs text-[hsl(var(--text-tertiary))]">{contributor.artifacts.length} 项 · {registered} 项已登记</p></div></div>
+    </header>
+    <div className="max-h-[460px] space-y-4 overflow-y-auto px-2 pb-3">
+      {contributor.categories.map(({ category, artifacts }) => {
+        const Icon = CATEGORY_ICON[category];
+        return <section key={category} aria-label={CATEGORY_LABEL[category]}>
+          <div className="mb-1.5 flex items-center gap-1.5 px-1 text-xs font-medium text-[hsl(var(--text-secondary))]"><Icon className="size-3.5" />{CATEGORY_LABEL[category]}<span className="font-normal text-[hsl(var(--text-tertiary))]">{artifacts.length}</span></div>
+          <div className="space-y-1.5">{artifacts.map((artifact) => <ArtifactRow key={artifact.id} artifact={artifact} selected={artifact.id === selectedId} onSelect={() => onSelect(artifact.id)} />)}</div>
+        </section>;
+      })}
+    </div>
+  </section>;
+}
+
 function ArtifactRow({ artifact, selected, onSelect }: { artifact: ProjectArtifactLedgerItem; selected: boolean; onSelect: () => void }) {
   const Icon = KIND_ICON[artifact.kind];
-  return <button type="button" onClick={onSelect} className={cn('flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[hsl(var(--bg-card-hover))]', selected && 'bg-[hsl(var(--bg-muted))]')}>
-    <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))]"><Icon className="size-3.5 text-[hsl(var(--text-secondary))]" /></span>
-    <span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="truncate text-xs font-medium">{artifact.label}</span><StatusDot status={artifact.status} /></span><span className="mt-1 block truncate font-mono text-[10px] text-[hsl(var(--text-tertiary))]">{artifact.ref}</span><span className="mt-1.5 block truncate text-[10px] text-[hsl(var(--text-tertiary))]">{artifact.workTitle ? `${artifact.workTitle} · ` : ''}{relativeTime(artifact.updatedAt)}</span></span>
+  return <button type="button" onClick={onSelect} aria-label={`${artifact.label}，${artifact.status === 'registered' ? '已登记' : '处理中'}`} aria-pressed={selected} className={cn('flex w-full items-start gap-2.5 rounded-lg bg-[hsl(var(--bg-card))] px-3 py-3 text-left transition-colors hover:bg-[hsl(var(--bg-card-hover))]', selected && 'ring-1 ring-[hsl(var(--text-secondary))]')}>
+    <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--bg-muted))]"><Icon className="size-3.5 text-[hsl(var(--text-secondary))]" /></span>
+    <span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="truncate text-xs font-medium">{artifact.label}</span><StatusDot status={artifact.status} /></span><span className="mt-1 block truncate font-mono text-xs text-[hsl(var(--text-tertiary))]">{artifact.ref}</span><span className="mt-1.5 block truncate text-xs text-[hsl(var(--text-tertiary))]">{artifact.workTitle ? `${artifact.workTitle} · ` : ''}{relativeTime(artifact.updatedAt)}</span></span>
   </button>;
 }
 
@@ -208,8 +298,51 @@ function formatTime(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
 }
 
-function actorLabel(actorId: string, agents: Array<{ id: string; name: string; emoji?: string }>): string {
-  const agent = agents.find((item) => item.id === actorId);
-  if (agent) return `${agent.emoji ? `${agent.emoji} ` : ''}${agent.name}`;
-  return actorId === 'system' ? '系统' : actorId;
+function agentIdentity(
+  actorId: string,
+  agents: Array<{ id: string; name: string; emoji?: string }>,
+): AgentIdentity {
+  const order = agents.findIndex((item) => item.id === actorId);
+  const agent = order >= 0 ? agents[order] : undefined;
+  if (agent) {
+    return {
+      id: agent.id,
+      label: `${agent.emoji ? `${agent.emoji} ` : ''}${agent.name}`,
+      ...(agent.emoji ? { emoji: agent.emoji } : {}),
+      order,
+    };
+  }
+  return actorId === 'system'
+    ? { id: actorId, label: '系统', emoji: '⚙️', order: agents.length }
+    : { id: actorId, label: actorId, order: agents.length + 1 };
+}
+
+function groupByContributor(
+  artifacts: ProjectArtifactLedgerItem[],
+  agents: Array<{ id: string; name: string; emoji?: string }>,
+): ContributorColumn[] {
+  const byContributor = new Map<string, ProjectArtifactLedgerItem[]>();
+  for (const artifact of artifacts) {
+    const current = byContributor.get(artifact.updatedBy) ?? [];
+    current.push(artifact);
+    byContributor.set(artifact.updatedBy, current);
+  }
+  return [...byContributor.entries()]
+    .map(([actorId, contributorArtifacts]): ContributorColumn => {
+      const categories = CATEGORY_ORDER.flatMap((category) => {
+        const categoryArtifacts = contributorArtifacts.filter(
+          (artifact) => KIND_CATEGORY[artifact.kind] === category,
+        );
+        return categoryArtifacts.length > 0 ? [{ category, artifacts: categoryArtifacts }] : [];
+      });
+      return {
+        identity: agentIdentity(actorId, agents),
+        artifacts: contributorArtifacts,
+        categories,
+      };
+    })
+    .sort((left, right) => (
+      left.identity.order - right.identity.order
+      || left.identity.label.localeCompare(right.identity.label, 'zh-CN')
+    ));
 }
