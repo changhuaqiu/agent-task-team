@@ -18,6 +18,7 @@
 - [ ] canonical ObjectReference 可在消息、对象列表和详情之间稳定往返，非法或跨 Project 引用 fail closed。
 - [ ] 幂等、revision、authority epoch、attempt 和 fencing 在写入前校验。
 - [x] 终态 outcome 最多接纳一次；文本和进程退出不能替代 outcome。
+- [ ] Task Graph 的 `intent` 不会在 Task commit 中丢失；`review` / `verify` 合同必须携带真实 Gate identity 与 `gate_record_decision`。
 - [ ] Task 完成需要当前 artifact revision 的质量回执。
 - [x] 成功写工具自动形成 working Artifact；Outcome evidence 将同一 ref 提升为 registered，失败/读取/越界工具不进入 Ledger。
 - [ ] 外部非幂等写结果不明时不会盲目重试。
@@ -47,6 +48,8 @@
 - [x] 回复关系持久化为 `replyToMessageId/threadRootId`，不再从引用文本推断；Inbox 按同一 Thread root 聚合。
 - [x] Work 的依赖与产物投影遇到非数组旧值时 fail-soft，Project 对象页不会因单条异常数据整体崩溃。
 - [x] Project“产物”页与 Agent briefing 读取同一 Artifact Ledger，不再读取 Task 旧 artifacts JSON 或展示工具日志。
+- [ ] 健康检查、命令输出、PID 和源码行号碎片不会成为独立正式产物；同一文件的多个 evidence range 只显示一张卡。
+- [ ] Task blocked/in_review/done 的 DomainEvent 无需刷新即可更新桌面工作分组。
 
 ## 验证
 

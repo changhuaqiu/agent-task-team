@@ -249,6 +249,15 @@ function assertAcyclicDependencies(dependencies: ReadonlyMap<string, readonly st
 }
 
 export const taskGraphRepo = {
+  prepareGateTask(taskId: string, conversationId: string): TaskRow | undefined {
+    let task = taskRepo.getById(taskId);
+    if (!task || task.conversation_id !== conversationId) return undefined;
+    if (task.status === 'proposed') task = taskRepo.transition(task.id, { to: 'ready' });
+    if (task?.status === 'ready') task = taskRepo.transition(task.id, { to: 'in_progress' });
+    if (task?.status === 'in_progress') task = taskRepo.transition(task.id, { to: 'in_review' });
+    return task;
+  },
+
   getCommitByIdempotencyKey(idempotencyKey: string): TaskGraphCommitRecord | undefined {
     return getDb().prepare(
       'SELECT * FROM task_graph_commit WHERE idempotency_key=?',
@@ -488,12 +497,14 @@ export const taskGraphRepo = {
         const changed = current.title !== task.title
           || current.description !== description
           || current.agent_id !== task.agent_id
+          || current.intent !== (task.intent ?? 'implement')
           || JSON.stringify(dependencyIds(current)) !== JSON.stringify(dependencies);
         if (!changed) return current;
         const updated = taskRepo.update(task.id, {
           title: task.title,
           description,
           agent_id: task.agent_id,
+          intent: task.intent ?? 'implement',
           dependencies: JSON.stringify(dependencies),
         }, {
           correlationId: input.correlationId,

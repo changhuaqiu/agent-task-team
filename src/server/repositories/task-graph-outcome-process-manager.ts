@@ -1,6 +1,8 @@
 import { CollaborationKernel } from '../collaboration-kernel';
 import { getDb } from '../db';
 import type { PlatformEventHandler } from '../platform-events/dispatcher';
+import { qualityGateRepo } from '../quality-gate/repository';
+import { buildWorkIdentity } from '../work-contract/work-identity';
 import { projectAgentMembershipRepo } from './project-agent-membership-repo';
 import { taskRepo } from './task-repo';
 import {
@@ -89,11 +91,19 @@ export function parseTaskGraphOutcome(payload: unknown): ParsedTaskGraphOutcome 
         `Task Graph tasks[${index}].initialStatus is invalid`,
       );
     }
+    const intent = task.intent ?? 'implement';
+    if (!['implement', 'review', 'verify', 'plan'].includes(String(intent))) {
+      throw new TaskGraphOutcomeInvariantError(
+        'task_graph_intent_invalid',
+        `Task Graph tasks[${index}].intent is invalid`,
+      );
+    }
     const description = optionalString(task.description, `tasks[${index}].description`);
     return {
       id: requiredString(task.id, `tasks[${index}].id`),
       title: requiredString(task.title, `tasks[${index}].title`),
       agent_id: requiredString(task.agentId, `tasks[${index}].agentId`),
+      intent: intent as TaskGraphCommitTask['intent'],
       ...(description ? { description } : {}),
       dependencies: dependencies.map((dependency) => dependency.trim()).filter(Boolean),
       ...(initialStatus ? { initialStatus } : {}),
@@ -126,10 +136,14 @@ export function enqueueStandaloneTask(
   if (
     !current
     || current.conversation_id !== contract.project_id
-    || current.status !== 'ready'
     || current.agent_id !== frozen.agent_id
     || !dependenciesSatisfied(current.id)
   ) return;
+  if (current.intent === 'review' || current.intent === 'verify') {
+    enqueueGateTask(contract, outcome, current);
+    return;
+  }
+  if (current.status !== 'ready') return;
   new CollaborationKernel({ db: getDb() }).request({
     projectId: contract.project_id,
     targetAgentId: frozen.agent_id,
@@ -143,7 +157,67 @@ export function enqueueStandaloneTask(
     scope: {
       taskId: frozen.id,
     },
+    ...(current.intent === 'plan' ? { context: { scenario: 'planning' as const } } : {}),
     replyTo: { type: 'task', id: frozen.id },
+  });
+}
+
+function enqueueGateTask(
+  contract: WorkContractRow,
+  outcome: AgentOutcomeRow,
+  input: ReturnType<typeof taskRepo.getById> & {},
+): void {
+  if (!input || !['proposed', 'ready', 'in_progress', 'in_review'].includes(input.status)) return;
+  const task = taskGraphRepo.prepareGateTask(input.id, contract.project_id);
+  if (!task || task.status !== 'in_review') return;
+
+  const gate = qualityGateRepo.request({
+    conversationId: contract.project_id,
+    kind: 'code_review',
+    targetType: 'task',
+    targetId: task.id,
+    artifactRevision: String(task.revision),
+    criteria: {
+      taskIntent: task.intent,
+      taskTitle: task.title,
+      requestedAction: task.description?.trim() || task.title,
+    },
+    policy: {
+      source: 'task_graph_intent',
+      authorizedEvaluatorIds: [task.agent_id],
+    },
+    actor: { type: 'system', id: 'task-graph-outcome-process-manager' },
+    correlationId: outcome.correlation_id,
+    causationId: outcome.id,
+    now: new Date(outcome.occurred_at),
+  }).gate;
+  const purpose = task.intent === 'review' ? 'review' : 'verify';
+  new CollaborationKernel({ db: getDb() }).request({
+    projectId: contract.project_id,
+    targetAgentId: task.agent_id,
+    source: purpose === 'review' ? 'review_gate' : 'test_gate',
+    requestedAction: [
+      `${purpose === 'review' ? '评审' : '核验'}任务 ${task.id}：${task.title}。`,
+      task.description?.trim() || task.title,
+      `这是 QualityGate ${gate.id}。完成后必须用 gate_record_decision 记录结构化结论与证据。`,
+    ].join('\n'),
+    idempotencyKey: `task-graph-outcome:${outcome.id}:gate:${gate.id}`,
+    cause: {
+      correlationId: outcome.correlation_id,
+      causationId: outcome.id,
+    },
+    scope: {
+      taskId: task.id,
+      workId: buildWorkIdentity({
+        scope: 'task',
+        targetId: task.id,
+        agentId: task.agent_id,
+        gateId: gate.id,
+        purpose,
+      }),
+    },
+    context: { scenario: purpose === 'review' ? 'code_review' : 'verification' },
+    replyTo: { type: 'quality_gate', id: gate.id },
   });
 }
 

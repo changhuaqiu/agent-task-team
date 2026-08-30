@@ -4,6 +4,7 @@ import type { ContextReport, ContextRequest, ContextSnapshot } from '../../lib/a
 import type { ContextScenario } from '../../lib/agent-context/scenarioResolver';
 import type { WorkContract } from '../work-contract/types';
 import type { ExecutionProfile } from './execution-profile';
+import type { CollaborationReplyAddress } from '../collaboration-kernel/types';
 
 export type AgentActivationSource = 'user' | 'a2a' | 'workflow' | 'review_gate' | 'test_gate' | 'system';
 export type AgentExecutionMode = 'standard' | 'outcome_recovery';
@@ -34,6 +35,8 @@ export interface AgentActivationCommand {
   contextScenario?: ContextScenario;
   legacyProposal?: boolean;
   wakeup?: ContextRequest['wakeup'];
+  /** Domain reply target retained from the durable Inbox command. */
+  replyTo?: CollaborationReplyAddress;
   evaluation?: {
     executionId: string;
     caseId: string;

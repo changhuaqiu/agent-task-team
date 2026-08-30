@@ -136,6 +136,66 @@ describe('TaskGraphOutcomeProcessManager', () => {
     ]);
   });
 
+  it('turns verify intent into one revision-fenced QualityGate command', async () => {
+    const contracts = new WorkContractRepository();
+    const contract = contracts.issue({
+      workId: 'planning:verify', attemptId: 'inv-verify', projectId: 'project-task-graph',
+      agentId: 'planner', goal: 'Plan verification', acceptanceCriteria: ['Create a verification gate'],
+      role: {}, permissions: {}, authoritativeRefs: ['task_graph:project-task-graph'],
+      authoritativeRevisions: { taskGraph: 0 }, contextSnapshotRef: 'context-verify',
+      allowedOutcomeTypes: ['propose_task_graph'], correlationId: 'trace-verify',
+      causationId: 'request-verify', now: NOW,
+    });
+    const outcome: AgentOutcome = {
+      outcomeId: 'outcome-verify', idempotencyKey: 'outcome-verify',
+      contractId: contract.contractId, outcomeType: 'propose_task_graph',
+      payload: {
+        expectedRevision: 0,
+        tasks: [{
+          id: 'task-verify', title: 'Verify the implementation', agentId: 'reviewer',
+          intent: 'verify', description: 'Run E2E and record the gate decision.',
+        }],
+      },
+      evidenceRefs: [], projectId: contract.projectId, workId: contract.workId,
+      workEpoch: contract.workEpoch, attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken, authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId, causationId: contract.contractId,
+      occurredAt: NOW.toISOString(),
+    };
+
+    expect(contracts.admitOutcome(outcome)).toMatchObject({ status: 'accepted' });
+    const task = taskRepo.getById('task-verify');
+    expect(task).toMatchObject({ intent: 'verify', status: 'in_review', agent_id: 'reviewer' });
+    const gate = getDb().prepare(`
+      SELECT id,kind,target_type,target_id,artifact_revision,status FROM quality_gate
+      WHERE target_id='task-verify'
+    `).get() as Record<string, unknown>;
+    expect(gate).toMatchObject({
+      kind: 'code_review', target_type: 'task', target_id: 'task-verify',
+      artifact_revision: String(task!.revision), status: 'requested',
+    });
+    expect(getDb().prepare(`
+      SELECT project_agent_id,
+        json_extract(command_json,'$.source') source,
+        json_extract(command_json,'$.taskId') task_id,
+        json_extract(command_json,'$.replyTo.type') reply_type,
+        json_extract(command_json,'$.replyTo.id') reply_id,
+        json_extract(command_json,'$.contextScenario') scenario
+      FROM agent_inbox_item
+    `).get()).toEqual({
+      project_agent_id: 'reviewer', source: 'test_gate', task_id: 'task-verify',
+      reply_type: 'quality_gate', reply_id: gate.id, scenario: 'verification',
+    });
+
+    const event = new PlatformEventLog({ db: getDb() })
+      .listStream(`work:${contract.workId}`)
+      .find((candidate) => candidate.type === 'agent.outcome.accepted')!;
+    const manager = new TaskGraphOutcomeProcessManager();
+    await manager.handle(event, { signal: new AbortController().signal });
+    expect(getDb().prepare('SELECT COUNT(*) count FROM quality_gate').get()).toEqual({ count: 1 });
+    expect(getDb().prepare('SELECT COUNT(*) count FROM agent_inbox_item').get()).toEqual({ count: 1 });
+  });
+
   it('replays a v1 event-id commit without a second graph mutation', async () => {
     const contracts = new WorkContractRepository();
     const contract = contracts.issue({

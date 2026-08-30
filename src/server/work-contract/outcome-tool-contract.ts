@@ -28,6 +28,11 @@ const TASK_GRAPH_PAYLOAD_SCHEMA: JsonSchema = {
           title: { type: 'string' },
           agentId: { type: 'string', description: 'Exact Project Agent id that will own this Task.' },
           description: { type: 'string' },
+          intent: {
+            type: 'string',
+            enum: ['implement', 'review', 'verify', 'plan'],
+            description: 'Execution semantics. Review and verify create a platform QualityGate instead of ordinary implementation work.',
+          },
           dependencies: STRING_ARRAY,
           initialStatus: { type: 'string', enum: ['proposed', 'ready'] },
         },
@@ -62,6 +67,21 @@ const CONTINUE_PAYLOAD_SCHEMA: JsonSchema = {
     'completedSteps',
     'remainingSteps',
   ],
+  additionalProperties: false,
+};
+
+const GATE_DECISION_PAYLOAD_SCHEMA: JsonSchema = {
+  type: 'object',
+  description: 'Record the decision for the exact QualityGate named by the WorkContract and prompt.',
+  properties: {
+    gateId: { type: 'string' },
+    decision: { type: 'string', enum: ['passed', 'changes_requested', 'rejected'] },
+    reason: { type: 'string' },
+    evidenceType: { type: 'string' },
+    evidence: { type: 'object', additionalProperties: true },
+    receipt: { type: 'object', additionalProperties: true },
+  },
+  required: ['gateId', 'decision', 'evidenceType', 'evidence'],
   additionalProperties: false,
 };
 
@@ -109,6 +129,7 @@ export function outcomePayloadSchema(outcomeType: AgentOutcomeType): JsonSchema 
   if (outcomeType === 'handoff_to_agent') return HANDOFF_PAYLOAD_SCHEMA;
   if (outcomeType === 'propose_task_graph') return TASK_GRAPH_PAYLOAD_SCHEMA;
   if (outcomeType === 'continue_work') return CONTINUE_PAYLOAD_SCHEMA;
+  if (outcomeType === 'record_gate_decision') return GATE_DECISION_PAYLOAD_SCHEMA;
   return { type: 'object', description: `Structured ${outcomeType} payload.` };
 }
 

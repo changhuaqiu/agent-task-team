@@ -60,4 +60,5 @@
 - [x] worker pool 部分可用时仍可接单，transport failure 只替换故障 worker；lane 串行与 stale lease 已覆盖。
 - [ ] session affinity、EventQueue fairness、retry、dead letter 与 ACK fencing 测试通过。
 - [x] 结构化 MCP 是 Agent 主路径；CLI 与 MCP 共用 CommandService 和 receipt（当前已接入命令）。
+- [ ] `server_namespace_work_report_blocked` 等 qualified 名称的 accepted receipt 会结束 WorkContract turn，不会误报 `ended_without_outcome`。
 - [x] `runtime.completed` 或 final text 均不能完成领域对象；WorkContract turn 缺少 accepted lifecycle receipt 时以 `ended_without_outcome` 失败并保持可恢复。

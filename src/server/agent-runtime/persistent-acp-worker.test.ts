@@ -172,4 +172,27 @@ describe('PersistentAcpWorker', () => {
       await worker.shutdown();
     }
   }, 30_000);
+
+  it('accepts the underscore-qualified terminal tool name emitted by OpenCode ACP', async () => {
+    const qualified = 'agent-task-team-8b77cd2f18f8fe37_work_report_blocked';
+    const worker = new PersistentAcpWorker({
+      id: 'worker-qualified-terminal-receipt', command: 'npx', args: ['tsx', mockPath],
+      cwd: process.cwd(),
+      env: { MOCK_ACP_SCENARIO: 'terminal_command_only', MOCK_ACP_TOOL_NAME: qualified },
+      engine: 'opencode',
+    });
+    try {
+      await worker.start();
+      const turn = await finish(worker.execute('report the blocked result', {}, {
+        permissionPolicy: 'allow_once',
+        autoApproveMcpToolNames: [qualified],
+        terminalMcpToolNames: ['work_report_blocked', qualified],
+        requireAcceptedTerminalCommand: true,
+      }));
+      expect(turn.result).toMatchObject({ status: 'completed' });
+      expect(worker.ready()).toBe(true);
+    } finally {
+      await worker.shutdown();
+    }
+  }, 30_000);
 });

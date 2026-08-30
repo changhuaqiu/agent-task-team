@@ -307,7 +307,7 @@ export function createMockAgentApp(
       const activeToolCall = scenario === 'platform_mcp_permission'
         ? { ...TOOL_CALL, title: 'mcp__agent-task-team__task_create' }
         : scenario === 'terminal_command_only'
-          ? { ...TOOL_CALL, title: 'task_submit_result' }
+          ? { ...TOOL_CALL, title: process.env.MOCK_ACP_TOOL_NAME ?? 'task_submit_result' }
         : TOOL_CALL;
 
       // 2. Tool call created (pending).

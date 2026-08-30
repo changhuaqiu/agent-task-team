@@ -107,18 +107,30 @@ function normalizeProjectRelativePath(root: string, candidate: string): string |
 function outcomeEvidence(root: string, value: string): { ref: string; kind?: ProjectArtifactLedgerKind } | undefined {
   const raw = value.trim();
   if (!raw) return undefined;
-  if (/^https?:\/\//i.test(raw)) return { ref: raw };
+  if (/^https?:\/\//i.test(raw)) {
+    if (/\s/.test(raw)) return undefined;
+    try {
+      const parsed = new URL(raw);
+      return ['http:', 'https:'].includes(parsed.protocol) ? { ref: raw } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  const withoutLocation = raw.replace(/:\d+(?:(?:-|:)\d+)?$/, '');
   const typed = raw.match(/^(workspace|file|path):(.*)$/i);
   if (typed) {
-    const ref = normalizeProjectRelativePath(root, typed[2].trim().replace(/:\d+(?::\d+)?$/, ''));
+    const ref = normalizeProjectRelativePath(
+      root,
+      typed[2].trim().replace(/:\d+(?:(?:-|:)\d+)?$/, ''),
+    );
     return ref ? { ref } : undefined;
   }
   if (/^(test|trace|proof|live-db|disk):/i.test(raw)) return { ref: raw, kind: 'proof' };
   if (/^review:/i.test(raw)) return { ref: raw, kind: 'review' };
   if (/^(?:pr|pull-request):/i.test(raw)) return { ref: raw, kind: 'pull_request' };
   if (/^(?:msg|task|work|invocation)-/i.test(raw) || /^(?:task|work|invocation):/i.test(raw)) return undefined;
-  if (!/[\\/]/.test(raw) && !/\.[a-z0-9]{1,10}(?::\d+(?::\d+)?)?$/i.test(raw)) return undefined;
-  const ref = normalizeProjectRelativePath(root, raw.replace(/:\d+(?::\d+)?$/, ''));
+  if (!/[\\/]/.test(withoutLocation) && !/\.[a-z0-9]{1,10}$/i.test(withoutLocation)) return undefined;
+  const ref = normalizeProjectRelativePath(root, withoutLocation);
   return ref ? { ref } : undefined;
 }
 

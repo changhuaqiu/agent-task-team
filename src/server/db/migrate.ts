@@ -4710,6 +4710,23 @@ CREATE INDEX IF NOT EXISTS idx_workspace_command_journal_state
       `).run(new Date().toISOString());
     },
   },
+  {
+    version: 110,
+    run: (db) => {
+      const hasTask = Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task'",
+      ).get());
+      if (!hasTask) return;
+      const columns = new Set((db.prepare('PRAGMA table_info(task)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      if (!columns.has('intent')) {
+        db.exec(`
+          ALTER TABLE task ADD COLUMN intent TEXT NOT NULL DEFAULT 'implement'
+            CHECK (intent IN ('implement','review','verify','plan'))
+        `);
+      }
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {
