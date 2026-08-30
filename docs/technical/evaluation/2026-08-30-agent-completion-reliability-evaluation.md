@@ -3,7 +3,7 @@
 - Change ID: agent-completion-reliability-2026-08-30
 - Evaluation level: C
 - Status: candidate verified at component/path level
-- Code/spec revision: baseline `778b1c6`; candidate pending
+- Code/spec revision: baseline `778b1c6`; candidate implementation `dde652c`
 - Evaluator revision: deterministic-v3 baseline; deterministic-v4 candidate
 
 ## Why
