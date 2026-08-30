@@ -15,7 +15,7 @@
 
 - [x] 把聚合 outcome 工具拆为单意图结构化 MCP 工具并保持 owner-local Schema。
 - [x] MCP 工具返回统一 CommandReceipt；accepted 终态回执强制结束 turn。
-- [x] 增加 `ended_without_outcome`、重复终态、stale authority、stale revision 测试；持久 Worker 已覆盖无回执退出与已接纳回执正例，WorkContract repository 覆盖重复终态与 stale authority/revision。
+- [x] 增加 `ended_without_outcome`、重复终态、stale authority、stale revision 测试；持久 Worker 已覆盖无回执退出、canonical/ACP namespaced tool 已接纳回执正例，WorkContract repository 覆盖重复终态与 stale authority/revision。
 - [x] 建立 `ath` CLI，采用 JSON stdin/stdout、稳定退出码和 `delivery_unknown`。
 - [x] 验证 MCP、CLI/Human API 对已接入命令复用同一 handler 与 receipt；其余命令随 registry 扩展补齐。
 
@@ -43,6 +43,8 @@
 - [x] 完成 Clowder 式 Artifact Ledger：成功写工具自动发现、Outcome evidence 自动登记、同 ref 合并、Project 页面与 Agent briefing 共用投影。
 - [x] 将 `work_handoff` 从不透明 payload 改为显式 MCP Schema，并由 ACP Adapter 统一外层/领域幂等身份，消除合法交接被 `a2a_outcome_invalid` 连续拒绝的问题。
 - [ ] 完成状态只从 receipt、artifact revision、gate 与 release policy 计算。
+- [x] 为 Task `in_review` 增加 revision-bound Gate durable backfill；普通 Project 幂等派发 reviewer，active Delivery 从同一 `gate.requested` 事实继续编排。
+- [x] 评审中 Task revision 变化会在同一写事务内 supersede 旧 Gate/reviewer authority 并创建当前 Gate；每次 replay 都重新收敛旧 authority，WorkContract 签发与 Gate outcome admission 均强制 current artifact revision，outcome 另强制 authorized evaluator 与禁止自评。
 
 ## Runtime
 

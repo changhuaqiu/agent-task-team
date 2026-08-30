@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { getDb } from '../db';
 import { CollaborationKernel } from '../collaboration-kernel';
 import { qualityGateRepo } from '../quality-gate/repository';
+import { requestTaskCodeReviewGate } from '../quality-gate/task-code-review-gate';
 import { taskRepo } from '../repositories/task-repo';
 import { taskGraphRepo } from '../repositories/task-graph-repo';
 import { taskCommandService } from '../repositories/task-command-service';
@@ -487,39 +488,9 @@ export class ProductionControlCommandAdapter implements ControlCommandPort {
     }
     const task = this.taskFor(action);
     if (!task) return { status: 'rejected', reasonCode: 'control_task_missing' };
-    const pullRequestAction = taskGraphRepo.listActionsForTask(task.id)
-      .filter((candidate) => candidate.type === 'task.pull_request_submitted')
-      .at(-1);
-    const pullRequestPayload = pullRequestAction
-      ? JSON.parse(pullRequestAction.payload) as {
-          receipt?: { headSha?: string };
-          artifactRevision?: string;
-        }
-      : undefined;
-    const audience = resolveTaskNotificationAudience(task.conversation_id);
-    const providerBacked = pullRequestPayload?.artifactRevision === String(task.revision)
-      && Boolean(pullRequestPayload.receipt?.headSha);
-    qualityGateRepo.request({
-      conversationId: task.conversation_id,
-      kind: 'code_review',
-      targetType: 'task',
-      targetId: task.id,
-      artifactRevision: String(task.revision),
-      criteria: providerBacked
-        ? {
-            providerReviewRequired: true,
-            qualityDecision: 'pass',
-            maxBlockerCount: 0,
-            providerHeadSha: pullRequestPayload?.receipt?.headSha,
-          }
-        : { taskStatus: task.status, requiresIndependentReview: true },
-      policy: {
-        source: 'delivery_control_process_manager',
-        prohibitSelfReview: true,
-        implementerId: task.agent_id,
-        authorizedEvaluatorIds: audience.reviewGateAgentIds,
-      },
-      actor: { type: 'system', id: 'delivery-control-process-manager' },
+    requestTaskCodeReviewGate({
+      task,
+      actorId: 'delivery-control-process-manager',
       correlationId: decision.correlationId,
       causationId: action.actionId,
       now: this.now(),

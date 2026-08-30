@@ -18,7 +18,10 @@
 - [ ] canonical ObjectReference 可在消息、对象列表和详情之间稳定往返，非法或跨 Project 引用 fail closed。
 - [ ] 幂等、revision、authority epoch、attempt 和 fencing 在写入前校验。
 - [x] 终态 outcome 最多接纳一次；文本和进程退出不能替代 outcome。
+- [x] ACP runtime 的 canonical 与 server-namespaced lifecycle tool 只有在结构化 receipt 被接纳后才满足终态出口。
 - [ ] Task 完成需要当前 artifact revision 的质量回执。
+- [x] Task 进入 `in_review` 后可由 durable replay 幂等得到当前 artifact revision 的唯一 code-review Gate 与 reviewer 工作。
+- [x] 评审期间 Task revision 变化会原子取消旧 Gate/reviewer authority 并创建当前 Gate；replay 会再次清理迟到的旧 authority，stale/terminal Gate 无法签发 WorkContract，未授权、自评或 stale artifact 的 Gate outcome 在占用终态槽前被拒绝。
 - [x] 成功写工具自动形成 working Artifact；Outcome evidence 将同一 ref 提升为 registered，失败/读取/越界工具不进入 Ledger。
 - [ ] 外部非幂等写结果不明时不会盲目重试。
 

@@ -191,6 +191,7 @@ export function registerAcpSkillMcpGrant(
     autoApproveToolNames: permittedTools.flatMap((toolName) => [
       `mcp.${serverName}.${toolName}`,
       `mcp__${serverName}__${toolName}`,
+      `${serverName}_${toolName}`,
     ]),
     terminalToolNames: permittedTools
       .filter((toolName) => AGENT_OUTCOME_TYPE_BY_TOOL.has(toolName))
@@ -198,6 +199,7 @@ export function registerAcpSkillMcpGrant(
         toolName,
         `mcp.${serverName}.${toolName}`,
         `mcp__${serverName}__${toolName}`,
+        `${serverName}_${toolName}`,
       ]),
     revoke: () => {
       grantRegistry().delete(token);

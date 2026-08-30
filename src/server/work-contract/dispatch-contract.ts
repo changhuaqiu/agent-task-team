@@ -214,6 +214,41 @@ export function issueDispatchWorkContract(input: {
     ) {
       throw new WorkContractInvariantError(`Task owner is terminal: ${input.trigger.taskId}`);
     }
+    if (input.trigger.source === 'review_gate' && workIdentity?.scope === 'task') {
+      const gate = workIdentity.gateId
+        ? db.prepare(`
+            SELECT id,conversation_id,kind,target_type,target_id,artifact_revision,status,revision
+            FROM quality_gate
+            WHERE id=?
+          `).get(workIdentity.gateId) as {
+            id: string;
+            conversation_id: string;
+            kind: string;
+            target_type: string;
+            target_id: string;
+            artifact_revision: string;
+            status: string;
+            revision: number;
+          } | undefined
+        : undefined;
+      if (
+        !currentTask
+        || !gate
+        || gate.conversation_id !== input.trigger.conversationId
+        || gate.kind !== 'code_review'
+        || gate.target_type !== 'task'
+        || gate.target_id !== currentTask.id
+        || workIdentity.targetId !== currentTask.id
+        || workIdentity.agentId !== input.trigger.agentId
+        || currentTask.status !== 'in_review'
+        || gate.artifact_revision !== String(currentTask.revision)
+        || !['requested', 'evaluating'].includes(gate.status)
+      ) {
+        throw new WorkContractInvariantError(
+          `Task review Gate is missing, stale, or terminal: ${workIdentity.gateId ?? 'missing'}`,
+        );
+      }
+    }
     const delivery = input.trigger.deliveryRunId
       ? autonomousDeliveryRepo.getRun(input.trigger.deliveryRunId)
       : undefined;

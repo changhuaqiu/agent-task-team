@@ -1,8 +1,11 @@
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, resetDb, setTestDb } from '../db';
+import { agentDefinitionRepo } from '../agents/agent-definition-repo';
+import { QualityGateRepository } from '../quality-gate/repository';
 import { taskRepo } from '../repositories/task-repo';
 import { buildWorkIdentity } from '../work-contract/work-identity';
+import { workContractRepo } from '../work-contract/repository';
 import { AgentInbox } from './agent-inbox';
 import { CollaborationKernel } from '../collaboration-kernel';
 import { PlatformEventLog } from './event-log';
@@ -30,6 +33,122 @@ describe('TaskWakeupRouter', () => {
   });
 
   afterEach(() => resetDb());
+
+  it('backfills one revision-bound Gate and reviewer command for an in-review Task', () => {
+    agentDefinitionRepo.save({
+      id: 'reviewer',
+      name: 'Reviewer',
+      runtimeId: 'opencode',
+      accountIds: [],
+      skillIds: [],
+      instructions: 'Perform independent code review and record the quality decision.',
+      permissions: { canModifyCode: false, canReview: true },
+    });
+    taskRepo.create({
+      id: 'task-review',
+      conversation_id: 'project-1',
+      title: 'Reviewable Task',
+      agent_id: 'implementer',
+    });
+    taskRepo.transition('task-review', { to: 'in_progress' });
+    taskRepo.transition('task-review', { to: 'in_review' });
+    const event = log.listStream('task:task-review')
+      .find((candidate) => candidate.type === 'task.in_review')!;
+    const reviewable = taskRepo.update('task-review', {
+      description: 'Clarified after review was requested',
+    })!;
+
+    router.handle(event, { signal: new AbortController().signal });
+    router.handle(event, { signal: new AbortController().signal });
+
+    const gates = new QualityGateRepository(db).listForTarget('task', 'task-review');
+    expect(gates).toHaveLength(1);
+    expect(gates[0]).toMatchObject({
+      kind: 'code_review',
+      artifact_revision: String(reviewable.revision),
+      status: 'requested',
+    });
+    expect(JSON.parse(gates[0].policy_json)).toMatchObject({
+      prohibitSelfReview: true,
+      implementerId: 'implementer',
+      authorizedEvaluatorIds: ['reviewer'],
+    });
+    expect(inbox.listPending('project-1')).toEqual([
+      expect.objectContaining({
+        projectAgentId: 'reviewer',
+        command: expect.objectContaining({
+          source: 'review_gate',
+          taskId: 'task-review',
+          workId: `task:task-review:agent:reviewer:gate:${gates[0].id}:purpose:review`,
+          replyTo: { type: 'quality_gate', id: gates[0].id },
+        }),
+      }),
+    ]);
+
+    const advanced = taskRepo.update('task-review', {
+      description: 'Changed again while the first review was pending',
+    })!;
+    const updatedEvent = log.listStream('task:task-review')
+      .find((candidate) => (
+        candidate.type === 'task.updated'
+        && candidate.aggregate.version === advanced.revision
+      ))!;
+    router.handle(updatedEvent, { signal: new AbortController().signal });
+
+    const reconciledGates = new QualityGateRepository(db)
+      .listForTarget('task', 'task-review');
+    expect(reconciledGates).toHaveLength(2);
+    expect(reconciledGates[0]).toMatchObject({ status: 'cancelled' });
+    expect(reconciledGates[1]).toMatchObject({
+      status: 'requested',
+      artifact_revision: String(advanced.revision),
+    });
+    expect(inbox.listPending('project-1')).toEqual([
+      expect.objectContaining({
+        projectAgentId: 'reviewer',
+        command: expect.objectContaining({
+          workId: `task:task-review:agent:reviewer:gate:${reconciledGates[1].id}:purpose:review`,
+        }),
+      }),
+    ]);
+    expect(db.prepare(`
+      SELECT status,last_error FROM agent_inbox_item
+      WHERE json_extract(command_json, '$.workId')=?
+    `).get(`task:task-review:agent:reviewer:gate:${reconciledGates[0].id}:purpose:review`))
+      .toEqual({ status: 'cancelled', last_error: 'task_review_artifact_superseded' });
+
+    const lateStaleWorkId = buildWorkIdentity({
+      scope: 'task',
+      targetId: 'task-review',
+      agentId: 'reviewer',
+      gateId: reconciledGates[0].id,
+      purpose: 'review',
+    });
+    workContractRepo.issue({
+      workId: lateStaleWorkId,
+      attemptId: 'late-stale-review-attempt',
+      projectId: 'project-1',
+      taskId: 'task-review',
+      agentId: 'reviewer',
+      goal: 'Simulate stale reviewer admission after the first reconciliation scan',
+      acceptanceCriteria: ['Record the Gate decision'],
+      role: { responsibility: 'reviewer' },
+      permissions: {},
+      authoritativeRefs: [`quality_gate:${reconciledGates[0].id}`],
+      authoritativeRevisions: { task: Number(reconciledGates[0].artifact_revision) },
+      contextSnapshotRef: 'late-stale-review-context',
+      allowedOutcomeTypes: ['record_gate_decision'],
+      correlationId: 'late-stale-review-correlation',
+      causationId: 'late-stale-review-causation',
+    });
+    expect(workContractRepo.getAuthority(lateStaleWorkId)).toMatchObject({ status: 'active' });
+
+    router.handle(updatedEvent, { signal: new AbortController().signal });
+
+    expect(workContractRepo.getAuthority(lateStaleWorkId)).toMatchObject({ status: 'closed' });
+    expect(new QualityGateRepository(db).listForTarget('task', 'task-review'))
+      .toHaveLength(2);
+  });
 
   it('ignores a historical rejection after the task has already completed', () => {
     taskRepo.create({

@@ -97,7 +97,7 @@ function gateOutcomeRejectionReason(
     return 'gate_outcome_decision_invalid';
   }
   const gate = db.prepare(`
-    SELECT conversation_id,target_type,target_id,kind
+    SELECT conversation_id,target_type,target_id,kind,status,artifact_revision,policy_json
     FROM quality_gate
     WHERE id=?
   `).get(gateId) as {
@@ -105,6 +105,9 @@ function gateOutcomeRejectionReason(
     target_type: 'task' | 'delivery_run';
     target_id: string;
     kind: string;
+    status: string;
+    artifact_revision: string;
+    policy_json: string;
   } | undefined;
   if (!gate) return 'gate_outcome_gate_missing';
   if (gate.conversation_id !== contract.project_id) return 'gate_outcome_project_mismatch';
@@ -113,6 +116,33 @@ function gateOutcomeRejectionReason(
   }
   if (gate.target_type === 'delivery_run' && gate.target_id !== contract.delivery_run_id) {
     return 'gate_outcome_delivery_mismatch';
+  }
+  if (gate.status !== 'requested' && gate.status !== 'evaluating') {
+    return 'gate_outcome_gate_terminal';
+  }
+  if (gate.target_type === 'task') {
+    const task = db.prepare('SELECT status,revision FROM task WHERE id=? AND conversation_id=?')
+      .get(gate.target_id, gate.conversation_id) as {
+        status: string;
+        revision: number;
+      } | undefined;
+    if (!task || task.status !== 'in_review' || String(task.revision) !== gate.artifact_revision) {
+      return 'gate_outcome_artifact_revision_stale';
+    }
+    const policy = parseJson<{
+      prohibitSelfReview?: unknown;
+      implementerId?: unknown;
+      authorizedEvaluatorIds?: unknown;
+    }>(gate.policy_json);
+    if (
+      policy.prohibitSelfReview === true
+      && typeof policy.implementerId === 'string'
+      && policy.implementerId === contract.agent_id
+    ) return 'gate_outcome_self_review_prohibited';
+    if (
+      Array.isArray(policy.authorizedEvaluatorIds)
+      && !policy.authorizedEvaluatorIds.includes(contract.agent_id)
+    ) return 'gate_outcome_evaluator_not_authorized';
   }
   if (gate.target_type === 'delivery_run') {
     if (gate.kind !== 'delivery_review' && gate.kind !== 'acceptance_verification') {

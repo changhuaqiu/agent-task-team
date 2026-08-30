@@ -172,4 +172,50 @@ describe('PersistentAcpWorker', () => {
       await worker.shutdown();
     }
   }, 30_000);
+
+  it('accepts an OpenCode-namespaced lifecycle tool after its structured receipt is observed', async () => {
+    const worker = new PersistentAcpWorker({
+      id: 'worker-namespaced-terminal-receipt', command: 'npx', args: ['tsx', mockPath],
+      cwd: process.cwd(), env: { MOCK_ACP_SCENARIO: 'namespaced_terminal_command_only' }, engine: 'opencode',
+    });
+    try {
+      await worker.start();
+      const turn = await finish(worker.execute('submit the result', {}, {
+        permissionPolicy: 'allow_once',
+        terminalMcpToolNames: [
+          'task_submit_result',
+          'agent-task-team-7e82e6def26bf415_task_submit_result',
+        ],
+        requireAcceptedTerminalCommand: true,
+      }));
+      expect(turn.result).toMatchObject({ status: 'completed' });
+      expect(worker.ready()).toBe(true);
+    } finally {
+      await worker.shutdown();
+    }
+  }, 30_000);
+
+  it('rejects a receipt-shaped result from an unregistered MCP namespace', async () => {
+    const worker = new PersistentAcpWorker({
+      id: 'worker-untrusted-terminal-receipt', command: 'npx', args: ['tsx', mockPath],
+      cwd: process.cwd(), env: { MOCK_ACP_SCENARIO: 'untrusted_namespaced_terminal_command_only' }, engine: 'opencode',
+    });
+    try {
+      await worker.start();
+      const turn = await finish(worker.execute('submit the result', {}, {
+        permissionPolicy: 'allow_once',
+        terminalMcpToolNames: [
+          'task_submit_result',
+          'agent-task-team-7e82e6def26bf415_task_submit_result',
+        ],
+        requireAcceptedTerminalCommand: true,
+      }));
+      expect(turn.result).toMatchObject({
+        status: 'failed',
+        reasonCode: 'ended_without_outcome',
+      });
+    } finally {
+      await worker.shutdown();
+    }
+  }, 30_000);
 });

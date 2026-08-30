@@ -121,6 +121,8 @@ accepted/applied；owner 仍须强制 payload revision 等于冻结 authority，
 
 `Review` 不是 `WorkItem.status = in_review` 的别名。WorkItem 可以请求或关联多个 Review；Review 自身持有 `open / changes_requested / approved / closed` 生命周期、评审目标和证据。Task 的 `in_review` 仅表示当前 WorkItem 正等待其策略要求的 Review/Gate，不是 Review aggregate。
 
+在独立 Review 聚合完全替换现有 Task Gate 前，`task.in_review` 必须由 durable router 收敛为当前 Task revision 唯一的 `code_review` Gate。处理器重放先核对 Task 当前仍处于 `in_review`，再按当前 revision 幂等补建 Gate；历史事件的旧 revision 不能阻止补偿，因为进入评审后描述等 Task 元数据仍可能合法更新。评审期间新的 `task.updated` 会取消旧 revision 的开放 Gate、待派发 reviewer work 与活动 reviewer authority，再为当前 revision 创建新 Gate。旧 reviewer authority 的清理与当前 revision Gate 的查找/创建必须处于同一数据库写事务，且每次重放都要重新收敛旧 authority；WorkContract 签发必须在同一签发事务内确认 Task 仍为 `in_review`、Gate 非终态且 artifact revision 等于 Task 当前 revision。Gate outcome admission 还必须原子校验当前 artifact revision、禁止自评与 authorized evaluator policy，不能把这些约束只保存在 metadata。普通 Project 直接把 Gate 工作写入 AgentInbox，仍由 active Delivery 编排的 Project则只发布 Gate 事实，由 Delivery control plane 统一派发。处理器版本升级必须允许历史 `in_review` 事件重新投递，以修复旧版本已进入评审但漏建 Gate 的 Task。
+
 公共 `ObjectReference` 采用严格 canonical parser/builder。未知参数、空 identity、非法路径片段和跨 Project 引用默认拒绝。协作消息中的引用进入 `ObjectReferenceIndex`，由它派生 Project/Channel 的相关 WorkItem、Review、Artifact 和 Contributor；UI 不维护第二份手工挂接关系。
 
 #### Clowder 式 Artifact Ledger
@@ -270,6 +272,8 @@ Project 添加器的首个实现切片固定为：`浏览/搜索已有 Project -
 一次 Agent Invocation 成功只表示运行基础设施正常结束。工作完成必须存在当前 WorkContract 接纳的终态 CommandReceipt，authority epoch、attempt、fencing 与当前 owner 一致，结果证据已注册且对应 artifact revision 的 Gate 已通过，最终交付/Release 投影满足策略。
 
 缺少终态命令时，Runtime 将 Invocation 标记为 `ended_without_outcome`，工作仍保持可恢复状态并按策略重排队；不得根据 final text 猜测 outcome。
+
+ACP Adapter 可以为 MCP 工具增加 server namespace。每轮 MCP grant 必须把 canonical 名称和该轮随机 server name 形成的精确 adapter alias 一起登记；终态命令只做 exact-set matching，不接受任意前缀的后缀匹配。只有同时解析到 `applied | duplicate` 且 `result.exitAccepted = true` 的结构化回执才算终态成功，名称匹配本身不能绕过回执校验。
 
 ## 9. 删除与替换
 

@@ -353,6 +353,8 @@ Runtime 控制面通过 daemon registry 暴露脱敏 snapshot、`stop` 与 `rest
 
 MCP grant 是 turn-scoped：每次 `prepareTurn` 都使用当前 WorkContract 重新生成 server/token/tool list，所有终态、异常与 ownership loss 路径撤销，持久 Worker 的下一 Session 不继承上一 Invocation 的 server。WorkContract turn 还要求观察到 `exitAccepted=true` 的结构化 lifecycle receipt；仅有 final text 或正常 `end_turn` 会产生 `ended_without_outcome`，进入失败/恢复策略而不触发领域完成。
 
+OpenCode 等 ACP Adapter 会把 MCP tool 投影成 `<server>_<tool>`。每轮 MCP grant 因此把随机 server name 对应的 OpenCode、Claude/Codex adapter alias 与 canonical lifecycle tool 一起登记到 terminal exact-set；Persistent Worker 不接受未知 prefix 的 suffix match。即使名称精确匹配，仍必须从嵌套 tool result 中解析到 `applied | duplicate` 与 `result.exitAccepted=true`，不能仅凭工具名把 Invocation 判为成功。
+
 任何环境变量、凭据、授权令牌和进程参数都必须在日志、事件、诊断 API 与 UI 中按值完全隐藏，只展示“已配置”和来源。Runtime receipt、进程探测和错误对象同样不得携带秘密值。
 
 Runtime generation 变化时必须先完成旧进程/旧 grant fencing，再保留或签发本 Invocation 的 MCP grant；不得用 Agent+Project 粗粒度撤销把刚创建的本轮 token 一并删除。daemon shutdown 与 stop/reconfigure 使用同一 transition 队列，并进入不可逆 closing 状态，shutdown 返回后任何迟到 transition 都不能重新启动 Runtime。Stop/Restart 必须重新执行 runtime preparation，不能复用已由旧 Runtime cleanup 删除的临时认证目录。

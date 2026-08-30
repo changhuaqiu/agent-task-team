@@ -154,7 +154,7 @@ export class PlatformEventRuntimeWorker {
     }
     const taskWakeupRouter = new TaskWakeupRouter();
     this.dispatcher.register({
-      id: 'task-wakeup-router:v1',
+      id: 'task-wakeup-router:v2',
       pattern: 'task.*',
       stereotype: 'router',
       reliability: 'durable',

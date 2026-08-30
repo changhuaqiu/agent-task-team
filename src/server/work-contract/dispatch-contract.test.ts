@@ -14,6 +14,8 @@ import type { ExecutionProfile } from '../invocation-pipeline/execution-profile'
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
 import type { DispatchAdmissionGrant, DispatchKind } from '../invocation-pipeline/dispatch-admission';
 import type { TaskRow } from '../repositories/task-repo';
+import { QualityGateRepository } from '../quality-gate/repository';
+import { buildWorkIdentity } from './work-identity';
 
 const executionProfile: ExecutionProfile = {
   stage: 'implement',
@@ -158,12 +160,35 @@ describe('issueDispatchWorkContract', () => {
   it.each(['review_gate', 'test_gate'] as const)(
     'authorizes a bounded continuation for %s work',
     (source) => {
-      const task = taskRepo.create({
+      let task = taskRepo.create({
         id: `task-${source}`,
         conversation_id: 'project-1',
         title: 'Verify the artifact',
-        agent_id: 'reviewer',
+        agent_id: source === 'review_gate' ? 'implementer' : 'reviewer',
       }, now);
+      let workId: string | undefined;
+      if (source === 'review_gate') {
+        task = taskRepo.transition(task.id, { to: 'in_progress' }, now)!;
+        task = taskRepo.transition(task.id, { to: 'in_review' }, now)!;
+        const gate = new QualityGateRepository(db).request({
+          conversationId: 'project-1',
+          kind: 'code_review',
+          targetType: 'task',
+          targetId: task.id,
+          artifactRevision: String(task.revision),
+          criteria: { requiresIndependentReview: true },
+          policy: { authorizedEvaluatorIds: ['reviewer'] },
+          actor: { type: 'system', id: 'test' },
+          now,
+        });
+        workId = buildWorkIdentity({
+          scope: 'task',
+          targetId: task.id,
+          agentId: 'reviewer',
+          gateId: gate.gate.id,
+          purpose: 'review',
+        });
+      }
       const snapshot: ContextSnapshot = {
         id: `context-${source}`,
         query: {
@@ -194,6 +219,7 @@ describe('issueDispatchWorkContract', () => {
           conversationId: 'project-1',
           agentId: 'reviewer',
           taskId: task.id,
+          workId,
           prompt: 'Review the artifact.',
         },
         traceId: `trace-${source}`,
@@ -219,6 +245,87 @@ describe('issueDispatchWorkContract', () => {
       ]));
     },
   );
+
+  it('atomically rejects Task review contracts for a stale or terminal Gate', () => {
+    let task = taskRepo.create({
+      id: 'task-stale-review-gate',
+      conversation_id: 'project-1',
+      title: 'Review current artifact',
+      agent_id: 'implementer',
+    }, now);
+    task = taskRepo.transition(task.id, { to: 'in_progress' }, now)!;
+    task = taskRepo.transition(task.id, { to: 'in_review' }, now)!;
+    const gates = new QualityGateRepository(db);
+    const gate = gates.request({
+      conversationId: 'project-1',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(task.revision),
+      criteria: { requiresIndependentReview: true },
+      policy: { authorizedEvaluatorIds: ['reviewer'] },
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+    let workId = buildWorkIdentity({
+      scope: 'task',
+      targetId: task.id,
+      agentId: 'reviewer',
+      gateId: gate.gate.id,
+      purpose: 'review',
+    });
+    const snapshot: ContextSnapshot = {
+      id: 'context-stale-review-gate',
+      query: {
+        scenario: 'code_review', trigger: 'review_request', conversationId: 'project-1',
+        agentId: 'reviewer', archetype: 'reviewer', taskId: task.id, budgetTokens: 1_000,
+        requiredContributorIds: [], now: now.toISOString(), requestDigest: 'stale-review-gate',
+      },
+      fragmentRefs: [], capabilities: [], constraints: [], missingRequired: [], omissions: [],
+      compiledPrompt: 'Review', createdAt: now.toISOString(),
+    };
+    const issue = () => issueDispatchWorkContract({
+      trigger: {
+        id: 'trigger-stale-review-gate', source: 'review_gate', conversationId: 'project-1',
+        agentId: 'reviewer', taskId: task.id, workId, prompt: 'Review',
+      },
+      traceId: 'trace-stale-review-gate', contextSnapshot: snapshot, task,
+      role: { id: 'reviewer' }, admission: dispatchGrant('review'),
+      executionProfile: { ...executionProfile, stage: 'review', exitPolicy: 'gate_decision' },
+      runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
+    });
+
+    task = taskRepo.update(task.id, { description: 'Artifact changed after review dispatch' })!;
+    expect(issue).toThrow(/Task review Gate is missing, stale, or terminal/);
+
+    const replacement = gates.request({
+      conversationId: 'project-1',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(task.revision),
+      criteria: { requiresIndependentReview: true },
+      policy: { authorizedEvaluatorIds: ['reviewer'] },
+      actor: { type: 'system', id: 'test' },
+      now,
+    });
+    expect(replacement.gate.id).not.toBe(gate.gate.id);
+    workId = buildWorkIdentity({
+      scope: 'task',
+      targetId: task.id,
+      agentId: 'reviewer',
+      gateId: replacement.gate.id,
+      purpose: 'review',
+    });
+    gates.cancel({
+      gateId: replacement.gate.id,
+      actor: { type: 'system', id: 'test' },
+      reason: 'test_terminal_gate',
+      expectedRevision: replacement.gate.revision,
+      now,
+    });
+    expect(issue).toThrow(/Task review Gate is missing, stale, or terminal/);
+  });
 
   it('issues an outcome-only recovery contract without implementation tools or authorization', () => {
     const task = taskRepo.create({
