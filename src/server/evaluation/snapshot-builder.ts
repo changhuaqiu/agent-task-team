@@ -218,6 +218,9 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   }
   const taskIds = collectTaskIds(allTasks, allEdges, request.rootTaskId);
   const tasks = allTasks.filter((task) => taskIds.has(String(task.id))).map(cleanRow);
+  const lateTaskFacts = tasks
+    .filter((task) => typeof task.updated_at === 'string' && task.updated_at > cutoff)
+    .map((task) => `task:${String(task.id)}`);
   const edges = allEdges.filter((edge) =>
     taskIds.has(String(edge.from_task_id)) && taskIds.has(String(edge.to_task_id))).map(cleanRow);
   const execution = collectEvaluationExecutionEvidence(db, {
@@ -261,7 +264,7 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   const passGroups = execution.passGroups.map(cleanRow);
   const passes = execution.passes.map(cleanRow);
   const collaborationEvents = execution.collaborationEvents.map(cleanRow);
-  const lateFacts = execution.lateFacts;
+  const lateFacts = [...new Set([...execution.lateFacts, ...lateTaskFacts])];
   const evaluationCase = request.caseId
     ? db.prepare(`SELECT c.id,c.case_key,c.split,c.expected_labels,c.metadata
         FROM eval_case c JOIN eval_dataset d ON d.id=c.dataset_id
@@ -331,7 +334,7 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   if (skillIds.length && skillRevisions.some((skill) => !skill.active_revision_id)) missing.push('skill_revision');
   if (executionAccountConfigs.length !== executionAccountIds.length) missing.push('model_configuration_revision');
   const byDimension: Record<string, number> = {
-    completion: tasks.length ? 1 : 0,
+    completion: tasks.length && lateTaskFacts.length === 0 ? 1 : 0,
     delivery: taskActions.length || artifacts.length ? 1 : 0,
     reliability: invocations.length && !lateFacts.some((fact) => (
       fact.startsWith('invocation:') || fact.startsWith('work_authority:')

@@ -1613,6 +1613,7 @@ export default function registerDaemon(io: IOServer) {
                 error_message: err.message,
               });
             }
+            workLifecycle.reconcileInvocation(acquiredInvocationId, err.reasonCode);
           }
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();
@@ -1646,6 +1647,10 @@ export default function registerDaemon(io: IOServer) {
                 return;
               }
             }
+            workLifecycle.reconcileInvocation(
+              acquiredInvocationId,
+              setupFailure.reasonCode,
+            );
           } catch (invocationError) {
             console.error('[daemon] failed to terminate setup invocation:', invocationError);
           }

@@ -271,7 +271,7 @@ describe('WorkLifecycleReconciler', () => {
     });
   });
 
-  it('releases current Work when a runtime start failure terminates its Invocation', async () => {
+  it('releases current Work when setup fails before a runtime coordinator exists', () => {
     const task = taskRepo.create({
       id: 'task-runtime-start-failed',
       conversation_id: 'project-1',
@@ -312,27 +312,24 @@ describe('WorkLifecycleReconciler', () => {
       exit_code: 1,
       reason_code: 'runtime_start_failed',
     });
-    const terminated = log.append({
-      type: 'runtime.invocation.terminated',
-      category: 'runtime_lifecycle',
-      projectId: 'project-1',
-      streamKey: `invocation:${contract.attemptId}`,
-      aggregate: { type: 'invocation', id: contract.attemptId },
-      actor: { type: 'runtime', id: 'test-runtime' },
-      projectAgentId: 'builder',
-      invocationId: contract.attemptId,
-      correlationId: 'corr-runtime-start-failed',
-      payload: { outcome: 'failed', reasonCode: 'runtime_start_failed' },
-    });
     const reconciler = new WorkLifecycleReconciler({
       collaboration: new CollaborationKernel({ inbox }),
       contracts,
     });
 
-    await reconciler.handle(terminated, { signal: new AbortController().signal });
+    expect(reconciler.reconcileInvocation(
+      contract.attemptId,
+      'runtime_start_failed',
+      now,
+    )).toBe(true);
 
     expect(contracts.getAuthority(workId)).toMatchObject({ status: 'closed' });
     expect(taskRepo.getById(task.id)).toMatchObject({ status: 'in_progress' });
+    expect(reconciler.reconcileInvocation(
+      contract.attemptId,
+      'runtime_start_failed',
+      now,
+    )).toBe(false);
   });
 
   it('closes a terminal A2A Pass WorkAuthority from its durable event', async () => {

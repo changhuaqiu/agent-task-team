@@ -94,12 +94,22 @@ export function evaluateDeterministically(snapshot: SubjectSnapshot): Evaluation
   const authorities = Array.isArray(data.authorities) ? data.authorities : [];
   const outcomes = Array.isArray(data.outcomes) ? data.outcomes : [];
   const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+  const lateFacts = Array.isArray(data.lateFacts) ? data.lateFacts : [];
+  const lateTaskIds = new Set(lateFacts.flatMap((fact) => {
+    const value = String(fact);
+    return value.startsWith('task:') ? [value.slice('task:'.length)] : [];
+  }));
+  const taskStateKnownAtCutoff = lateTaskIds.size === 0;
   const taskRefs = evidence('task', tasks);
   const proofRefs = evidence('proof', proofs);
   const scores: EvaluationScore[] = [];
 
   if (tasks.length === 0) {
     scores.push(score('gate.task_completion', 'gate', undefined, 'unknown', '没有冻结到任务事实，不能判断完成状态。', [], 'unknown'));
+  } else if (!taskStateKnownAtCutoff) {
+    scores.push(score('gate.task_completion', 'gate', undefined, 'unknown',
+      `${lateTaskIds.size} 个 Task 在 cutoff 之后变更，不能用当前状态推定历史完成结果。`,
+      taskRefs, 'unknown'));
   } else {
     const terminal = tasks.filter((task) => TERMINAL.has(String(task.status))).length;
     const completed = tasks.filter((task) => task.status === 'done').length;
@@ -109,7 +119,9 @@ export function evaluateDeterministically(snapshot: SubjectSnapshot): Evaluation
       `${completed}/${tasks.length} 个任务为 done，${terminal}/${tasks.length} 个进入终态。`, taskRefs));
   }
 
-  const doneTasks = tasks.filter((task) => task.status === 'done');
+  const doneTasks = taskStateKnownAtCutoff
+    ? tasks.filter((task) => task.status === 'done')
+    : [];
   const hasDelivery = doneTasks.length > 0 && actionEvidence(actions, 'done', [
     'mergedToMain', 'mainInstallResult', 'mainBuildResult', 'mainTestResult', 'mainImpactReviewResult',
   ]);
@@ -146,12 +158,16 @@ export function evaluateDeterministically(snapshot: SubjectSnapshot): Evaluation
   const blocked = tasks.filter((task) => task.status === 'blocked').length;
   const cancelled = tasks.filter((task) => task.status === 'cancelled').length;
   const active = tasks.length - completed - blocked - cancelled;
-  scores.push(score('completion', 'deterministic', tasks.length ? completed / tasks.length * 100 : undefined,
-    tasks.length === 0 ? 'unknown' : completed === tasks.length ? 'pass' : completed ? 'partial' : 'fail',
-    tasks.length
+  scores.push(score('completion', 'deterministic',
+    tasks.length && taskStateKnownAtCutoff ? completed / tasks.length * 100 : undefined,
+    tasks.length === 0 || !taskStateKnownAtCutoff
+      ? 'unknown' : completed === tasks.length ? 'pass' : completed ? 'partial' : 'fail',
+    !taskStateKnownAtCutoff
+      ? 'Task 状态在 cutoff 之后变更，历史完成率不可判定。'
+      : tasks.length
       ? `完成率 ${completed}/${tasks.length}；blocked ${blocked}，cancelled ${cancelled}，active ${active}。`
       : '没有任务数据。', taskRefs,
-    tasks.length ? 'applicable' : 'unknown'));
+    tasks.length && taskStateKnownAtCutoff ? 'applicable' : 'unknown'));
   const deliveryPoints = Math.min(100, artifacts.length * 25 + (hasDelivery ? 50 : 0));
   scores.push(score('delivery', 'deterministic', doneTasks.length ? deliveryPoints : undefined,
     doneTasks.length === 0 ? 'unknown' : deliveryPoints >= 80 ? 'pass' : deliveryPoints > 0 ? 'partial' : 'fail',
@@ -175,7 +191,8 @@ export function evaluateDeterministically(snapshot: SubjectSnapshot): Evaluation
     const contract = contractById.get(String(authority.current_contract_id));
     if (!contract) return [];
     const invocation = invocationById.get(String(contract.attempt_id));
-    const task = contract.task_id ? taskById.get(String(contract.task_id)) : undefined;
+    const taskId = contract.task_id ? String(contract.task_id) : undefined;
+    const task = taskId && !lateTaskIds.has(taskId) ? taskById.get(taskId) : undefined;
     const workId = String(authority.work_id ?? contract.work_id ?? '');
     const pass = workId.startsWith('a2a-pass:') ? passById.get(workId.slice('a2a-pass:'.length)) : undefined;
     const invocationFailed = invocation?.status === 'terminated' && invocation.outcome !== 'completed';

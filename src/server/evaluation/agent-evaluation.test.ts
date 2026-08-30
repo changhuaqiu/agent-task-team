@@ -142,6 +142,42 @@ describe('AgentEvaluation', () => {
     ]));
   });
 
+  it('does not let Task state changed after cutoff inflate historical completion', () => {
+    const later = '2026-07-19T00:01:00.000Z';
+    getDb().prepare(`INSERT INTO task
+      (id,conversation_id,title,status,agent_id,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?)`).run(
+      'task-late-completion', 'conv-eval', 'Late completion', 'in_review', 'luigi', now, now,
+    );
+    getDb().prepare(`INSERT INTO task_edge
+      (id,conversation_id,from_task_id,to_task_id,type,created_by_action_id,created_at)
+      VALUES (?,?,?,?,?,?,?)`).run(
+      'edge-late-completion', 'conv-eval', 'task-late-completion', 'task-root',
+      'subtask_of', 'action-done', now,
+    );
+    getDb().prepare(`UPDATE task
+      SET status='done',completed_at=?,updated_at=? WHERE id='task-late-completion'`)
+      .run(later, later);
+
+    const snapshot = buildSubjectSnapshot({
+      conversationId: 'conv-eval', rootTaskId: 'task-root', evidenceCutoffAt: now,
+    });
+
+    expect((snapshot.evidence as { lateFacts: string[] }).lateFacts)
+      .toContain('task:task-late-completion');
+    expect(snapshot.dataQuality.missing).toContain('mutable_state_at_cutoff');
+    expect(evaluateDeterministically(snapshot)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dimensionKey: 'gate.task_completion', label: 'unknown', applicability: 'unknown',
+        normalizedScore: undefined,
+      }),
+      expect.objectContaining({
+        dimensionKey: 'completion', label: 'unknown', applicability: 'unknown',
+        normalizedScore: undefined,
+      }),
+    ]));
+  });
+
   it('discovers A2A groups from task membership without a manually supplied chain id', () => {
     getDb().prepare(`INSERT INTO task
       (id,conversation_id,title,status,agent_id,created_at,updated_at)

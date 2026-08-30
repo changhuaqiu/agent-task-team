@@ -29,7 +29,7 @@
 
 ### 2026-08-30 Agent 完成路径可评测化
 
-“任务已完成”不再由单一 Task 状态代表。评测将结果成功、路径收敛和执行效率分开：Task 必须有当前 Gate/证据，终态 owner/attempt 必须具有终态 Invocation 且 WorkAuthority 已关闭，重试与交接则单独计入效率。`EvalSnapshotBuilder` 冻结 Authority 和 Outcome，cutoff 之后的 Authority 变更视为 late fact，不倒灌历史评测。
+“任务已完成”不再由单一 Task 状态代表。评测将结果成功、路径收敛和执行效率分开：Task 必须有当前 Gate/证据，终态 owner/attempt 必须具有终态 Invocation 且 WorkAuthority 已关闭，重试与交接则单独计入效率。`EvalSnapshotBuilder` 冻结 Authority 和 Outcome，cutoff 之后的 Task 或 Authority 变更视为 late fact；无法重建 cutoff 状态时完成率 fail-closed 为 unknown，不倒灌历史评测。
 
 - `path_convergence` 是 gate：只要已失败/过期的 Invocation 或终态 Task/A2A pass 仍保留 active Authority，即失败。
 - `outcome_acceptance` 是确定性指标：以被 WorkContract 权威边界接纳的 AgentOutcome 占比评估结构化交付质量。

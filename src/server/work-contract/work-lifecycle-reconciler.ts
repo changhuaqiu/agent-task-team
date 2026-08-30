@@ -77,7 +77,7 @@ export class WorkLifecycleReconciler {
       ORDER BY invocation.terminated_at,invocation.id
     `).all() as InvocationRow[];
     for (const invocation of failedInvocations) {
-      if (this.reconcileFailedInvocation(invocation, timestamp, now)) authoritiesClosed += 1;
+      if (this.reconcileInvocation(invocation.id, timestamp, now)) authoritiesClosed += 1;
     }
 
     const terminalPasses = getDb().prepare(`
@@ -115,15 +115,26 @@ export class WorkLifecycleReconciler {
     return { staleInvocationsTerminated, authoritiesClosed };
   }
 
+  /**
+   * Settles one persisted Invocation without depending on the runtime event
+   * coordinator having been constructed. This is the setup-failure seam used
+   * by both daemon catch paths and the durable terminal-event handler.
+   */
+  reconcileInvocation(
+    invocationId: string,
+    causationId: string,
+    now: Date = this.now(),
+  ): boolean {
+    const invocation = invocationRepo.getById(invocationId);
+    return invocation ? this.reconcileFailedInvocation(invocation, causationId, now) : false;
+  }
+
   readonly handle: PlatformEventHandler = (event, { signal }) => {
     if (signal.aborted) throw signal.reason ?? new Error('work_lifecycle_reconcile_aborted');
     if (event.type === 'runtime.invocation.terminated') {
       const payload = event.payload as { outcome?: string };
       if (event.invocationId && payload.outcome !== 'completed') {
-        const invocation = invocationRepo.getById(event.invocationId);
-        if (invocation) {
-          this.reconcileFailedInvocation(invocation, event.eventId, new Date(event.recordedAt));
-        }
+        this.reconcileInvocation(event.invocationId, event.eventId, new Date(event.recordedAt));
       }
       return;
     }
