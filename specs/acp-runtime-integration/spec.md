@@ -106,6 +106,8 @@ interface AgentCatalogEntry {
 - Catalog 只接受当前已验收的 runtime id；新增 runtime 必须先扩展内部 `EngineId` 并通过兼容套件。
 - 生产 Agent engine 的唯一类型身份是 `RuntimeCliEngine`；daemon、Invocation、Store 和 runtime detection 不得维护服务端或浏览器同义别名。
 - 能力以 ACP 初始化握手与实测结果为准，不按运行时名称猜测。
+- Agent 账号生成的 provider 配置始终优先。没有账号 provider 配置时，平台调用已安装的 OpenCode Catalog 查询当前 provider 模型，选择非 vision/image/embedding/audio 的文本模型。Daemon 因系统提示、Skills 或目录权限生成 `OPENCODE_CONFIG` 时必须把同一个解析结果写入该配置；未生成配置时才由 Runtime Setup 写入隔离 fallback config。两个入口共用唯一解析器，禁止遗漏 `model` 后静默继承本机过期默认值，也禁止长期硬编码可能下线的 model id。显式模型不在实时目录中时，必须在 ACP 启动前以 `runtime_model_unavailable` 失败关闭。
+- 平台 OpenCode worker 必须以 `--pure` 与 invocation-scoped `XDG_CONFIG_HOME` 启动，保留独立的数据/认证存储，但不加载用户全局插件、MCP 和指令。平台授权的结构化 MCP 只从 ACP `session/new` 注入，不能和宿主全局工具图混合。
 
 ### 5.2 AcpBackend
 
@@ -127,6 +129,7 @@ daemon 不解析任何厂商专有 stdout，不判断某个厂商支持哪些参
 - Runtime key 是 `agentId + projectId + runtimeNodeId`；同一 key 只有一个 supervisor owner。
 - 生命周期为 `stopped | starting | listening | waking | ready | degraded | failed | stopping`，每次期望状态或配置变化递增 generation；迟到的旧 generation 启动结果必须丢弃。
 - `ensureReady` 使用 singleflight。worker pool 允许部分 ready；一个 slot 失败不能阻塞健康 slot 接单。
+- OpenCode 的多个 Managed Runtime 可以并发执行 Turn，但冷启动握手必须经过进程级串行闸门并错开至少一个日志时间粒度，避免多个实例同时迁移共享数据库或占用同名日志；Claude/Codex 等独立 Runtime 不受该闸门影响。
 - worker 进程保持 ACP initialize 后的连接并承载多个 session；lane 优先使用已有 session 的 worker。
 - application/agent response failure 保留 worker；stdio、协议、进程退出和 hard timeout 替换 worker。
 - 每个 slot 使用有界指数退避和 circuit breaker；事件在 waking/degraded 时留在 Durable EventQueue，不提前 ACK。
@@ -137,6 +140,8 @@ daemon 不解析任何厂商专有 stdout，不判断某个厂商支持哪些参
 结构化 MCP 是 Agent 主路径，按 WorkContract 动态提供单意图生命周期工具。所有工具调用 CommandService 并返回统一 `CommandReceipt`。`ath` CLI 使用相同 handler，负责完整命令覆盖、自动化、诊断以及 MCP 暂无 Schema 时的逃生，不拥有第二套写逻辑。
 
 Runtime 文本、tool stream 和 prompt response 都是 `RuntimeObservation`。prompt response 的 completed 只结束 Invocation；Task、Artifact、Gate、Release 的事实变化必须来自命令回执。正常结束但没有 accepted terminal receipt 的 Invocation 记录 `ended_without_outcome`。
+
+Runtime 失败也是 observation，不是 Agent 答复。空 completion 的有界恢复仍失败时只输出 `error` 与稳定 reason code；不得合成“未返回最终文本”聊天消息。Project 顶部状态栏显示最近失败及可操作说明，原始诊断留在终端/可观测记录，Inbox 不投影 thinking、tool observation 或 Runtime failure 占位文本。
 
 ### 5.5 事件映射
 
@@ -159,6 +164,8 @@ ACP `tool_call_update` 可以只携带 `toolCallId`，不重复 `tool_call` 中�
 归一化为成功和失败事实，禁止把失败调用记录为完成。
 
 ACP update 的公共映射 interface 是单次 turn 持有的 mapper；纯 update 映射、tool-name correlation 与 safe stringify 都属于该 mapper 的 implementation，不单独向调用方或测试公开。测试必须从 turn-scoped mapper 或 `AcpBackend` 观察 `AgentEvent`。
+
+所有内部 `AgentEvent` 必须携带当前 ACP Session identity。即使 mapper 的 update payload 不重复 session id，worker 也必须从已经校验过的 notification envelope 补齐，保证 Invocation 在第一个可见事件时从 `starting` 进入 `running`。
 
 ACP 文本更新是流式增量，不是独立聊天消息。daemon 可以逐 chunk 广播以保持实时反馈，但持久化时必须在单次 Invocation 内合并连续 `text` chunk；`tool_use`、`tool_result`、`error` 与 `done` 构成文本段边界，禁止把每个汉字或 token 写成一条 `chat_message`。
 
@@ -219,6 +226,7 @@ ACP 是长生命周期 daemon 启动的外部进程边界，不能假设 adapter
 9. **空闲与总时长分离**：`ExecOptions.timeout` 表示无 ACP 协议活动的 idle timeout，任意 session update（包括不展示的 usage/plan update）均续期；另设独立 hard max turn timeout，防止持续产生无效更新的进程无限占用资源。
 10. **原生工具不重复拦截**：daemon 判断 runtime 原生工具时大小写无关；`Read/Write/Bash` 与 `read/write/bash` 语义相同，不得作为平台自定义工具再次调用。
 11. **流式增量不是消息边界**：实时 socket 保留增量，聊天持久化按 Invocation 合并连续文本；工具和终止事件会关闭当前文本段。
+12. **模型目录先于启动**：OpenCode 模型必须从当前安装的 provider model catalog 解析，并写入 Daemon 生成配置或隔离 fallback 配置；两条路径共享同一个解析器。目录查询允许有界冷启动时间，失败不缓存为空，过期或缺失模型统一返回 `runtime_model_unavailable`。
 
 该契约参考 OpenClaw 的工程原则：活跃 run 使用可取消控制器、会话/并发有上限、超时后执行 bounded cleanup、流式输出设置字符上限、权限与配置异常 fail-closed。这里复用原则，不引入 OpenClaw 的 Gateway 或 session store 实现。
 

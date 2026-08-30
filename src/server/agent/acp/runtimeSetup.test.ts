@@ -41,15 +41,20 @@ describe('prepareAcpRuntime — per-runtime filesystem/env setup', () => {
   it('opencode: writes an isolated config without changing the project cwd', () => {
     const entry = loadCatalog().find((e) => e.id === 'opencode')!;
     const cwd = makeTempCwd();
-    const result = prepareAcpRuntime(entry, { cwd, env: {} });
+    const result = prepareAcpRuntime(entry, {
+      cwd,
+      env: {},
+      opencodeModelCatalog: ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'],
+    });
 
     expect(result.cwd).toBe(cwd);
     expect(typeof result.cleanup).toBe('function');
     expect(existsSync(join(cwd, 'opencode.json'))).toBe(false);
     const configPath = result.env.OPENCODE_CONFIG;
+    expect(result.env.XDG_CONFIG_HOME).toBeTruthy();
     expect(existsSync(configPath)).toBe(true);
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.model).toBe('deepseek/deepseek-chat');
+    expect(config.model).toBe('deepseek/deepseek-v4-flash');
     result.cleanup?.();
     expect(existsSync(configPath)).toBe(false);
     expect(() => result.cleanup?.()).not.toThrow();
@@ -65,6 +70,7 @@ describe('prepareAcpRuntime — per-runtime filesystem/env setup', () => {
 
     expect(existsSync(join(cwd, 'opencode.json'))).toBe(false);
     expect(result.env.OPENCODE_CONFIG).toBe('/tmp/some-account-config.json');
+    expect(result.env.XDG_CONFIG_HOME).toBeUndefined();
   });
 
   it('opencode: respects custom opencodeModel', () => {
@@ -74,10 +80,24 @@ describe('prepareAcpRuntime — per-runtime filesystem/env setup', () => {
       cwd,
       env: {},
       opencodeModel: 'anthropic/claude-sonnet-4',
+      opencodeModelCatalog: ['anthropic/claude-sonnet-4'],
     });
     const config = JSON.parse(readFileSync(result.env.OPENCODE_CONFIG, 'utf-8'));
     expect(config.model).toBe('anthropic/claude-sonnet-4');
     result.cleanup?.();
+  });
+
+  it('opencode: rejects a stale configured fallback before starting ACP', () => {
+    const entry = loadCatalog().find((e) => e.id === 'opencode')!;
+    const cwd = makeTempCwd();
+
+    expect(() => prepareAcpRuntime(entry, {
+      cwd,
+      env: {},
+      opencodeModel: 'deepseek/deepseek-chat',
+      opencodeModelCatalog: ['deepseek/deepseek-v4-flash'],
+    })).toThrow(/当前不可用模型/);
+    expect(existsSync(join(cwd, 'opencode.json'))).toBe(false);
   });
 
   it('codex: isolates CODEX_HOME into a temp dir + returns a cleanup fn', () => {

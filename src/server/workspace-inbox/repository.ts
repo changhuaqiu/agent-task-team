@@ -5,6 +5,7 @@ export type WorkspaceInboxKind = 'message_thread' | 'work' | 'review' | 'agent_a
 export type WorkspaceInboxFilter = 'all' | 'needs_action' | 'agents' | 'reviews';
 
 const RUNTIME_OBSERVATION_CONTENT_TYPES = ['thinking', 'tool_use', 'tool_result'] as const;
+const LEGACY_RUNTIME_FAILURE_PREFIX = '⚠️ Agent runtime 未返回最终文本%';
 
 export interface WorkspaceInboxItem {
   conversationKey: string;
@@ -177,8 +178,13 @@ export class WorkspaceInboxRepository {
         WHERE conversation.project_id IS NOT NULL
           AND message.visibility='public' AND message.sender_type IN ('human','agent')
           AND message.content_type NOT IN (${excludedMessageTypes})
+          AND NOT (
+            message.sender_type='agent'
+            AND message.invocation_id IS NOT NULL
+            AND message.content LIKE ?
+          )
         ORDER BY message.created_at,message.id
-      `).all(...RUNTIME_OBSERVATION_CONTENT_TYPES) as Array<Record<string, unknown>>;
+      `).all(...RUNTIME_OBSERVATION_CONTENT_TYPES, LEGACY_RUNTIME_FAILURE_PREFIX) as Array<Record<string, unknown>>;
       for (const message of messages) {
         const metadata = parseObject(typeof message.metadata === 'string' ? message.metadata : null);
         const root = threadRoot(metadata, String(message.id));
@@ -201,9 +207,15 @@ export class WorkspaceInboxRepository {
       db.prepare(`
         DELETE FROM workspace_inbox_item
         WHERE kind='message_thread' AND latest_event_id IN (
-          SELECT id FROM chat_message WHERE content_type IN (${excludedMessageTypes})
+          SELECT id FROM chat_message
+          WHERE content_type IN (${excludedMessageTypes})
+            OR (
+              sender_type='agent'
+              AND invocation_id IS NOT NULL
+              AND content LIKE ?
+            )
         )
-      `).run(...RUNTIME_OBSERVATION_CONTENT_TYPES);
+      `).run(...RUNTIME_OBSERVATION_CONTENT_TYPES, LEGACY_RUNTIME_FAILURE_PREFIX);
     })();
   }
 

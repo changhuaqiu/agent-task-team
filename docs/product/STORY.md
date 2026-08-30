@@ -25,6 +25,36 @@ updated: 2026-08-30
 
 ---
 
+## 2026-08-30：OpenCode Agent 不再“已接球但启动失败”
+
+### 原来的处境
+
+用户把工作交给 Luigi、Peach 后，平台虽然显示命令已接纳，实际运行却会继承本机已经失效的 OpenCode 默认模型并返回认证失败；两个 Agent 同时启动还会争用共享数据库和同秒日志。失败随后被包装成聊天中的“未返回最终文本”，收件箱和对话被 Runtime 噪音占据，真实 Invocation 甚至已经执行工具却仍显示 `starting`。
+
+### 优化后的变化
+
+- OpenCode 的模型选择只有一个实时 Catalog 解析入口，Daemon 配置和 ACP fallback 都显式写入同一个可用文本模型；
+- 平台 worker 以 `--pure` 和独立 `XDG_CONFIG_HOME` 启动，保留宿主认证，但不继承用户全局插件、MCP 和失效默认模型；
+- 多 Agent 只串行易冲突的冷启动握手，ready 后仍由 Agent Pool 并发执行；
+- ACP update 统一补齐 Session identity，第一条执行事件即可把 Invocation 推进到 `running`；
+- Runtime 失败进入 Project 顶部状态栏和可观测记录，不再合成聊天答复或 Inbox 条目；后续成功会清除旧失败提示。
+
+### 已验证的效果
+
+真实 OpenCode ACP smoke 在隔离配置下约 2 秒完成文本回复并以 `done` 收口。最终桌面 EXE `desktop-build-2facfabbf9bbb191887566fc91d295e5` 同时触发 Luigi、Peach 后使用 `deepseek/deepseek-v4-flash` 与 `opencode --pure acp`；Luigi 将在线面试任务推进到评审，Peach 跑通 `/summary` 成功和 400 失败路径。最终状态回归中 Peach Invocation 在约 5.4 秒内进入 `running` 并绑定真实 ACP Session。全量 270 个测试文件通过，1952 项通过、2 项按既有配置跳过；Next/TypeScript/Rust EXE 构建通过。
+
+### 仍然保留的边界
+
+Peach 的完整浏览器 E2E 仍需要项目明确授予浏览器 Skill；本轮没有伪造 gate decision。WiX `light.exe` 在当前机器仍无法生成 MSI，但 release EXE 已生成并运行，不影响本次本地桌面验收。
+
+### 设计与实现依据
+
+- [ACP 运行时统一接入规范](../../specs/acp-runtime-integration/spec.md)
+- [统一 ACP 执行链](../technical/execution/opencode-integration-executable-chain.md)
+- [Agent 可观测性](../technical/observability/agent-observability.md)
+
+---
+
 ## 2026-08-30：规划与续作的“已接纳”终于等于真的会执行
 
 ### 原来的处境

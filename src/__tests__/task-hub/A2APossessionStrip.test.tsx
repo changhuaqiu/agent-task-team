@@ -165,6 +165,56 @@ describe('A2APossessionStrip', () => {
     expect(screen.queryByText('runtime_transport_lost')).toBeNull();
   });
 
+  it('surfaces a newer Runtime failure in the top status bar', () => {
+    useTaskHubStore.setState({
+      eventsByConversation: {
+        'conv-receipt': [{
+          id: 'run-failed-1',
+          conversationId: 'conv-receipt',
+          type: 'run.finished',
+          timestamp: '2026-05-17T00:05:00.000Z',
+          payload: {
+            runId: 'run-1',
+            agentId: 'luigi',
+            taskId: 'TASK-002',
+            code: 1,
+            reasonCode: 'runtime_model_unavailable',
+          },
+        }],
+      },
+    });
+
+    render(<A2APossessionStrip conversationId="conv-receipt" />);
+
+    expect(screen.getByTestId('a2a-status-summary').textContent).toMatch(/Luigi.*运行失败/);
+    expect(screen.getByText('所选模型当前不可用，请检查 Agent 的账号与模型')).toBeTruthy();
+    expect(screen.queryByText('runtime_model_unavailable')).toBeNull();
+  });
+
+  it('clears a stale Runtime failure after a newer successful run', () => {
+    useTaskHubStore.setState({
+      eventsByConversation: {
+        'conv-receipt': [
+          {
+            id: 'run-failed-old', conversationId: 'conv-receipt', type: 'run.finished',
+            timestamp: '2026-05-17T00:05:00.000Z',
+            payload: { runId: 'run-old', agentId: 'luigi', code: 1, reasonCode: 'runtime_start_failed' },
+          },
+          {
+            id: 'run-success-new', conversationId: 'conv-receipt', type: 'run.finished',
+            timestamp: '2026-05-17T00:06:00.000Z',
+            payload: { runId: 'run-new', agentId: 'luigi', code: 0 },
+          },
+        ],
+      },
+    });
+
+    render(<A2APossessionStrip conversationId="conv-receipt" />);
+
+    expect(screen.getByTestId('a2a-status-summary').textContent).toMatch(/Mario.*已确认接纳/);
+    expect(screen.queryByText(/Luigi.*运行失败/)).toBeNull();
+  });
+
   it('resets an open record popover when the Project conversation changes', () => {
     useTaskHubStore.setState({
       dispatchReceiptsByConversation: {

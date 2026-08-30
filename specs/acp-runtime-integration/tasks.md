@@ -50,6 +50,11 @@
 - [x] runtime 原生工具判断改为大小写无关，禁止重复拦截。
 - [x] 增加持续活动不触发 idle timeout、真正静默仍超时的测试。
 - [x] 合并同一 Invocation 内连续 ACP 文本 chunk，并保留工具事件边界。
+- [x] OpenCode 模型改为实时目录解析；Daemon 生成配置与 ACP fallback 共用解析器并显式写入模型，过期模型在 ACP 启动前以稳定错误失败，不再硬编码或继承失效的本机默认模型。
+- [x] OpenCode 多 Agent 的冷启动握手经全局闸门串行并错开日志粒度；已建立的 worker 继续并发执行 Turn，消除共享数据库/同名日志启动竞态。
+- [x] OpenCode worker 使用 `--pure` 与 invocation-scoped `XDG_CONFIG_HOME` 隔离用户全局插件/MCP，同时保留宿主认证；平台 MCP 只由当前 WorkContract 注入。
+- [x] Persistent worker 为映射后的每个 `AgentEvent` 补齐已校验的 ACP Session identity，真实工具/思考事件能推进 Invocation `starting → running`。
+- [x] 空 completion 与启动失败只进入 Runtime 状态/诊断，不再合成聊天答案或 Inbox 消息；Project 顶部状态栏展示最近运行失败。
 
 ## Managed Runtime 与命令交付（当前重构）
 

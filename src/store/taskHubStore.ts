@@ -199,6 +199,7 @@ export type InternalEventType =
   | 'invocation.worklist_skipped'
   | 'runtime.plan'
   | 'runtime.usage'
+  | 'runtime.warning'
   | 'a2a.dispatch_requested';
 
 export interface InternalEvent {
@@ -537,6 +538,10 @@ export function mapMessagesToState(recentMessages: Record<string, any[]>): Recor
   for (const [convId, msgs] of Object.entries(recentMessages)) {
     const mapped: ChatMessage[] = [];
     for (const m of msgs) {
+      const isLegacyRuntimeFailureMessage = m.sender_type === 'agent'
+        && typeof m.invocation_id === 'string'
+        && /^⚠️ Agent runtime 未返回最终文本/.test(String(m.content ?? ''));
+      if (isLegacyRuntimeFailureMessage) continue;
       const isToolObservation = m.content_type === 'tool_use' || m.content_type === 'tool_result';
       const isThinking = m.content_type === 'thinking';
 
@@ -2107,25 +2112,6 @@ function appendStructuredTerminalLine(agentId: string, label: string, detail = '
   handleTerminalData({ agentId, data: `\r\n[${label}]${suffix}\r\n` });
 }
 
-function appendProjectedChatMessage(projectId: string, agentId: string, content: string): void {
-  const message: ChatMessage = {
-    id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    agentId,
-    content,
-    timestamp: new Date().toISOString(),
-    conversationId: projectId,
-    mentions: [],
-    intent: 'general',
-    metadata: { source: 'project_view' },
-  };
-  useTaskHubStore.setState((state) => ({
-    chatMessagesByConversation: {
-      ...state.chatMessagesByConversation,
-      [projectId]: [...(state.chatMessagesByConversation[projectId] || []), message],
-    },
-  }));
-}
-
 function reconcileProjectedInvocation(projectId: string, invocationId: string): void {
   useTaskHubStore.setState((state) => {
     const current = state.chatMessagesByConversation[projectId] ?? [];
@@ -2406,11 +2392,13 @@ export function consumeProjectViewEvent(envelope: unknown): boolean {
     const state = useTaskHubStore.getState();
     const activeId = state.activeStreamMessageId[streamIdentityKey(agentId, invocationId)];
     if (activeId) {
-      state.appendToStreamMessage(activeId, { content: `\n⚠️ ${message}` });
       state.completeStreamMessage(agentId, invocationId);
-    } else {
-      appendProjectedChatMessage(event.projectId, agentId, `⚠️ ${message}`);
     }
+    state.addEvent({
+      conversationId: event.projectId,
+      type: 'runtime.warning',
+      payload: { ...payload, agentId, invocationId },
+    });
     appendStructuredTerminalLine(agentId, 'warning', message);
   } else if (event.type === 'runtime.usage') {
     useTaskHubStore.getState().addEvent({
@@ -2524,17 +2512,17 @@ function handleTerminalExit({ projectId, agentId, invocationId, code, command, r
 }): void {
   const store = useTaskHubStore.getState();
   const active = store.activeRunsByAgent[agentId];
-  const runId = active?.runId;
+  const runId = active?.runId ?? invocationId;
   const taskId = active?.taskId;
   const backgroundWaiting = code === 0 && (activity === 'awaiting_children' || active?.activity === 'awaiting_children');
 
   store.appendTerminalLog(agentId, `\r\n\x1b[36m[process exited with code ${code}]\x1b[0m\r\n`);
 
-  if (runId && !backgroundWaiting) {
+  if (!backgroundWaiting && (runId || code !== 0)) {
     store.addEvent({
       conversationId: projectId,
       type: 'run.finished',
-      payload: { runId, agentId, taskId, code, reasonCode },
+      payload: { runId: runId ?? `runtime-failure:${agentId}:${Date.now()}`, agentId, taskId, code, reasonCode },
     });
   }
 

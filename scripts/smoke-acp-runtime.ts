@@ -17,7 +17,7 @@
 // a real agent subprocess and depends on host auth/config. Run on demand.
 // Exits 0 on pass, 1 on fail.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadCatalog, createBackend } from '../src/server/agent/acp/catalog';
@@ -34,21 +34,12 @@ const DEFAULT_TURN_TIMEOUT_MS = 120_000;
  * ACP PromptRequest has no per-prompt model field and ExecOptions deliberately
  * exposes none, so the model MUST be set through the agent's own config layer.
  *
- * opencode: the host's configured default (`zhipuai-coding-plan/glm-4.7`, set
- * in ~/.config/opencode/opencode.json) emits only `agent_thought_chunk`
- * updates with ~1 output token and produces NO `agent_message_chunk` (text) —
- * so the text+done+completed assertion cannot pass against it. DeepSeek is the
- * verified credential on this host (`~/.local/share/opencode/auth.json`) and
- * produces a proper text response, so the smoke writes it into a temporary
- * `opencode.json` injected through `OPENCODE_CONFIG`.
- * Override with argv[3] if needed.
+ * OpenCode resolves its fallback from the installed provider catalog, exactly
+ * like the daemon. argv[3] may still request a specific model, but stale model
+ * ids fail before ACP starts instead of producing a misleading empty turn.
  *
  * Other runtimes (claude/codex) use their own provider default — no entry here.
  */
-const DEFAULT_SMOKE_MODEL: Record<string, string> = {
-  opencode: 'deepseek/deepseek-chat',
-};
-
 async function main(): Promise<number> {
   const runtime = process.argv[2] ?? 'opencode';
 
@@ -69,7 +60,7 @@ async function main(): Promise<number> {
   // The setup logic (opencode model, codex CODEX_HOME isolation, claude
   // passthrough) lives in src/server/agent/acp/runtimeSetup.ts so the daemon
   // (Task 8) and this smoke share one implementation.
-  const opencodeModel = process.argv[3] ?? DEFAULT_SMOKE_MODEL[runtime];
+  const opencodeModel = process.argv[3];
   const prepared = prepareAcpRuntime(entry, {
     cwd,
     env: {},
@@ -81,7 +72,8 @@ async function main(): Promise<number> {
   const env = Object.keys(prepared.env).length > 0 ? prepared.env : undefined;
   let modelLabel: string;
   if (runtime === 'opencode') {
-    modelLabel = `${opencodeModel} (via isolated OPENCODE_CONFIG)`;
+    const config = JSON.parse(readFileSync(prepared.env.OPENCODE_CONFIG, 'utf8')) as { model?: string };
+    modelLabel = `${config.model ?? '(none)'} (via isolated OPENCODE_CONFIG)`;
   } else if (runtime === 'codex') {
     modelLabel = `(via isolated CODEX_HOME: ${prepared.env.CODEX_HOME ?? '(none)'})`;
   } else {

@@ -165,6 +165,7 @@ Agent 本身就是完整能力对象。名称、头像、结构化主要职责�
 - 结构化 MCP 是 Agent 创建和推进正式对象的主路径，结果返回 CommandReceipt。
 - CLI 与 MCP 调用同一个 Command Kernel；CLI 输出机器可读 JSON、稳定退出码、幂等键和 revision 冲突，是通用接口与逃生仓。
 - Agent 对自身 Definition 的创建/修改只可提交 owner-reviewed draft；不能由运行中的 Agent 静默扩大权限或修改自己的触发范围。
+- Runtime 启动失败、模型不可用和空 completion 属于 Project 运行状态，不是聊天内容。最近一次失败固定进入聊天区上方的紧凑状态栏，展示 Agent、失败状态和用户可执行说明；展开记录再看历史。聊天只保留 thinking 摘要与最终结果，Inbox 不出现工具调用或 Runtime 占位错误。
 
 ## 7. 桌面验收
 

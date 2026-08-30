@@ -6,6 +6,7 @@ import {
   PersistentAcpWorker,
   type PersistentAcpTurnConfig,
 } from './persistent-acp-worker';
+import { coordinateRuntimeStartup } from './runtime-startup-coordinator';
 
 export interface ManagedAcpRuntimeConfig {
   entry: AgentCatalogEntry;
@@ -123,7 +124,10 @@ export class ManagedAcpRuntime implements ManagedRuntimeHandle {
       engine: this.config.entry.id,
       forwardNativeSubagentText: this.config.entry.id === 'claude',
     });
-    await worker.start(signal);
+    await coordinateRuntimeStartup(
+      this.config.entry.id,
+      () => worker.start(signal),
+    );
     if (this.stopped || signal?.aborted) {
       await worker.shutdown();
       throw new Error('runtime_start_cancelled');

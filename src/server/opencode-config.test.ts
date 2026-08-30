@@ -90,6 +90,7 @@ describe('generateRuntimeConfig: native providers with baseUrl', () => {
     expect(result.configPath).toBeTruthy();
     expect(result.configDir).toBeTruthy();
     expect(result.env.OPENCODE_CONFIG).toBe(result.configPath);
+    expect(result.env.XDG_CONFIG_HOME).toBe(result.configDir);
   });
 
   it('uses native SDK npm package for anthropic with baseUrl', () => {
@@ -146,6 +147,29 @@ describe('generateRuntimeConfig: non-native providers', () => {
 // ─── Config JSON structure ───
 
 describe('generateRuntimeConfig: config JSON structure', () => {
+  it('pins the resolved runtime model instead of inheriting a stale host default', () => {
+    const result = generate({ runtimeModel: 'deepseek/deepseek-v4-flash' });
+
+    expect(result.generated).toBe(true);
+    const config = JSON.parse(fs.readFileSync(result.configPath!, 'utf-8'));
+    expect(config.model).toBe('deepseek/deepseek-v4-flash');
+  });
+
+  it('keeps the resolved runtime model in generated prompt and permission config', () => {
+    const result = generate({
+      runtimeModel: 'deepseek/deepseek-v4-flash',
+      systemPrompt: 'system',
+      allowedExternalDirectories: ['/workspace/conversation-1'],
+    });
+
+    const config = JSON.parse(fs.readFileSync(result.configPath!, 'utf-8'));
+    expect(config.model).toBe('deepseek/deepseek-v4-flash');
+    expect(config.instructions).toHaveLength(1);
+    expect(config.permission.external_directory).toEqual({
+      '/workspace/conversation-1/**': 'allow',
+    });
+  });
+
   it('mounts project-local skill paths and allows skill loading', () => {
     const result = generate({
       skillPaths: ['/repo/.opencode/skills', '/repo/.opencode/skills'],

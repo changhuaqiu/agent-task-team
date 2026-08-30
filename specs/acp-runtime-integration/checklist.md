@@ -46,6 +46,12 @@
 - [x] hard max turn timeout 可终止持续产生更新但不结束的异常进程。
 - [x] 小写 runtime 原生工具不会触发平台自定义工具执行。
 - [x] 连续 ACP 文本 chunk 在历史消息中只形成一个逻辑文本段，工具边界前后不误合并。
+- [x] OpenCode fallback model 来自当前本机目录；显式过期 model 在启动前返回 `runtime_model_unavailable`。
+- [x] 空 completion 不产生合成 Agent 文本，Runtime warning 不进入聊天或 Inbox，失败在 Project 顶部状态栏可见。
+- [x] Daemon 因提示词、Skills 或权限生成 OpenCode 配置时显式写入共享解析器选出的实时模型，不会绕过 fallback 后继承失效的本机默认模型。
+- [x] 两个 OpenCode Agent 同时获派时仅串行冷启动握手，两个 worker 均可进入 ready，后续 Turn 保持并发。
+- [x] 生产配置解析结果不含用户全局 plugin/MCP，OpenCode 以 `--pure` 启动且仍能读取独立宿主认证完成真实 Turn。
+- [x] adapter update 未内嵌 session id 时由 worker 补齐，Invocation 不会在已经执行工具时仍显示 `starting`。
 
 ## Managed Runtime 与命令交付
 

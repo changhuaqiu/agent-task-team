@@ -141,7 +141,7 @@ describe('project view isolation', () => {
     }));
   });
 
-  it('renders runtime warnings without persisting or emitting a command', () => {
+  it('projects runtime warnings to status data without chat persistence or commands', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
     const emitSpy = vi.spyOn(socket, 'emit').mockImplementation(() => socket);
@@ -152,8 +152,9 @@ describe('project view isolation', () => {
       { message: 'display-only warning' },
     ))).toBe(true);
 
-    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toContainEqual(
-      expect.objectContaining({ agentId: 'mario', content: '⚠️ display-only warning' }),
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toBeUndefined();
+    expect(useTaskHubStore.getState().eventsByConversation['project-a']).toContainEqual(
+      expect.objectContaining({ type: 'runtime.warning' }),
     );
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(emitSpy).not.toHaveBeenCalled();

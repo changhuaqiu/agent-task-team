@@ -7,11 +7,13 @@ import {
   useTaskHubStore,
   type A2APossessionView,
   type DispatchReceipt,
+  type InternalEvent,
 } from '@/store/taskHubStore';
 import type { Agent } from '@/store/agentStore';
 import { cn } from '@/lib/utils';
 
 const EMPTY_DISPATCH_RECEIPTS: DispatchReceipt[] = [];
+const EMPTY_INTERNAL_EVENTS: InternalEvent[] = [];
 
 function agentLabel(agentId: string | undefined, roster: Agent[]) {
   if (!agentId) return '待定';
@@ -67,6 +69,9 @@ function receiptPhaseLabel(phase: DispatchReceipt['phase']) {
 const RECEIPT_REASON_LABELS: Record<string, string> = {
   a2a_no_available_agent: '当前没有可接手的 Agent',
   runtime_start_failed: 'Agent 启动失败',
+  runtime_model_unavailable: '所选模型当前不可用，请检查 Agent 的账号与模型',
+  acp_empty_completion: 'Agent 没有返回结果，请检查账号和模型后重试',
+  acp_tool_completion_missing: 'Agent 完成了操作，但没有提交最终结果',
   runtime_node_missing: 'Agent 运行环境不可用',
   runtime_unreachable: 'Agent 暂时无法连接',
   runtime_profile_missing: 'Agent 未配置运行环境',
@@ -112,7 +117,31 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
   const dispatchReceipts = useTaskHubStore(
     (state) => state.dispatchReceiptsByConversation[conversationId] ?? EMPTY_DISPATCH_RECEIPTS,
   );
+  const events = useTaskHubStore(
+    (state) => state.eventsByConversation[conversationId] ?? EMPTY_INTERNAL_EVENTS,
+  );
   const roster = useTaskHubStore((state) => state.agentRoster);
+  const latestRuntimeTerminal = events
+    .filter((event) => event.type === 'run.finished')
+    .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))[0];
+  const runtimeFailures = (() => {
+    if (
+      !latestRuntimeTerminal?.payload
+      || typeof latestRuntimeTerminal.payload !== 'object'
+    ) return [];
+    const payload = latestRuntimeTerminal.payload as Record<string, unknown>;
+    if (typeof payload.code !== 'number' || payload.code === 0 || typeof payload.agentId !== 'string') return [];
+    return [{
+      kind: 'failure' as const,
+      id: latestRuntimeTerminal.id,
+      timestamp: latestRuntimeTerminal.timestamp,
+      failure: {
+        agentId: payload.agentId,
+        taskId: typeof payload.taskId === 'string' ? payload.taskId : undefined,
+        reasonCode: typeof payload.reasonCode === 'string' ? payload.reasonCode : undefined,
+      },
+    }];
+  })();
 
   const records = [
     ...(a2a?.handoffs ?? []).map((handoff) => ({
@@ -127,6 +156,7 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
       timestamp: receipt.createdAt,
       receipt,
     })),
+    ...runtimeFailures,
   ].sort((left, right) => {
     const timestampOrder = Date.parse(right.timestamp) - Date.parse(left.timestamp);
     if (timestampOrder !== 0) return timestampOrder;
@@ -141,7 +171,10 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
 
   const latest = latestRecord.kind === 'handoff' ? latestRecord.handoff : undefined;
   const latestReceipt = latestRecord.kind === 'receipt' ? latestRecord.receipt : undefined;
-  const holder = latestReceipt
+  const latestFailure = latestRecord.kind === 'failure' ? latestRecord.failure : undefined;
+  const holder = latestFailure
+    ? agentLabel(latestFailure.agentId, roster)
+    : latestReceipt
     ? agentLabel(latestReceipt.targetAgentId, roster)
     : (a2a?.currentHolderIds.map((agentId) => agentLabel(agentId, roster)).join('、') || 'Agent');
   const from = agentLabel(latest?.fromAgentId, roster);
@@ -151,7 +184,7 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
       || latest.status === 'timeout'
       || latest.status === 'rejected'
       || latest.status === 'error'
-    : latestReceipt?.phase === 'rejected';
+    : latestReceipt?.phase === 'rejected' || Boolean(latestFailure);
   const recordCount = records.length;
 
   return (
@@ -174,7 +207,9 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
           <span className="truncate font-medium" data-testid="a2a-status-summary">
             {latest
               ? `${from} → ${to} · ${statusLabel(latest.status)}`
-              : `${holder} · ${receiptPhaseLabel(latestReceipt!.phase)}`}
+              : latestFailure
+                ? `${holder} · 运行失败`
+                : `${holder} · ${receiptPhaseLabel(latestReceipt!.phase)}`}
           </span>
         </div>
         {recordCount > 1 && (
@@ -190,9 +225,9 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
           </button>
         )}
       </div>
-      {(handoffReasonLabel(latest?.reason) || receiptReasonLabel(latestReceipt?.reasonCode)) && isBlocked && (
+      {(handoffReasonLabel(latest?.reason) || receiptReasonLabel(latestReceipt?.reasonCode ?? latestFailure?.reasonCode)) && isBlocked && (
         <div className="border-t border-amber-400/20 py-1.5 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">
-          {handoffReasonLabel(latest?.reason) || receiptReasonLabel(latestReceipt?.reasonCode)}
+          {handoffReasonLabel(latest?.reason) || receiptReasonLabel(latestReceipt?.reasonCode ?? latestFailure?.reasonCode)}
         </div>
       )}
       {expanded && recordCount > 1 && (
@@ -205,13 +240,15 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
             {records.map((record, index) => {
               const handoff = record.kind === 'handoff' ? record.handoff : undefined;
               const receipt = record.kind === 'receipt' ? record.receipt : undefined;
+              const failure = record.kind === 'failure' ? record.failure : undefined;
               const blocked = handoff
                 ? handoff.status === 'blocked'
                   || handoff.status === 'timeout'
                   || handoff.status === 'rejected'
                   || handoff.status === 'error'
-                : receipt?.phase === 'rejected';
-              const reason = handoffReasonLabel(handoff?.reason) ?? receiptReasonLabel(receipt?.reasonCode);
+                : receipt?.phase === 'rejected' || Boolean(failure);
+              const reason = handoffReasonLabel(handoff?.reason)
+                ?? receiptReasonLabel(receipt?.reasonCode ?? failure?.reasonCode);
               return (
                 <div
                   key={`${record.kind}:${record.id}`}
@@ -226,12 +263,18 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
                         'text-[10px] font-bold',
                         blocked ? 'text-amber-500' : index === 0 ? 'text-[hsl(var(--accent))]' : 'text-[hsl(var(--text-secondary))]'
                       )}>
-                        {handoff ? statusLabel(handoff.status) : `派发回执: ${receiptPhaseLabel(receipt!.phase)}`}
+                        {handoff
+                          ? statusLabel(handoff.status)
+                          : failure
+                            ? '运行失败'
+                            : `派发回执: ${receiptPhaseLabel(receipt!.phase)}`}
                       </span>
                       <span className="text-[10px] text-[hsl(var(--text-secondary))] truncate">
                         {handoff
                           ? `${agentLabel(handoff.fromAgentId, roster)} → ${agentLabel(handoff.toAgentId, roster)}`
-                          : `${agentLabel(receipt!.targetAgentId, roster)}${receipt!.taskId ? ` / ${receipt!.taskId}` : ''}`}
+                          : failure
+                            ? `${agentLabel(failure.agentId, roster)}${failure.taskId ? ` / ${failure.taskId}` : ''}`
+                            : `${agentLabel(receipt!.targetAgentId, roster)}${receipt!.taskId ? ` / ${receipt!.taskId}` : ''}`}
                       </span>
                     </div>
                     {reason && blocked && (

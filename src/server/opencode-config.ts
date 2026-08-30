@@ -11,6 +11,8 @@ export interface RuntimeConfigInput {
   baseUrl?: string;
   models?: string[];
   defaultModel?: string;
+  /** Resolved host model used when no account-scoped provider config is written. */
+  runtimeModel?: string;
   systemPrompt?: string;
   skillPaths?: string[];
   managedSkillNames?: string[];
@@ -64,6 +66,7 @@ export function generateRuntimeConfig(
   // or need to mount project-local OpenCode skills from an Agent Task Team workdir.
   if (
     !needsProviderConfig
+    && !input.runtimeModel
     && !input.systemPrompt
     && requestedSkillPaths.length === 0
     && allowedExternalDirectories.length === 0
@@ -93,6 +96,10 @@ export function generateRuntimeConfig(
   const config: Record<string, unknown> = {
     $schema: 'https://opencode.ai/config.json',
   };
+
+  if (!needsProviderConfig && input.runtimeModel) {
+    config.model = input.runtimeModel;
+  }
 
   // Provider config (only for non-native or custom baseUrl)
   if (needsProviderConfig && input.provider && input.apiKey) {
@@ -150,6 +157,9 @@ export function generateRuntimeConfig(
 
   const env: Record<string, string> = {
     OPENCODE_CONFIG: configPath,
+    // Keep platform workers out of the user's global OpenCode plugin/MCP
+    // graph while preserving the separate host data/auth store.
+    XDG_CONFIG_HOME: configDir,
   };
   if (needsProviderConfig && input.apiKey) {
     env[OC_API_KEY_ENV] = input.apiKey;
