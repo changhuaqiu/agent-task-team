@@ -4,17 +4,24 @@ type Row = Record<string, unknown>;
 const TERMINAL = new Set(['done', 'abandoned', 'cancelled']);
 
 function evidence(kind: string, rows: Row[]): EvidenceRef[] {
-  return rows.slice(0, 20).map((row) => ({
-    kind, id: String(row.id ?? row.span_id), taskId: row.task_id ? String(row.task_id) : undefined,
-    traceId: row.trace_id ? String(row.trace_id) : undefined,
-    chainId: row.chain_id ? String(row.chain_id) : undefined,
-    passId: kind === 'pass' ? String(row.id) : row.pass_id ? String(row.pass_id) : undefined,
-  }));
+  return rows.slice(0, 20).map((row) => {
+    const payload = kind === 'event' && row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
+      ? row.payload as Record<string, unknown>
+      : {};
+    const chainId = row.chain_id ?? payload.chainId ?? payload.chain_id;
+    const passId = kind === 'pass' ? row.id : row.pass_id ?? payload.passId ?? payload.pass_id;
+    return {
+      kind, id: String(row.id ?? row.span_id), taskId: row.task_id ? String(row.task_id) : undefined,
+      traceId: row.trace_id ? String(row.trace_id) : undefined,
+      chainId: chainId ? String(chainId) : undefined,
+      passId: passId ? String(passId) : undefined,
+    };
+  });
 }
 
 function score(dimensionKey: string, kind: 'gate' | 'deterministic', normalizedScore: number | undefined,
   label: EvaluationScore['label'], rationale: string, refs: EvidenceRef[], applicability: EvaluationScore['applicability'] = 'applicable'): EvaluationScore {
-  return { dimensionKey, evaluatorKind: kind, evaluatorRevision: 'deterministic-v2',
+  return { dimensionKey, evaluatorKind: kind, evaluatorRevision: 'deterministic-v3',
     applicability, normalizedScore, label, rationale, evidenceRefs: refs };
 }
 
@@ -76,7 +83,11 @@ export function evaluateDeterministically(snapshot: SubjectSnapshot): Evaluation
   const actions = Array.isArray(data.taskActions) ? data.taskActions : [];
   const spans = Array.isArray(data.spans) ? data.spans : [];
   const proofs = Array.isArray(data.proofs) ? data.proofs : [];
+  const hasCollaborationTopology = Array.isArray(data.chains) && Array.isArray(data.passGroups);
+  const chains = Array.isArray(data.chains) ? data.chains : snapshot.chainId ? [{ id: snapshot.chainId }] : [];
+  const passGroups = Array.isArray(data.passGroups) ? data.passGroups : [];
   const passes = Array.isArray(data.passes) ? data.passes : [];
+  const collaborationEvents = Array.isArray(data.collaborationEvents) ? data.collaborationEvents : [];
   const invocations = Array.isArray(data.invocations) ? data.invocations : [];
   const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
   const taskRefs = evidence('task', tasks);
@@ -111,12 +122,13 @@ export function evaluateDeterministically(snapshot: SubjectSnapshot): Evaluation
     closure.length === 0 ? '没有关闭轮次证据，不能推定有效退出。' : invalidExit.length ? '关闭轮次记录了无效退出。' : '关闭轮次已完成且未记录无效退出。',
     proofRefs, closure.length === 0 ? 'unknown' : 'applicable'));
 
-  const incompletePasses = passes.filter((pass) => !['accepted', 'completed'].includes(String(pass.status)));
-  const handoffApplicability = !snapshot.chainId ? 'not_applicable' : passes.length === 0 ? 'unknown' : 'applicable';
+  const receiptStatuses = new Set(['accepted', 'starting', 'started', 'completed']);
+  const incompletePasses = passes.filter((pass) => !receiptStatuses.has(String(pass.status)));
+  const handoffApplicability = chains.length === 0 ? 'not_applicable' : passes.length === 0 ? 'unknown' : 'applicable';
   scores.push(score('gate.handoff_receipts', 'gate', passes.length === 0 ? undefined : incompletePasses.length ? 0 : 100,
     passes.length === 0 ? 'unknown' : incompletePasses.length ? 'fail' : 'pass',
-    !snapshot.chainId ? '该评估对象没有协作链，交接回执门禁不适用。'
-      : passes.length === 0 ? '指定了协作链但没有交接数据，不能判断回执完整性。'
+    chains.length === 0 ? '该根任务没有协作链，交接回执门禁不适用。'
+      : passes.length === 0 ? '根任务关联了协作链但没有交接数据，不能判断回执完整性。'
         : incompletePasses.length ? `${incompletePasses.length} 个交接没有完成回执。` : '所有冻结到的交接均有接受或完成回执。',
     evidence('pass', passes), handoffApplicability));
 
@@ -145,6 +157,131 @@ export function evaluateDeterministically(snapshot: SubjectSnapshot): Evaluation
     reliability === undefined ? 'unknown' : reliability >= 90 ? 'pass' : reliability >= 60 ? 'partial' : 'fail',
     invocations.length ? `${failures}/${invocations.length} 次调用失败。` : '没有调用数据。',
     evidence('invocation', invocations), invocations.length ? 'applicable' : 'unknown'));
+
+  const receiptCount = passes.length - incompletePasses.length;
+  const handoffReliability = hasCollaborationTopology && passes.length
+    ? receiptCount / passes.length * 100 : undefined;
+  scores.push(score('handoff_reliability', 'deterministic', handoffReliability,
+    handoffReliability === undefined ? 'unknown' : handoffReliability === 100 ? 'pass'
+      : handoffReliability > 0 ? 'partial' : 'fail',
+    !hasCollaborationTopology ? '旧快照缺少协作组拓扑，不能计算 v3 交接可靠性。'
+      : passes.length ? `${receiptCount}/${passes.length} 个交接已收到 accepted/started/completed 回执。`
+        : chains.length ? '协作链没有可评测的 pass。' : '该根任务没有协作链。',
+    evidence('pass', passes), !hasCollaborationTopology ? 'unknown'
+      : chains.length === 0 ? 'not_applicable' : passes.length ? 'applicable' : 'unknown'));
+
+  const expectedBranches = passGroups.reduce((sum, group) => sum + Number(group.expected_count ?? 0), 0);
+  const successfulBranches = passes.filter((pass) => pass.status === 'completed'
+    && pass.group_id && passGroups.some((group) => group.id === pass.group_id)).length;
+  const settledBranches = passGroups.reduce((sum, group) => sum + Number(group.resolved_count ?? 0), 0);
+  const branchCompletion = expectedBranches ? successfulBranches / expectedBranches * 100 : undefined;
+  scores.push(score('branch_completion', 'deterministic', branchCompletion,
+    branchCompletion === undefined ? 'unknown' : branchCompletion === 100 ? 'pass'
+      : branchCompletion > 0 ? 'partial' : 'fail',
+    expectedBranches ? `${successfulBranches}/${expectedBranches} 个协作分支成功完成，${settledBranches}/${expectedBranches} 个已结算。`
+      : hasCollaborationTopology ? '没有分支型协作组。' : '旧快照缺少协作组拓扑，不能判断分支完成度。',
+    [...evidence('pass_group', passGroups), ...evidence('pass', passes)],
+    !hasCollaborationTopology ? 'unknown' : passGroups.length ? 'applicable' : 'not_applicable'));
+
+  const fanoutGroups = passGroups.filter((group) => group.mode === 'fan_out');
+  const resolvedGroups = fanoutGroups.filter((group) =>
+    Number(group.resolved_count ?? 0) === Number(group.expected_count ?? 0));
+  const consistentGroups = resolvedGroups.filter((group) => {
+    const branches = passes.filter((pass) => pass.group_id === group.id);
+    return group.status === 'completed' && branches.length === Number(group.expected_count ?? 0)
+      && branches.every((pass) => receiptStatuses.has(String(pass.status)));
+  });
+  const joinScore = fanoutGroups.length ? consistentGroups.length / fanoutGroups.length * 100 : undefined;
+  scores.push(score('fanout_join', 'deterministic', joinScore,
+    joinScore === undefined ? 'unknown' : joinScore === 100 ? 'pass' : joinScore > 0 ? 'partial' : 'fail',
+    fanoutGroups.length
+      ? `${resolvedGroups.length}/${fanoutGroups.length} 个并行组分支已收齐，${consistentGroups.length}/${fanoutGroups.length} 个组的终态与分支一致。`
+      : hasCollaborationTopology ? '该根任务没有 fan-out 协作，并行汇合不适用。' : '旧快照缺少协作组拓扑，不能判断并行汇合。',
+    [...evidence('pass_group', fanoutGroups), ...evidence('pass', passes)],
+    !hasCollaborationTopology ? 'unknown' : fanoutGroups.length ? 'applicable' : 'not_applicable'));
+
+  const failedPasses = passes.filter((pass) => ['blocked', 'rejected', 'timeout', 'error'].includes(String(pass.status)));
+  const failureEvents = collaborationEvents.filter((event) => event.type === 'a2a.pass.failed');
+  const recoveryEvents = collaborationEvents.filter((event) => event.type === 'a2a.pass.group_recovery_opened');
+  const unhealthyGroups = passGroups.filter((group) => ['recovering', 'failed', 'cancelled'].includes(String(group.status)));
+  const activeGroups = passGroups.filter((group) => ['offered', 'active'].includes(String(group.status)));
+  const recoveryScore = passGroups.length
+    ? Math.max(0, 100 - (unhealthyGroups.length + failedPasses.length + activeGroups.length * 0.5)
+      / (passGroups.length + passes.length) * 100)
+    : undefined;
+  scores.push(score('collaboration_recovery', 'deterministic', recoveryScore,
+    recoveryScore === undefined ? 'unknown' : recoveryScore === 100 ? 'pass' : recoveryScore >= 60 ? 'partial' : 'fail',
+    passGroups.length
+      ? `当前失败分支 ${failedPasses.length}，未结算组 ${activeGroups.length}，恢复中/失败组 ${unhealthyGroups.length}；历史失败 ${failureEvents.length}，恢复开启 ${recoveryEvents.length}。`
+      : hasCollaborationTopology ? '协作链没有可评测的协作组。' : '旧快照缺少协作组拓扑，不能判断失败与恢复。',
+    [...evidence('pass', failedPasses), ...evidence('pass_group', unhealthyGroups),
+      ...evidence('event', [...failureEvents, ...recoveryEvents])],
+    !hasCollaborationTopology ? 'unknown' : chains.length === 0 ? 'not_applicable'
+      : passGroups.length ? 'applicable' : 'unknown'));
+
+  const workAttempts = new Map<string, number>();
+  for (const invocation of invocations) {
+    if (!invocation.work_id) continue;
+    const workId = String(invocation.work_id);
+    workAttempts.set(workId, (workAttempts.get(workId) ?? 0) + 1);
+  }
+  const repeatedInvocations = [...workAttempts.values()].reduce((sum, count) => sum + Math.max(0, count - 1), 0);
+  const passKeys = new Map<string, number>();
+  for (const pass of passes) {
+    const key = [pass.chain_id, pass.from_holder_id, pass.to_agent_id, pass.task_id, pass.intent].map(String).join(':');
+    passKeys.set(key, (passKeys.get(key) ?? 0) + 1);
+  }
+  const repeatedPasses = [...passKeys.values()].reduce((sum, count) => sum + Math.max(0, count - 1), 0);
+  const transitionActions = actions.filter((action) => {
+    const payload = action.payload as Record<string, unknown> | undefined;
+    return Boolean(payload && (payload.previousStatus || payload.fromStatus
+      || payload.status || payload.nextStatus || payload.toStatus));
+  });
+  const reopens = transitionActions.filter((action) => {
+    const payload = action.payload as Record<string, unknown>;
+    const previous = String(payload?.previousStatus ?? payload?.fromStatus ?? '');
+    const next = String(payload?.status ?? payload?.nextStatus ?? payload?.toStatus ?? '');
+    return ['done', 'in_review'].includes(previous) && ['ready', 'in_progress'].includes(next);
+  }).length;
+  const reworkEvents = repeatedInvocations + repeatedPasses + reopens;
+  const reworkDenominator = invocations.length + passes.length + transitionActions.length;
+  const reworkScore = reworkDenominator ? Math.max(0, 100 - reworkEvents / reworkDenominator * 100) : undefined;
+  scores.push(score('collaboration_rework', 'deterministic', reworkScore,
+    reworkScore === undefined ? 'unknown' : reworkScore >= 90 ? 'pass' : reworkScore >= 60 ? 'partial' : 'fail',
+    `重复 Work 调用 ${repeatedInvocations}，重复交接 ${repeatedPasses}，任务 reopen ${reopens}。`,
+    [...evidence('invocation', invocations), ...evidence('pass', passes), ...evidence('action', actions)],
+    reworkDenominator ? 'applicable' : 'not_applicable'));
+
+  const contribution = new Map<string, { calls: number; failures: number; passes: number }>();
+  for (const invocation of invocations) {
+    const agentId = String(invocation.agent_id ?? 'unknown');
+    const current = contribution.get(agentId) ?? { calls: 0, failures: 0, passes: 0 };
+    current.calls += 1;
+    if ((invocation.status === 'terminated' && invocation.outcome !== 'completed')
+      || Number(invocation.exit_code ?? 0) !== 0) current.failures += 1;
+    contribution.set(agentId, current);
+  }
+  const knownAgentIds = new Set([
+    ...invocations.flatMap((invocation) => invocation.agent_id ? [String(invocation.agent_id)] : []),
+    ...passes.flatMap((pass) => pass.to_agent_id ? [String(pass.to_agent_id)] : []),
+  ]);
+  for (const pass of passes) {
+    for (const value of [pass.from_holder_id, pass.to_agent_id]) {
+      if (!value) continue;
+      const agentId = String(value);
+      if (!knownAgentIds.has(agentId)) continue;
+      const current = contribution.get(agentId) ?? { calls: 0, failures: 0, passes: 0 };
+      current.passes += 1;
+      contribution.set(agentId, current);
+    }
+  }
+  const contributionSummary = [...contribution.entries()].sort(([left], [right]) => left.localeCompare(right))
+    .map(([agentId, value]) => `${agentId}: 调用 ${value.calls}、失败 ${value.failures}、参与交接 ${value.passes}`)
+    .join('；');
+  scores.push(score('agent_contribution', 'deterministic', undefined, 'unknown',
+    contributionSummary || '没有可归属到该根任务的 Agent 调用或交接。',
+    [...evidence('invocation', invocations), ...evidence('pass', passes)],
+    contribution.size ? 'applicable' : 'not_applicable'));
   const toolSpans = spans.filter((span) => span.kind === 'tool');
   const completedSpans = toolSpans.filter((span) => span.status === 'ok').length;
   const efficiency = toolSpans.length ? completedSpans / toolSpans.length * 100 : undefined;

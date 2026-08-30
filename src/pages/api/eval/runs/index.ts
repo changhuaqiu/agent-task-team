@@ -21,14 +21,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const body = (req.body ?? {}) as Record<string, unknown>;
     const conversationId = typeof body.conversationId === 'string' ? body.conversationId.trim() : '';
     if (!conversationId) return res.status(400).json({ error: 'conversationId is required' });
+    if (body.mode === 'replay') {
+      return res.status(400).json({ error: 'evaluation_replay_source_required' });
+    }
+    const mode = body.mode === 'offline' ? 'offline' : 'online';
+    const rootTaskId = typeof body.rootTaskId === 'string' ? body.rootTaskId.trim() : '';
+    if (mode === 'online' && !rootTaskId) {
+      return res.status(400).json({ error: 'evaluation_root_task_required' });
+    }
     try {
       const result = agentEvaluation.submit({
         conversationId,
         triggerId: typeof body.triggerId === 'string' ? body.triggerId : undefined,
-        rootTaskId: typeof body.rootTaskId === 'string' ? body.rootTaskId : undefined,
+        rootTaskId: rootTaskId || undefined,
         chainId: typeof body.chainId === 'string' ? body.chainId : undefined,
         evidenceCutoffAt: typeof body.evidenceCutoffAt === 'string' ? body.evidenceCutoffAt : undefined,
-        mode: body.mode === 'offline' || body.mode === 'replay' ? body.mode : 'online',
+        mode,
         taskType: typeof body.taskType === 'string' ? body.taskType : undefined,
         difficulty: typeof body.difficulty === 'string' ? body.difficulty : undefined,
         language: typeof body.language === 'string' ? body.language : undefined,

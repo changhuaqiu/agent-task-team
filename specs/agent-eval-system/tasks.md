@@ -8,7 +8,7 @@
 ## 已确认的 P0 产品语义收敛
 
 - [ ] 将现有 12 条合成数据明确命名为 Rubric/Judge 校准集，并与可执行核心回归集分开。
-- [ ] 在线评估绑定根任务执行；项目只承担容器和聚合概览。
+- [x] 在线评估绑定根任务执行；项目只承担容器和聚合概览。
 - [x] 结果页以结论、原因、表现和下一步为首屏，完整评分与证据渐进展开。
 - [x] 门禁/证据不足优先于综合分；不完整评估只显示“已评维度得分”。
 - [x] 将当前 `efficiency` 用户标签纠正为“工具执行成功率”。
@@ -38,12 +38,14 @@
 ### 快照、评分与运行
 
 - [ ] **T5 `EvalSnapshotBuilder`**
-  - [ ] 以 `projectId + conversationId + rootTaskId + chainId? + cutoffAt` 聚合多 trace 证据
+  - [x] 以 `projectId + conversationId + rootTaskId + chainId? + cutoffAt` 聚合多 trace 证据
+  - [x] 通过 Task → WorkContract → A2A group/pass → Invocation/Span 关联闭包排除无关会话调用
   - [ ] 冻结 `traceIds/taskIds/passIds/proofEventIds/messageIds` 和配置 revisions
   - [ ] 生成 `snapshotHash`、数据完整性/截断报告；迟到事件不得改变旧快照
 - [ ] **T6 `DeterministicEvaluator`**
   - [ ] hard gates：任务终态、valid-exit、交付证据、安全/权限、交接 receipt
   - [x] metrics：结果分布、工具执行、离线工具选择/参数匹配、交接可靠性、返工、耗时/token/重试
+  - [x] 多 Agent metrics：分支完成、fan-out/join 一致性、恢复状态与 Agent 贡献画像
   - [ ] 正确处理 `not_applicable` 与 `insufficient_evidence`，禁止空分母返回满分
 - [ ] **T7 `JudgeRunner`**
   - [ ] 按维度选择最小脱敏证据包，并把证据当不可信数据隔离

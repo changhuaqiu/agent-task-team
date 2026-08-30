@@ -44,7 +44,10 @@ const REASON_LABELS: Record<string, string> = {
   case_promotion: '线上失败案例晋升',
 };
 
-export function ProjectEvaluationWorkspace({ conversationId }: { conversationId?: string }) {
+export function ProjectEvaluationWorkspace({ conversationId, rootTaskId }: {
+  conversationId?: string;
+  rootTaskId?: string;
+}) {
   const [view, setView] = useState<View>('results');
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [applicationSnapshots, setApplicationSnapshots] = useState<ApplicationSnapshot[]>([]);
@@ -304,7 +307,7 @@ export function ProjectEvaluationWorkspace({ conversationId }: { conversationId?
       className="rounded-md border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-muted))] p-2 text-[9px]">
       {actionMessage}
     </div>}
-    {view === 'results' && <ProjectEvaluationPanel conversationId={conversationId}
+    {view === 'results' && <ProjectEvaluationPanel conversationId={conversationId} rootTaskId={rootTaskId}
       onWorkspaceChanged={() => void loadWorkspace()}/>}
     {view === 'datasets' && <ObjectList empty="还没有评估数据集。创建数据集后，可按 train / tune / held-out 隔离调参与发布验收。">
       {datasets.map((dataset) => <article key={dataset.id} className="rounded-lg border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))] p-2.5">
