@@ -246,6 +246,7 @@ describe('WorkLifecycleReconciler', () => {
       runtime_owner_token: 'lease-old',
     });
     invocationRepo.transition(contract.attemptId, { to: 'starting' });
+    expect(invocationRepo.terminateExpiredRuntimeLease(contract.attemptId, now)).toBeUndefined();
     db.prepare('UPDATE invocation SET lease_expiry=? WHERE id=?')
       .run('2026-08-21T00:00:00.000Z', contract.attemptId);
     const reconciler = new WorkLifecycleReconciler({
@@ -330,6 +331,67 @@ describe('WorkLifecycleReconciler', () => {
       'runtime_start_failed',
       now,
     )).toBe(false);
+  });
+
+  it('settles an expired Invocation after the original Runtime owner loses its fence', () => {
+    const task = taskRepo.create({
+      id: 'task-runtime-owner-lost',
+      conversation_id: 'project-1',
+      title: 'Recover lost Runtime owner',
+      agent_id: 'builder',
+    });
+    taskRepo.transition(task.id, { to: 'in_progress' });
+    const workId = buildWorkIdentity({
+      scope: 'task', targetId: task.id, agentId: 'builder', purpose: 'execute',
+    });
+    const contract = contracts.issue({
+      workId,
+      attemptId: 'attempt-runtime-owner-lost',
+      projectId: 'project-1',
+      taskId: task.id,
+      agentId: 'builder',
+      goal: 'Recover lost Runtime owner', acceptanceCriteria: ['Done'], role: {}, permissions: {},
+      authoritativeRefs: [`task:${task.id}`],
+      authoritativeRevisions: { task: task.revision + 1 },
+      contextSnapshotRef: 'context-runtime-owner-lost',
+      allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: 'corr-runtime-owner-lost', causationId: 'cause-runtime-owner-lost', now,
+    });
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      task_id: task.id,
+      agent_id: 'builder',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+      runtime_owner_id: 'daemon:old',
+      runtime_owner_token: 'lease-old',
+      runtime_lease_ms: 1,
+    });
+    invocationRepo.transition(contract.attemptId, { to: 'starting' });
+    db.prepare('UPDATE invocation SET lease_expiry=? WHERE id=?')
+      .run('2026-08-21T00:00:00.000Z', contract.attemptId);
+    expect(invocationRepo.transitionOwned(contract.attemptId, 'replaced-owner', {
+      to: 'terminated',
+      outcome: 'failed',
+    })).toBeUndefined();
+
+    const terminated = invocationRepo.terminateExpiredRuntimeLease(contract.attemptId, now);
+    const reconciler = new WorkLifecycleReconciler({
+      collaboration: new CollaborationKernel({ inbox }),
+      contracts,
+    });
+
+    expect(terminated).toMatchObject({
+      status: 'terminated',
+      outcome: 'failed',
+      reason_code: 'orphaned_runtime_owner_lease_expired',
+    });
+    expect(reconciler.reconcileInvocation(contract.attemptId, 'runtime_start_fence_lost', now))
+      .toBe(true);
+    expect(contracts.getAuthority(workId)).toMatchObject({ status: 'closed' });
   });
 
   it('closes a terminal A2A Pass WorkAuthority from its durable event', async () => {

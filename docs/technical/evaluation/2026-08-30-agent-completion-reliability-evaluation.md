@@ -66,7 +66,7 @@
 
 恢复报告为 `staleInvocationsTerminated=1`、`authoritiesClosed=22`；数据库 `integrity_check=ok`、`foreign_key_check=[]`。Task 完成数没有伪增；Invocation completed 仍是 18/48，AgentOutcome 历史接纳率仍是 25/36，说明本轮修复的是“失败能结算、能重试”，不是将失败数据改写成成功。
 
-验证门：定向 151 项场景通过；全量 1978 项通过、2 项跳过；TypeScript、受影响文件 ESLint 与 Next.js 生产构建通过。全仓 ESLint 仍有 210 个本轮之前就存在的错误，不作为本轮改进结论。
+验证门：定向 152 项场景通过；全量 1981 项通过、2 项跳过；TypeScript、受影响文件 ESLint 与 Next.js 生产构建通过。全仓 ESLint 仍有 210 个本轮之前就存在的错误，不作为本轮改进结论。
 
 ## Decision
 

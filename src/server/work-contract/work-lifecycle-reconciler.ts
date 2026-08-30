@@ -56,14 +56,7 @@ export class WorkLifecycleReconciler {
       ORDER BY created_at,id
     `).all(timestamp) as InvocationRow[];
     for (const invocation of staleInvocations) {
-      const terminated = invocationRepo.transition(invocation.id, {
-        to: 'terminated',
-        expectedFrom: invocation.status,
-        outcome: 'failed',
-        exit_code: 1,
-        reason_code: 'orphaned_runtime_owner_lease_expired',
-        error_message: 'Runtime owner lease expired before Invocation termination',
-      });
+      const terminated = invocationRepo.terminateExpiredRuntimeLease(invocation.id, now);
       if (terminated?.status === 'terminated') staleInvocationsTerminated += 1;
     }
 

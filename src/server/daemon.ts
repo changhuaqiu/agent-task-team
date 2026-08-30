@@ -1601,19 +1601,15 @@ export default function registerDaemon(io: IOServer) {
       } catch (err) {
         clearRuntimeOwnershipHeartbeat();
         if (isRuntimeOwnershipLost(err)) {
-          if (acquiredInvocationId && acquiredRuntimeOwnerToken) {
-            const current = invocationRepo.getById(acquiredInvocationId);
-            if (current && current.status !== 'terminated') {
-              invocationRepo.transitionOwned(acquiredInvocationId, acquiredRuntimeOwnerToken, {
-                to: 'terminated',
-                expectedFrom: current.status,
-                outcome: 'failed',
-                exit_code: 1,
-                reason_code: err.reasonCode,
-                error_message: err.message,
-              });
+          if (acquiredInvocationId) {
+            const terminated = invocationRepo.terminateExpiredRuntimeLease(
+              acquiredInvocationId,
+              new Date(),
+              { error_message: err.message },
+            );
+            if (terminated) {
+              workLifecycle.reconcileInvocation(acquiredInvocationId, err.reasonCode);
             }
-            workLifecycle.reconcileInvocation(acquiredInvocationId, err.reasonCode);
           }
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();

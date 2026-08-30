@@ -410,6 +410,9 @@ Project EventQueue
 
 启动恢复必须幂等，并先于持久事件增量消费执行。这样即使旧 handler 已经消费过终态事件，
 或进程在 Invocation 终止与 Authority 关闭之间崩溃，重启后仍能从当前 owner facts 收敛。
+Runtime owner 丢失 fencing 时，只能在持久租约确已过期后使用 IMMEDIATE transaction 终止 Invocation；
+有效的新 owner 不能被旧 owner 终止。终止后直接调用 `WorkLifecycleReconciler.reconcileInvocation` Interface，
+不依赖 Runtime event coordinator 已创建。
 
 评估快照冻结相关 WorkAuthority 与 AgentOutcome；确定性评估分别报告 Task 完成率、终态路径收敛率、
 Outcome 接纳率和 Attempt 可靠性，不以单一综合分掩盖永久 active、拒绝 Outcome 或失败重试。

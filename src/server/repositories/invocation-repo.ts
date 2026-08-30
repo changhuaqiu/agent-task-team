@@ -247,6 +247,37 @@ export const invocationRepo = {
     `).get(id, ownerToken, now.toISOString()));
   },
 
+  /**
+   * Terminates only when the persisted Runtime lease is already expired.
+   * The IMMEDIATE transaction prevents a concurrent lease takeover between
+   * the expiry check and the terminal CAS.
+   */
+  terminateExpiredRuntimeLease(
+    id: string,
+    now = new Date(),
+    patch: InvocationPatch = {},
+  ): InvocationRow | undefined {
+    const db = getDb();
+    return db.transaction(() => {
+      const current = invocationRepo.getById(id);
+      if (
+        !current
+        || current.status === 'terminated'
+        || !current.lease_expiry
+        || current.lease_expiry > now.toISOString()
+      ) return undefined;
+      return invocationRepo.transition(id, {
+        to: 'terminated',
+        expectedFrom: current.status,
+        outcome: 'failed',
+        exit_code: 1,
+        reason_code: 'orphaned_runtime_owner_lease_expired',
+        error_message: 'Runtime owner lease expired before Invocation termination',
+        ...patch,
+      });
+    }).immediate();
+  },
+
   renewRuntimeLease(id: string, ownerToken: string, leaseMs = 45_000): boolean {
     const nowDate = new Date();
     const result = getDb().prepare(`
