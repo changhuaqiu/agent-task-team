@@ -50,6 +50,9 @@
 - [x] 回复关系持久化为 `replyToMessageId/threadRootId`，不再从引用文本推断；Inbox 按同一 Thread root 聚合。
 - [x] Work 的依赖与产物投影遇到非数组旧值时 fail-soft，Project 对象页不会因单条异常数据整体崩溃。
 - [x] Project“产物”页与 Agent briefing 读取同一 Artifact Ledger，不再读取 Task 旧 artifacts JSON 或展示工具日志。
+- [x] Project“产物”页按实际贡献角色分列，列内仅展示存在的语义类别；搜索/状态筛选后仍保留角色与类别层级，详情信息不混入一级归类。
+- [x] 同一 Project 文件的 file URL、绝对/相对路径、行号与行范围证据归一为同一 canonical ref；逗号组合引用先拆分，验证回执归为 proof。
+- [x] Outcome 与传统 Task artifact 共用 evidence 解析；远程/畸形 file URL 和 Windows 大小写变体内部目录失败关闭，评审与合并回执不能覆盖实现者的 Agent/Work provenance。
 
 ## 验证
 

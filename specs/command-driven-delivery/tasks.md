@@ -41,6 +41,7 @@
 - [x] 增加 Automation Definition 的代码复制/导入；只交换经 schema 校验的 Definition，导入默认关闭且不携带运行历史。
 - [x] Project 消息回复使用服务端校验的 `replyToMessageId/threadRootId`，Inbox 与消息流按同一 root 聚合；Thread 详情侧栏与精确深链待完成。
 - [x] 完成 Clowder 式 Artifact Ledger：成功写工具自动发现、Outcome evidence 自动登记、同 ref 合并、Project 页面与 Agent briefing 共用投影。
+- [x] 将 Project 产物视图重构为“贡献角色列 → 语义类别 → 产物卡片 → 详情”，并把 file URL、行范围和组合 evidence 归一为 canonical ref，避免同一交付件重复占位。
 - [x] 将 `work_handoff` 从不透明 payload 改为显式 MCP Schema，并由 ACP Adapter 统一外层/领域幂等身份，消除合法交接被 `a2a_outcome_invalid` 连续拒绝的问题。
 - [ ] 完成状态只从 receipt、artifact revision、gate 与 release policy 计算。
 - [x] 为 Task `in_review` 增加 revision-bound Gate durable backfill；普通 Project 幂等派发 reviewer，active Delivery 从同一 `gate.requested` 事实继续编排。

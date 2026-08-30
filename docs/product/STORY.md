@@ -169,6 +169,7 @@ Peach 的完整浏览器 E2E 仍需要项目明确授予浏览器 Skill；本轮
 - Agent Definition ownership 架构门禁、Runtime Prompt、Task 通知、评估快照和旧自主控制面完成回归；全量 255 个测试文件通过、2 个跳过，1859 项测试通过、2 项跳过；Next production build 通过并仅保留既有动态文件追踪警告；
 - Artifact Ledger 的服务端投影与上下文定向测试覆盖成功写入、未完成/只读/越界过滤、Project 隔离、传统 Task 与直接 A2A Outcome 的同 ref 正式证据升级、`.ath` 内部状态过滤和 briefing 注入；页面组件测试覆盖两种状态、筛选、搜索、来源 Agent 映射、复制引用以及不存在“创建产物”入口。
 - 在真实桌面数据中先复现“验收结果已结构化接纳但产物为 0”：该结果来自 A2A WorkContract 而非传统 Task，证据没有 `task_artifact_ref`。修正后同一历史数据库无需迁移即可投影出 `ACCEPTANCE-REPORT-TASK-001.md`、测试与 live DB 证据，并明确归属 Luigi；Project 产物页不再显示空态。
+- 在真实桌面数据中复现 Project 产物页把 31 条文件定位、计划引用、控制文件和验证文本混成一列，来源角色只能进入详情、同一实现还会被协调者的上下文引用抢占归属。修正后页面按“贡献角色列 → 实现 / 设计与文档 / 验证与评审 → 产物卡片 → 详情”阅读；同一数据库无需迁移即可收敛为 Luigi 的 9 项有效交付（实现 4、文档 1、验证 4），`file://`、绝对路径和行范围归一为同一文件，Mario 的计划引用及 `TASKS.md` 控制投影不再冒充交付件。定向服务端与页面组件 7 项测试、TypeScript、受影响文件 ESLint 及全量 268 个测试文件通过（2 个跳过，1923 项通过、2 项跳过），并在本地浏览器用生产数据备份确认角色、类别、计数和详情一致；最终代码审查为 0 Critical / 0 Important，Next production build 与 Rust release build 通过，Renderer build 为 `desktop-build-ccce924c0344d653eaae26acb19f3617`。
 - 结构化回复、Thread 聚合、活动折叠和事实卡相关 36 项定向测试通过；本轮全量回归 1870 项通过、2 项跳过，唯一失败是旧 evaluation 恢复测试仍断言 schema 101，修正为当前 103 后该测试及相关回归通过；Next production build 通过并保留既有动态文件追踪警告。
 - TypeScript、受影响文件 ESLint、Next production build 与最终代码审查（0 Critical / 0 Important）通过；全量 253 个测试文件中 251 通过、2 跳过，1851 项测试通过、2 跳过；Rust release build 通过。最终桌面 Renderer build 为 `desktop-build-992ae195b3db1c55cc3bbeabee9bdbbe`。
 

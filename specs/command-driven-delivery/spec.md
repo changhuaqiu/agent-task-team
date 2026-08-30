@@ -130,10 +130,12 @@ accepted/applied；owner 仍须强制 payload revision 等于冻结 authority，
 产物首先是导航与上下文，不是要求 Agent 额外维护的一套业务表单。平台从已成功的 Runtime 写工具、PR/Review 事实和 `task_submit_result` 的 evidence refs 自动派生 `ArtifactLedger`，按 ref 合并最近版本；Agent 不需要记得再调用一个 `artifact_attach` 才能让页面看见真实工作。
 
 - Runtime 写工具成功后产生 `working` 产物观察；只保留 Project 根目录内的路径，忽略 tool 日志本身、读取操作、失败操作、构建目录和越界路径。
-- Agent 用 `task_submit_result` / `task_request_review` 提交 evidence refs 后，已接纳的 `agent_outcome` 与既有 Task owner 将相同 ref 提升为 `registered`；因此 A2A/直接协作和传统 Task 走同一模型。`registered` 是正式结果事实，`working` 只是可导航观察，两者不能混同为完成。
+- Agent 用 `task_submit_result` / `task_request_review` 提交 evidence refs，或 reviewer 用 `gate_record_decision` 提交验证证据后，对应已接纳的 `agent_outcome` 与既有 Task owner 将相同 ref 提升为 `registered`；规划、继续工作、交接、阻塞和待人工决定 outcome 中的上下文引用不是交付登记，不能进入 Artifact Ledger 抢占生产者归属。因此 A2A/直接协作和传统 Task 走同一模型。`registered` 是正式结果事实，`working` 只是可导航观察，两者不能混同为完成。
 - Artifact Ledger 是纯投影：同一 ref 在 Project 内只有一条当前卡片，保留来源 Agent、Invocation、Work 和操作类型；不再读取 Task 的旧 `artifacts` JSON。
+- Project“产物”页以贡献角色作为一级信息架构：按 Project Agent 顺序展示实际有产物的角色列，未知或系统来源收敛到对应来源列，不预渲染无产物空列。每个角色列只展示当前筛选结果中实际存在的语义类别，并固定归为“实现”“设计与文档”“验证与评审”“外部交付”“其他”；状态、引用、关联 Work 和操作历史属于选中产物详情，不与角色/类别混成同一级平铺列表。
+- Artifact ref 的 identity 是可导航对象，不是证据文本原句。`file://`、Project 绝对路径、行号/行范围和逗号分隔的多个引用必须先拆分、去掉定位信息并归一到 canonical Project ref；同一文件的多个定位只形成一张当前卡片。命令、E2E、trace 与 live-db 等非文件验证回执归入 proof，不得伪装成文件路径。
 - 每次 Agent 唤醒时，最近产物、活跃 Work 与来源关系自动进入 context briefing。Agent 应继续修改已有 ref，并在终态 outcome 中引用精确 ref；这条规则由平台注入，不依赖模型记忆。
-- Project 与 Workspace“产物”页、Project 卡片计数和侧栏总数都读取同一 Ledger，展示自动发现与已登记两种状态，不提供重复的“创建产物”表单；`.ath` 内部状态文件不进入用户产物面。Release/Gate 仍只能消费 registered evidence，不能消费 working observation。
+- Project 与 Workspace“产物”页、Project 卡片计数和侧栏总数都读取同一 Ledger，展示自动发现与已登记两种状态，不提供重复的“创建产物”表单；`.ath` 内部状态文件与历史根目录 `TASKS.md` 控制投影不进入用户产物面。Release/Gate 仍只能消费 registered evidence，不能消费 working observation。
 
 `agent_team.create/update/delete/deploy` 是 Agent Team 写入的唯一主路径。Web、Desktop、MCP 与 CLI 只构造相同命令；创建/更新 receipt 返回完整 AgentTeam，删除 receipt 返回冻结 identity，部署 receipt 返回 Team、Project Channel 和成员身份。更新与删除使用 revision，所有命令拒绝空 command/idempotency identity；幂等检查必须先于当前 Agent、Team、Catalog 或 Channel 读取及任何写入，并从原事件恢复冻结 receipt，迟到重放不得覆盖后续 Team 部署。旧事件若缺少 Project identity，只能从其冻结 Channel 的权威归属恢复；无法恢复必须失败关闭，禁止采用重放请求中的 Project。幂等身份覆盖 expected revision 和完整规范化输入。任何兼容 API 都必须委托 CommandService 或明确返回已停用，不能直接写 `team_pack` 或 `conversation.team_pack_id`。
 
