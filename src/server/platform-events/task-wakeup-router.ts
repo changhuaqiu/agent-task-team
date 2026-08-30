@@ -1,4 +1,8 @@
+import { getDb } from '../db';
+import { requestTaskCodeReviewGate } from '../quality-gate/task-code-review-gate';
 import { taskRepo } from '../repositories/task-repo';
+import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
+import { buildWorkIdentity } from '../work-contract/work-identity';
 import {
   CollaborationEventRouter,
   CollaborationKernel,
@@ -23,6 +27,55 @@ export class TaskWakeupRouter {
     this.router = new CollaborationEventRouter({
       kernel: this.collaboration,
       resolve: (event) => {
+        if (event.type === 'task.in_review') {
+          const task = taskRepo.getById(event.aggregate.id);
+          if (
+            !task
+            || task.conversation_id !== event.projectId
+            || task.status !== 'in_review'
+          ) return undefined;
+          const gate = requestTaskCodeReviewGate({
+            task,
+            actorId: 'task-review-gate-router',
+            correlationId: event.correlationId,
+            causationId: event.eventId,
+            now: new Date(event.occurredAt),
+          });
+          const deliveryOwned = Boolean(getDb().prepare(`
+            SELECT 1 FROM autonomous_delivery_run
+            WHERE conversation_id=? AND status NOT IN ('completed','failed','cancelled')
+            LIMIT 1
+          `).get(task.conversation_id));
+          // Active Delivery owns dispatch. Its gate.requested handler will
+          // schedule the reviewer from the same durable Gate fact.
+          if (deliveryOwned) return undefined;
+          const reviewerId = resolveTaskNotificationAudience(task.conversation_id)
+            .reviewGateAgentIds.find((agentId) => agentId !== task.agent_id);
+          if (!reviewerId) throw new Error(`task_review_gate_reviewer_missing:${task.id}`);
+          return {
+            targetAgentId: reviewerId,
+            source: 'review_gate',
+            requestedAction: [
+              `Review task ${task.id}「${task.title}」 at revision ${task.revision}.`,
+              `Quality Gate: ${gate.gate.id}.`,
+              'Submit exactly one structured record_gate_decision AgentOutcome.',
+              'Its payload must contain the exact gateId above, decision as passed | changes_requested | rejected, evidenceType, and evidence.',
+            ].join(' '),
+            idempotencyKey: `task:${task.id}:review:${task.revision}`,
+            scope: {
+              taskId: task.id,
+              workId: buildWorkIdentity({
+                scope: 'task',
+                targetId: task.id,
+                agentId: reviewerId,
+                gateId: gate.gate.id,
+                purpose: 'review',
+              }),
+            },
+            context: { scenario: 'code_review' },
+            replyTo: { type: 'quality_gate', id: gate.gate.id },
+          };
+        }
         if (event.type !== 'task.changes_requested') return undefined;
         const payload = event.payload as {
           agentId?: string;

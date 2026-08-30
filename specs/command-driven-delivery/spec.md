@@ -115,6 +115,8 @@ interface CommandReceipt<T = unknown> {
 
 `Review` 不是 `WorkItem.status = in_review` 的别名。WorkItem 可以请求或关联多个 Review；Review 自身持有 `open / changes_requested / approved / closed` 生命周期、评审目标和证据。Task 的 `in_review` 仅表示当前 WorkItem 正等待其策略要求的 Review/Gate，不是 Review aggregate。
 
+在独立 Review 聚合完全替换现有 Task Gate 前，`task.in_review` 必须由 durable router 收敛为当前 Task revision 唯一的 `code_review` Gate。处理器重放先核对 Task 当前仍处于 `in_review`，再按当前 revision 幂等补建 Gate；历史事件的旧 revision 不能阻止补偿，因为进入评审后描述等 Task 元数据仍可能合法更新。普通 Project 直接把 Gate 工作写入 AgentInbox，仍由 active Delivery 编排的 Project 则只发布 Gate 事实，由 Delivery control plane 统一派发。处理器版本升级必须允许历史 `in_review` 事件重新投递，以修复旧版本已进入评审但漏建 Gate 的 Task。
+
 公共 `ObjectReference` 采用严格 canonical parser/builder。未知参数、空 identity、非法路径片段和跨 Project 引用默认拒绝。协作消息中的引用进入 `ObjectReferenceIndex`，由它派生 Project/Channel 的相关 WorkItem、Review、Artifact 和 Contributor；UI 不维护第二份手工挂接关系。
 
 #### Clowder 式 Artifact Ledger
@@ -264,6 +266,8 @@ Project 添加器的首个实现切片固定为：`浏览/搜索已有 Project -
 一次 Agent Invocation 成功只表示运行基础设施正常结束。工作完成必须存在当前 WorkContract 接纳的终态 CommandReceipt，authority epoch、attempt、fencing 与当前 owner 一致，结果证据已注册且对应 artifact revision 的 Gate 已通过，最终交付/Release 投影满足策略。
 
 缺少终态命令时，Runtime 将 Invocation 标记为 `ended_without_outcome`，工作仍保持可恢复状态并按策略重排队；不得根据 final text 猜测 outcome。
+
+ACP Adapter 可以为 MCP 工具增加 server namespace。终态命令识别接受配置中的 canonical tool name，也接受以 `_canonicalName` 为完整分隔后缀的 adapter 名称；只有同时解析到 `applied | duplicate` 且 `result.exitAccepted = true` 的结构化回执才算终态成功，名称匹配本身不能绕过回执校验。
 
 ## 9. 删除与替换
 

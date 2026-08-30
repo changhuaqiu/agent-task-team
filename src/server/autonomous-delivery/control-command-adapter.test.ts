@@ -628,7 +628,7 @@ describe('ProductionControlCommandAdapter', () => {
       qualityDecision: 'pass',
     });
     expect(JSON.parse(gate.policy_json)).toMatchObject({
-      source: 'delivery_control_process_manager',
+      source: 'task_review_transition',
       prohibitSelfReview: true,
       implementerId: 'agent-1',
     });

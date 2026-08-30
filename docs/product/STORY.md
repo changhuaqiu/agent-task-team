@@ -2,7 +2,7 @@
 topics: [product-story, user-outcomes, optimization, evidence]
 doc_kind: product-story
 created: 2026-08-02
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 # Agent Task Hub 产品故事
@@ -22,6 +22,38 @@ updated: 2026-08-28
 - 对应 spec、产品文档或技术设计的链接。
 
 只有直接覆盖所述用户效果的证据，才能支持“已经改善”：例如针对性自动化测试、真实界面观察或实际运行链验证。构建通过只能作为可交付性的辅助证据，不能单独证明用户体验已经改善。未验证目标不进入本故事文档，应留在 spec、计划或任务清单中。
+
+---
+
+## 2026-08-30：任务提交后不再停在“评审中”却无人评审
+
+### 原来的处境
+
+实现 Agent 已经提交结构化结果，工作页也显示任务进入“评审中”，但部分由 Project 页面直接创建的任务没有对应质量门禁和评审工作，因此状态不会继续更新。OpenCode 实际已获得成功的任务结果回执时，ACP Adapter 添加的工具命名空间还会让运行记录被误判为“没有提交结果”，进一步制造完成失败的假象。
+
+### 优化后的变化
+
+- 每条当前 revision 的 `task.in_review` 事实都会幂等得到唯一 code-review Gate；普通 Project 直接派发配置的独立 reviewer，active Delivery 继续从同一 Gate 事实统一编排；
+- durable handler 升级版本后会重放历史 `in_review` 事件，旧版本漏建 Gate、当前仍停在评审中的任务可在新桌面服务启动后自行补齐；
+- OpenCode 的 `<server>_<lifecycle-tool>` 名称会按分隔符归一到 WorkContract 的 canonical 工具名，但仍必须同时拿到 `exitAccepted=true` 的已接纳结构化回执才算完成。
+
+### 已验证的效果
+
+- 定向回归 34 项通过，覆盖历史评审事件重复回放只产生一个 Gate/一条 reviewer Inbox，以及 OpenCode namespaced terminal receipt 正常收口；
+- 在真实桌面数据库的只读备份上重放当前卡住任务：原状态为 `in_review@revision-5`、Gate 数为 0；补偿后生成 `requested` Gate（artifact revision 5）并向独立 reviewer 写入 `review_gate` Inbox，原数据库未修改；
+- 全量 Vitest 268 个文件、1922 项通过，2 个文件/2 项按既有配置跳过；TypeScript、受影响文件 ESLint 与 Next production build 通过；
+- 并行构建时一个全仓扫描架构用例首次超过 5 秒，隔离复跑 118ms 通过，随后无并行构建的全量回归全部通过。
+- 最终历史 revision 补偿调整后再跑全量：267 个文件通过、2 个跳过，1921 项通过、2 项跳过；唯一失败是同一全仓扫描文件中的另一项随机超过 5 秒，隔离复跑 210ms 通过。定向 Gate/Runtime 回归、TypeScript 与受影响文件 ESLint 再次通过。
+
+### 仍然保留的边界
+
+本轮修复现有 Task code-review Gate 闭环，不宣称已经完成 Repository/Base/Compare 驱动的独立 Review 产品聚合。已结束、已取消或已退回实现的历史任务不会被反向改写；只有当前仍处于 `in_review` 的任务进入补偿回放，Gate 始终绑定回放时的当前 revision。
+
+### 设计与实现依据
+
+- [命令驱动交付规格](../../specs/command-driven-delivery/spec.md)
+- [Task Graph 协作设计](../technical/execution/group-chat-task-graph.md)
+- [统一事件与 Agent Runtime](../technical/execution/unified-event-agent-runtime.md)
 
 ---
 

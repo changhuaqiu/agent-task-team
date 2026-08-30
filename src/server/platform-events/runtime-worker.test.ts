@@ -86,6 +86,9 @@ describe('PlatformEventRuntimeWorker', () => {
       id: 'runtime-completion-process-manager:v1',
       pattern: 'runtime.invocation.terminated',
     }), expect.objectContaining({
+      id: 'task-wakeup-router:v2',
+      pattern: 'task.*',
+    }), expect.objectContaining({
       id: 'a2a-outcome-process-manager:v3',
       pattern: 'agent.outcome.accepted',
     }), expect.objectContaining({
