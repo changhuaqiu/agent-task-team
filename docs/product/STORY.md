@@ -35,15 +35,13 @@ updated: 2026-08-30
 
 - 每条当前 revision 的 `task.in_review` 事实都会幂等得到唯一 code-review Gate；普通 Project 直接派发配置的独立 reviewer，active Delivery 继续从同一 Gate 事实统一编排；
 - durable handler 升级版本后会重放历史 `in_review` 事件，旧版本漏建 Gate、当前仍停在评审中的任务可在新桌面服务启动后自行补齐；
-- OpenCode 的 `<server>_<lifecycle-tool>` 名称会按分隔符归一到 WorkContract 的 canonical 工具名，但仍必须同时拿到 `exitAccepted=true` 的已接纳结构化回执才算完成。
+- OpenCode 的 `<server>_<lifecycle-tool>` 名称会由当前轮 MCP grant 登记为精确 alias；未知 server 前缀即使返回 receipt 形状的数据也不能满足终态出口，同时仍必须拿到 `exitAccepted=true` 的已接纳结构化回执才算完成。
 
 ### 已验证的效果
 
-- 定向回归 34 项通过，覆盖历史评审事件重复回放只产生一个 Gate/一条 reviewer Inbox，以及 OpenCode namespaced terminal receipt 正常收口；
-- 在真实桌面数据库的只读备份上重放当前卡住任务：原状态为 `in_review@revision-5`、Gate 数为 0；补偿后生成 `requested` Gate（artifact revision 5）并向独立 reviewer 写入 `review_gate` Inbox，原数据库未修改；
-- 全量 Vitest 268 个文件、1922 项通过，2 个文件/2 项按既有配置跳过；TypeScript、受影响文件 ESLint 与 Next production build 通过；
-- 并行构建时一个全仓扫描架构用例首次超过 5 秒，隔离复跑 118ms 通过，随后无并行构建的全量回归全部通过。
-- 最终历史 revision 补偿调整后再跑全量：267 个文件通过、2 个跳过，1921 项通过、2 项跳过；唯一失败是同一全仓扫描文件中的另一项随机超过 5 秒，隔离复跑 210ms 通过。定向 Gate/Runtime 回归、TypeScript 与受影响文件 ESLint 再次通过。
+- 最终定向回归 53 项通过，覆盖历史评审事件幂等补偿、评审中 revision supersede、reviewer 权限/自评/stale artifact 拒绝，以及 OpenCode 已登记/未知 namespace 的正反例；
+- 在真实桌面数据库的只读备份上重放当前卡住任务：原状态为 `in_review@revision-5`、Gate 数为 0；补偿后生成 revision 5 的 `requested` Gate。再模拟评审中元数据更新到 revision 6，旧 Gate 变为 `cancelled`、新 Gate 为 `requested`，且只剩 1 条待处理 reviewer work；原数据库未修改；
+- 最终全量 Vitest 268 个文件、1925 项通过，2 个文件/2 项按既有配置跳过；TypeScript、受影响文件 ESLint、Next production build 与 Rust release EXE 构建通过。
 
 ### 仍然保留的边界
 

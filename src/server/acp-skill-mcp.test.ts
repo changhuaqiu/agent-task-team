@@ -7,6 +7,7 @@ import {
   revokeAcpSkillMcpGrants,
   resolveAcpSkillMcpGrant,
 } from './acp-skill-mcp';
+import type { WorkContract } from './work-contract/types';
 
 afterEach(() => clearAcpSkillMcpGrantsForTests());
 
@@ -42,8 +43,10 @@ describe('ACP skill MCP grants', () => {
     expect(grant.autoApproveToolNames).toEqual([
       `mcp.${grant.mcpServer.name}.task_list`,
       `mcp__${grant.mcpServer.name}__task_list`,
+      `${grant.mcpServer.name}_task_list`,
       `mcp.${grant.mcpServer.name}.collaboration_record_pr`,
       `mcp__${grant.mcpServer.name}__collaboration_record_pr`,
+      `${grant.mcpServer.name}_collaboration_record_pr`,
     ]);
     const authorization = grant.mcpServer.headers[0].value;
     const resolved = resolveAcpSkillMcpGrant(authorization)!;
@@ -62,6 +65,25 @@ describe('ACP skill MCP grants', () => {
 
     grant.revoke();
     expect(resolveAcpSkillMcpGrant(authorization)).toBeUndefined();
+  });
+
+  it('registers the exact OpenCode namespace alias for terminal tools', () => {
+    const grant = registerAcpSkillMcpGrant({
+      agentId: 'luigi',
+      conversationId: 'conv-1',
+      taskId: 'TASK-1',
+      permittedTools: [],
+      workContract: {
+        allowedOutcomeTypes: ['submit_task_result'],
+      } as WorkContract,
+    }, 'http://127.0.0.1:3000')!;
+
+    expect(grant.terminalToolNames).toEqual([
+      'task_submit_result',
+      `mcp.${grant.mcpServer.name}.task_submit_result`,
+      `mcp__${grant.mcpServer.name}__task_submit_result`,
+      `${grant.mcpServer.name}_task_submit_result`,
+    ]);
   });
 
   it('rejects expired tokens', () => {

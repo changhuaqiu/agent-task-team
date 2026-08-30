@@ -158,19 +158,6 @@ function acceptedTerminalReceipt(value: unknown, depth = 0): boolean {
   return Object.values(candidate).some((item) => acceptedTerminalReceipt(item, depth + 1));
 }
 
-export function matchesTerminalToolName(
-  actualName: string,
-  configuredNames: ReadonlySet<string>,
-): boolean {
-  if (configuredNames.has(actualName)) return true;
-  // OpenCode exposes MCP tools as <server-name>_<tool-name>. Keep matching
-  // separator-bound so an unrelated tool whose name merely shares a suffix
-  // cannot satisfy the WorkContract terminal-command guard.
-  return [...configuredNames].some((configuredName) => (
-    configuredName.length > 0 && actualName.endsWith(`_${configuredName}`)
-  ));
-}
-
 function sessionMeta(engine: EngineId, forward?: boolean): Record<string, unknown> | undefined {
   return engine === 'claude' && forward
     ? { claudeCode: { options: { forwardSubagentText: true } } }
@@ -380,7 +367,7 @@ export class PersistentAcpWorker {
         if (
           bounded.type === 'tool_result'
           && bounded.tool?.status === 'completed'
-          && matchesTerminalToolName(bounded.tool.name, terminalToolNames)
+          && terminalToolNames.has(bounded.tool.name)
           && acceptedTerminalReceipt(bounded.content)
         ) acceptedTerminalCommand = true;
       }

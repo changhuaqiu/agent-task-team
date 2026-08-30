@@ -83,6 +83,38 @@ describe('TaskWakeupRouter', () => {
         }),
       }),
     ]);
+
+    const advanced = taskRepo.update('task-review', {
+      description: 'Changed again while the first review was pending',
+    })!;
+    const updatedEvent = log.listStream('task:task-review')
+      .find((candidate) => (
+        candidate.type === 'task.updated'
+        && candidate.aggregate.version === advanced.revision
+      ))!;
+    router.handle(updatedEvent, { signal: new AbortController().signal });
+
+    const reconciledGates = new QualityGateRepository(db)
+      .listForTarget('task', 'task-review');
+    expect(reconciledGates).toHaveLength(2);
+    expect(reconciledGates[0]).toMatchObject({ status: 'cancelled' });
+    expect(reconciledGates[1]).toMatchObject({
+      status: 'requested',
+      artifact_revision: String(advanced.revision),
+    });
+    expect(inbox.listPending('project-1')).toEqual([
+      expect.objectContaining({
+        projectAgentId: 'reviewer',
+        command: expect.objectContaining({
+          workId: `task:task-review:agent:reviewer:gate:${reconciledGates[1].id}:purpose:review`,
+        }),
+      }),
+    ]);
+    expect(db.prepare(`
+      SELECT status,last_error FROM agent_inbox_item
+      WHERE json_extract(command_json, '$.workId')=?
+    `).get(`task:task-review:agent:reviewer:gate:${reconciledGates[0].id}:purpose:review`))
+      .toEqual({ status: 'cancelled', last_error: 'task_review_artifact_superseded' });
   });
 
   it('ignores a historical rejection after the task has already completed', () => {

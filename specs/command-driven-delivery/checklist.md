@@ -21,6 +21,7 @@
 - [x] ACP runtime 的 canonical 与 server-namespaced lifecycle tool 只有在结构化 receipt 被接纳后才满足终态出口。
 - [ ] Task 完成需要当前 artifact revision 的质量回执。
 - [x] Task 进入 `in_review` 后可由 durable replay 幂等得到当前 artifact revision 的唯一 code-review Gate 与 reviewer 工作。
+- [x] 评审期间 Task revision 变化会取消旧 Gate/reviewer authority；未授权、自评或 stale artifact 的 Gate outcome 在占用终态槽前被拒绝。
 - [x] 成功写工具自动形成 working Artifact；Outcome evidence 将同一 ref 提升为 registered，失败/读取/越界工具不进入 Ledger。
 - [ ] 外部非幂等写结果不明时不会盲目重试。
 

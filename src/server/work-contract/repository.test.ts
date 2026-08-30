@@ -421,14 +421,25 @@ describe('WorkContractRepository', () => {
       title: 'Other task',
       agent_id: 'builder',
     });
+    taskRepo.transition(reviewedTask.id, { to: 'in_progress' });
+    taskRepo.transition(reviewedTask.id, { to: 'in_review' });
+    taskRepo.transition(otherTask.id, { to: 'in_progress' });
+    taskRepo.transition(otherTask.id, { to: 'in_review' });
+    const currentReviewedTask = taskRepo.getById(reviewedTask.id)!;
+    const currentOtherTask = taskRepo.getById(otherTask.id)!;
     const gates = new QualityGateRepository();
     const expectedGate = gates.request({
       conversationId: 'project-work',
       kind: 'code_review',
       targetType: 'task',
       targetId: reviewedTask.id,
-      artifactRevision: String(reviewedTask.revision),
+      artifactRevision: String(currentReviewedTask.revision),
       criteria: {},
+      policy: {
+        prohibitSelfReview: true,
+        implementerId: 'builder',
+        authorizedEvaluatorIds: ['reviewer'],
+      },
       actor: { type: 'system', id: 'test' },
       now: NOW,
     });
@@ -437,7 +448,7 @@ describe('WorkContractRepository', () => {
       kind: 'code_review',
       targetType: 'task',
       targetId: otherTask.id,
-      artifactRevision: String(otherTask.revision),
+      artifactRevision: String(currentOtherTask.revision),
       criteria: {},
       actor: { type: 'system', id: 'test' },
       now: NOW,
@@ -454,7 +465,7 @@ describe('WorkContractRepository', () => {
       role: { name: 'reviewer' },
       permissions: {},
       authoritativeRefs: [`task:${reviewedTask.id}`],
-      authoritativeRevisions: { task: reviewedTask.revision },
+      authoritativeRevisions: { task: currentReviewedTask.revision },
       contextSnapshotRef: 'ctx-gate-review',
       allowedOutcomeTypes: ['record_gate_decision'],
       correlationId: 'trace-gate-review',
@@ -493,6 +504,41 @@ describe('WorkContractRepository', () => {
       reasonCode: 'gate_outcome_task_mismatch',
     });
 
+    for (const [agentId, reasonCode] of [
+      ['builder', 'gate_outcome_self_review_prohibited'],
+      ['intruder', 'gate_outcome_evaluator_not_authorized'],
+    ] as const) {
+      const rejectedContract = repository.issue({
+        workId: `task:${reviewedTask.id}:agent:${agentId}:purpose:review`,
+        attemptId: `attempt-gate-${agentId}`,
+        projectId: 'project-work',
+        taskId: reviewedTask.id,
+        agentId,
+        goal: 'Review the task',
+        acceptanceCriteria: ['Record the Gate decision with evidence'],
+        role: { name: 'reviewer' },
+        permissions: {},
+        authoritativeRefs: [`task:${reviewedTask.id}`],
+        authoritativeRevisions: { task: currentReviewedTask.revision },
+        contextSnapshotRef: `ctx-gate-${agentId}`,
+        allowedOutcomeTypes: ['record_gate_decision'],
+        correlationId: `trace-gate-${agentId}`,
+        causationId: `trigger-gate-${agentId}`,
+        now: NOW,
+      });
+      expect(repository.admitOutcome(outcome(rejectedContract, {
+        outcomeId: `outcome-gate-${agentId}`,
+        idempotencyKey: `outcome-gate-${agentId}`,
+        outcomeType: 'record_gate_decision',
+        payload: {
+          gateId: expectedGate.gate.id,
+          decision: 'passed',
+          evidenceType: 'code_review',
+          evidence: { summary: 'looks good' },
+        },
+      }))).toMatchObject({ status: 'rejected', reasonCode });
+    }
+
     expect(repository.admitOutcome(outcome(contract, {
       outcomeId: 'outcome-gate-corrected',
       idempotencyKey: 'outcome-gate-corrected',
@@ -508,6 +554,64 @@ describe('WorkContractRepository', () => {
       SELECT COUNT(*) AS count FROM agent_outcome
       WHERE contract_id=? AND admission_status='accepted'
     `).get(contract.contractId)).toEqual({ count: 1 });
+  });
+
+  it('rejects a Task Gate outcome after the Gate artifact revision becomes stale', () => {
+    const task = taskRepo.create({
+      id: 'task-gate-stale-artifact',
+      conversation_id: 'project-work',
+      title: 'Reviewed task',
+      agent_id: 'builder',
+    });
+    taskRepo.transition(task.id, { to: 'in_progress' });
+    taskRepo.transition(task.id, { to: 'in_review' });
+    const reviewable = taskRepo.getById(task.id)!;
+    const gate = new QualityGateRepository().request({
+      conversationId: 'project-work',
+      kind: 'code_review',
+      targetType: 'task',
+      targetId: task.id,
+      artifactRevision: String(reviewable.revision),
+      criteria: {},
+      policy: { authorizedEvaluatorIds: ['reviewer'] },
+      actor: { type: 'system', id: 'test' },
+      now: NOW,
+    });
+    const updated = taskRepo.update(task.id, { description: 'Changed after review dispatch' })!;
+    const repository = new WorkContractRepository();
+    const contract = repository.issue({
+      workId: `task:${task.id}:agent:reviewer:purpose:review`,
+      attemptId: 'attempt-gate-stale-artifact',
+      projectId: 'project-work',
+      taskId: task.id,
+      agentId: 'reviewer',
+      goal: 'Review the task',
+      acceptanceCriteria: ['Record the Gate decision with evidence'],
+      role: { name: 'reviewer' },
+      permissions: {},
+      authoritativeRefs: [`task:${task.id}`],
+      authoritativeRevisions: { task: updated.revision },
+      contextSnapshotRef: 'ctx-gate-stale-artifact',
+      allowedOutcomeTypes: ['record_gate_decision'],
+      correlationId: 'trace-gate-stale-artifact',
+      causationId: 'trigger-gate-stale-artifact',
+      now: NOW,
+    });
+
+    expect(repository.admitOutcome(outcome(contract, {
+      outcomeId: 'outcome-gate-stale-artifact',
+      idempotencyKey: 'outcome-gate-stale-artifact',
+      outcomeType: 'record_gate_decision',
+      payload: {
+        gateId: gate.gate.id,
+        decision: 'passed',
+        evidenceType: 'code_review',
+        evidence: { summary: 'looks good' },
+      },
+    }))).toMatchObject({
+      status: 'rejected',
+      reasonCode: 'gate_outcome_artifact_revision_stale',
+    });
   });
 
   it('rejects an invalid Delivery Gate receipt before consuming the terminal slot', () => {

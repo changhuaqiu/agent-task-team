@@ -64,7 +64,7 @@ const PERMISSION_OPTIONS: acp.PermissionOption[] = [
  *    (`process.exit(1)`) — so `AcpBackend`'s `close` handler fires with an
  *    abnormal exit and resolves `failed`. (Task 9 failure-recovery test.)
  */
-export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'startup_abort' | 'flood' | 'large' | 'wrong_session' | 'empty_once' | 'empty_silent' | 'fresh_session_recovery' | 'thinking_only' | 'tool_result_only' | 'tool_result_silent' | 'tool_only' | 'tool_silent' | 'terminal_command_only' | 'namespaced_terminal_command_only' | 'mcp_echo' | 'session_meta_echo' | 'session_mode_echo' | 'prompt_echo' | 'platform_mcp_permission';
+export type MockScenario = 'normal' | 'slow' | 'active' | 'error' | 'startup_abort' | 'flood' | 'large' | 'wrong_session' | 'empty_once' | 'empty_silent' | 'fresh_session_recovery' | 'thinking_only' | 'tool_result_only' | 'tool_result_silent' | 'tool_only' | 'tool_silent' | 'terminal_command_only' | 'namespaced_terminal_command_only' | 'untrusted_namespaced_terminal_command_only' | 'mcp_echo' | 'session_meta_echo' | 'session_mode_echo' | 'prompt_echo' | 'platform_mcp_permission';
 
 /** How long the "slow" scenario blocks mid-turn before completing. */
 const SLOW_BLOCK_MS = 60_000;
@@ -306,12 +306,14 @@ export function createMockAgentApp(
 
       const activeToolCall = scenario === 'platform_mcp_permission'
         ? { ...TOOL_CALL, title: 'mcp__agent-task-team__task_create' }
-        : scenario === 'terminal_command_only' || scenario === 'namespaced_terminal_command_only'
+        : scenario === 'terminal_command_only' || scenario === 'namespaced_terminal_command_only' || scenario === 'untrusted_namespaced_terminal_command_only'
           ? {
               ...TOOL_CALL,
               title: scenario === 'namespaced_terminal_command_only'
                 ? 'agent-task-team-7e82e6def26bf415_task_submit_result'
-                : 'task_submit_result',
+                : scenario === 'untrusted_namespaced_terminal_command_only'
+                  ? 'untrusted_task_submit_result'
+                  : 'task_submit_result',
             }
         : TOOL_CALL;
 
@@ -356,8 +358,8 @@ export function createMockAgentApp(
         sessionUpdate: 'tool_call_update',
         toolCallId: TOOL_CALL_ID,
         status: toolStatus,
-        ...(scenario === 'terminal_command_only' || scenario === 'namespaced_terminal_command_only' ? {
-          rawOutput: scenario === 'namespaced_terminal_command_only'
+        ...(scenario === 'terminal_command_only' || scenario === 'namespaced_terminal_command_only' || scenario === 'untrusted_namespaced_terminal_command_only' ? {
+          rawOutput: scenario === 'namespaced_terminal_command_only' || scenario === 'untrusted_namespaced_terminal_command_only'
             ? { output: JSON.stringify(terminalReceipt), metadata: { truncated: false } }
             : {
                 content: [{
@@ -422,6 +424,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
       || envScenario === 'tool_silent'
       || envScenario === 'terminal_command_only'
       || envScenario === 'namespaced_terminal_command_only'
+      || envScenario === 'untrusted_namespaced_terminal_command_only'
       || envScenario === 'mcp_echo'
       || envScenario === 'session_meta_echo'
       || envScenario === 'session_mode_echo'
