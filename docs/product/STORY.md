@@ -34,14 +34,15 @@ updated: 2026-08-30
 ### 优化后的变化
 
 - 每条当前 revision 的 `task.in_review` 事实都会幂等得到唯一 code-review Gate；普通 Project 直接派发配置的独立 reviewer，active Delivery 继续从同一 Gate 事实统一编排；
+- 旧 reviewer authority 的回收和当前 Gate 创建在同一事务中完成；即使旧评审在第一次扫描后才迟到，durable replay 仍会再次回收，stale 或已终止 Gate 也不能签发新的评审合同；
 - durable handler 升级版本后会重放历史 `in_review` 事件，旧版本漏建 Gate、当前仍停在评审中的任务可在新桌面服务启动后自行补齐；
 - OpenCode 的 `<server>_<lifecycle-tool>` 名称会由当前轮 MCP grant 登记为精确 alias；未知 server 前缀即使返回 receipt 形状的数据也不能满足终态出口，同时仍必须拿到 `exitAccepted=true` 的已接纳结构化回执才算完成。
 
 ### 已验证的效果
 
-- 最终定向回归 53 项通过，覆盖历史评审事件幂等补偿、评审中 revision supersede、reviewer 权限/自评/stale artifact 拒绝，以及 OpenCode 已登记/未知 namespace 的正反例；
+- 最终定向回归 54 项通过，覆盖历史评审事件幂等补偿、评审中 revision supersede、迟到 authority 回收、stale/terminal Gate 合同拒绝、reviewer 权限/自评/stale artifact outcome 拒绝，以及 OpenCode 已登记/未知 namespace 的正反例；
 - 在真实桌面数据库的只读备份上重放当前卡住任务：原状态为 `in_review@revision-5`、Gate 数为 0；补偿后生成 revision 5 的 `requested` Gate。再模拟评审中元数据更新到 revision 6，旧 Gate 变为 `cancelled`、新 Gate 为 `requested`，且只剩 1 条待处理 reviewer work；原数据库未修改；
-- 最终全量 Vitest 268 个文件、1925 项通过，2 个文件/2 项按既有配置跳过；TypeScript、受影响文件 ESLint、Next production build 与 Rust release EXE 构建通过。
+- 最终全量 Vitest 268 个文件、1926 项通过，2 个文件/2 项按既有配置跳过；TypeScript、受影响文件 ESLint、Next production build 与 Rust release EXE 构建通过，Renderer build 为 `desktop-build-7b9e2b4250a26c103cd7651b4b91c2fe`。
 
 ### 仍然保留的边界
 

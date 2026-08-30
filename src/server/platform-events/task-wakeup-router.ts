@@ -48,27 +48,31 @@ export class TaskWakeupRouter {
           if (!deliveryOwned && !reviewerId) {
             throw new Error(`task_review_gate_reviewer_missing:${task.id}`);
           }
-          const currentGate = qualityGateRepo.find({
-            kind: 'code_review',
-            targetType: 'task',
-            targetId: task.id,
-            artifactRevision: String(task.revision),
-          });
-          if (!currentGate) {
+          const gate = getDb().transaction(() => {
+            // Reconcile on every replay, even when the current Gate already
+            // exists. A stale reviewer can be admitted after an earlier scan;
+            // keeping cleanup and replacement Gate creation under one write
+            // lock makes either the cleanup or contract issuance observe the
+            // other's durable result.
             this.supersedeStaleReviewWork(
               task.id,
               task.conversation_id,
               task.revision,
               event,
             );
-          }
-          const gate = currentGate ?? requestTaskCodeReviewGate({
-            task,
-            actorId: 'task-review-gate-router',
-            correlationId: event.correlationId,
-            causationId: event.eventId,
-            now: new Date(event.occurredAt),
-          });
+            return qualityGateRepo.find({
+              kind: 'code_review',
+              targetType: 'task',
+              targetId: task.id,
+              artifactRevision: String(task.revision),
+            }) ?? requestTaskCodeReviewGate({
+              task,
+              actorId: 'task-review-gate-router',
+              correlationId: event.correlationId,
+              causationId: event.eventId,
+              now: new Date(event.occurredAt),
+            });
+          }).immediate();
           // Active Delivery owns dispatch. Its gate.requested handler will
           // schedule the reviewer from the same durable Gate fact.
           if (deliveryOwned) return undefined;

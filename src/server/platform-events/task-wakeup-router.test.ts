@@ -5,6 +5,7 @@ import { agentDefinitionRepo } from '../agents/agent-definition-repo';
 import { QualityGateRepository } from '../quality-gate/repository';
 import { taskRepo } from '../repositories/task-repo';
 import { buildWorkIdentity } from '../work-contract/work-identity';
+import { workContractRepo } from '../work-contract/repository';
 import { AgentInbox } from './agent-inbox';
 import { CollaborationKernel } from '../collaboration-kernel';
 import { PlatformEventLog } from './event-log';
@@ -115,6 +116,38 @@ describe('TaskWakeupRouter', () => {
       WHERE json_extract(command_json, '$.workId')=?
     `).get(`task:task-review:agent:reviewer:gate:${reconciledGates[0].id}:purpose:review`))
       .toEqual({ status: 'cancelled', last_error: 'task_review_artifact_superseded' });
+
+    const lateStaleWorkId = buildWorkIdentity({
+      scope: 'task',
+      targetId: 'task-review',
+      agentId: 'reviewer',
+      gateId: reconciledGates[0].id,
+      purpose: 'review',
+    });
+    workContractRepo.issue({
+      workId: lateStaleWorkId,
+      attemptId: 'late-stale-review-attempt',
+      projectId: 'project-1',
+      taskId: 'task-review',
+      agentId: 'reviewer',
+      goal: 'Simulate stale reviewer admission after the first reconciliation scan',
+      acceptanceCriteria: ['Record the Gate decision'],
+      role: { responsibility: 'reviewer' },
+      permissions: {},
+      authoritativeRefs: [`quality_gate:${reconciledGates[0].id}`],
+      authoritativeRevisions: { task: Number(reconciledGates[0].artifact_revision) },
+      contextSnapshotRef: 'late-stale-review-context',
+      allowedOutcomeTypes: ['record_gate_decision'],
+      correlationId: 'late-stale-review-correlation',
+      causationId: 'late-stale-review-causation',
+    });
+    expect(workContractRepo.getAuthority(lateStaleWorkId)).toMatchObject({ status: 'active' });
+
+    router.handle(updatedEvent, { signal: new AbortController().signal });
+
+    expect(workContractRepo.getAuthority(lateStaleWorkId)).toMatchObject({ status: 'closed' });
+    expect(new QualityGateRepository(db).listForTarget('task', 'task-review'))
+      .toHaveLength(2);
   });
 
   it('ignores a historical rejection after the task has already completed', () => {

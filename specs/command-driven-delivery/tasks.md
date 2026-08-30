@@ -44,7 +44,7 @@
 - [x] 将 `work_handoff` 从不透明 payload 改为显式 MCP Schema，并由 ACP Adapter 统一外层/领域幂等身份，消除合法交接被 `a2a_outcome_invalid` 连续拒绝的问题。
 - [ ] 完成状态只从 receipt、artifact revision、gate 与 release policy 计算。
 - [x] 为 Task `in_review` 增加 revision-bound Gate durable backfill；普通 Project 幂等派发 reviewer，active Delivery 从同一 `gate.requested` 事实继续编排。
-- [x] 评审中 Task revision 变化会 supersede 旧 Gate/reviewer work；Gate outcome admission 强制 current artifact revision、authorized evaluator 与禁止自评。
+- [x] 评审中 Task revision 变化会在同一写事务内 supersede 旧 Gate/reviewer authority 并创建当前 Gate；每次 replay 都重新收敛旧 authority，WorkContract 签发与 Gate outcome admission 均强制 current artifact revision，outcome 另强制 authorized evaluator 与禁止自评。
 
 ## Runtime
 
