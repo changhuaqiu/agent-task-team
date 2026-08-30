@@ -246,14 +246,18 @@ describe('WorkLifecycleReconciler', () => {
       runtime_owner_token: 'lease-old',
     });
     invocationRepo.transition(contract.attemptId, { to: 'starting' });
-    expect(invocationRepo.terminateExpiredRuntimeLease(contract.attemptId, now)).toBeUndefined();
-    db.prepare('UPDATE invocation SET lease_expiry=? WHERE id=?')
-      .run('2026-08-21T00:00:00.000Z', contract.attemptId);
     const reconciler = new WorkLifecycleReconciler({
       collaboration: new CollaborationKernel({ inbox }),
       contracts,
       now: () => now,
     });
+    expect(reconciler.reconcileExpiredInvocation(
+      contract.attemptId,
+      'runtime_start_fence_lost',
+      now,
+    )).toEqual({ invocationTerminated: false, authorityClosed: false });
+    db.prepare('UPDATE invocation SET lease_expiry=? WHERE id=?')
+      .run('2026-08-21T00:00:00.000Z', contract.attemptId);
 
     expect(reconciler.reconcilePersistedState()).toEqual({
       staleInvocationsTerminated: 1,
@@ -371,6 +375,15 @@ describe('WorkLifecycleReconciler', () => {
       runtime_lease_ms: 1,
     });
     invocationRepo.transition(contract.attemptId, { to: 'starting' });
+    const reconciler = new WorkLifecycleReconciler({
+      collaboration: new CollaborationKernel({ inbox }),
+      contracts,
+    });
+    expect(reconciler.reconcileExpiredInvocation(
+      contract.attemptId,
+      'runtime_start_fence_lost',
+      now,
+    )).toEqual({ invocationTerminated: false, authorityClosed: false });
     db.prepare('UPDATE invocation SET lease_expiry=? WHERE id=?')
       .run('2026-08-21T00:00:00.000Z', contract.attemptId);
     expect(invocationRepo.transitionOwned(contract.attemptId, 'replaced-owner', {
@@ -378,19 +391,18 @@ describe('WorkLifecycleReconciler', () => {
       outcome: 'failed',
     })).toBeUndefined();
 
-    const terminated = invocationRepo.terminateExpiredRuntimeLease(contract.attemptId, now);
-    const reconciler = new WorkLifecycleReconciler({
-      collaboration: new CollaborationKernel({ inbox }),
-      contracts,
-    });
+    expect(reconciler.reconcileExpiredInvocation(
+      contract.attemptId,
+      'runtime_start_fence_lost',
+      now,
+    )).toEqual({ invocationTerminated: true, authorityClosed: true });
+    const terminated = invocationRepo.getById(contract.attemptId);
 
     expect(terminated).toMatchObject({
       status: 'terminated',
       outcome: 'failed',
       reason_code: 'orphaned_runtime_owner_lease_expired',
     });
-    expect(reconciler.reconcileInvocation(contract.attemptId, 'runtime_start_fence_lost', now))
-      .toBe(true);
     expect(contracts.getAuthority(workId)).toMatchObject({ status: 'closed' });
   });
 

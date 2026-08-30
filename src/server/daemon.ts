@@ -1526,6 +1526,12 @@ export default function registerDaemon(io: IOServer) {
           clearRuntimeOwnershipHeartbeat();
           if (isRuntimeOwnershipLost(err)) {
             kill();
+            workLifecycle.reconcileExpiredInvocation(
+              invocation.id,
+              err.reasonCode,
+              new Date(),
+              err.message,
+            );
             console.warn(`[daemon][${agentId}] discarded output after Runtime ownership loss`);
             agentProcesses.remove(agentId, projectId, activeRuntimeProcess);
             if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
@@ -1602,14 +1608,12 @@ export default function registerDaemon(io: IOServer) {
         clearRuntimeOwnershipHeartbeat();
         if (isRuntimeOwnershipLost(err)) {
           if (acquiredInvocationId) {
-            const terminated = invocationRepo.terminateExpiredRuntimeLease(
+            workLifecycle.reconcileExpiredInvocation(
               acquiredInvocationId,
+              err.reasonCode,
               new Date(),
-              { error_message: err.message },
+              err.message,
             );
-            if (terminated) {
-              workLifecycle.reconcileInvocation(acquiredInvocationId, err.reasonCode);
-            }
           }
           if (runtimeConfigDir) cleanupRuntimeConfig(runtimeConfigDir);
           acpCleanup?.();

@@ -25,6 +25,11 @@ export interface WorkLifecycleRecoveryReport {
   authoritiesClosed: number;
 }
 
+export interface WorkLifecycleInvocationRecovery {
+  invocationTerminated: boolean;
+  authorityClosed: boolean;
+}
+
 /**
  * Reclaims runtime-side Work once its Task or Delivery owner is terminal.
  * Historical terminal events are safe to replay because authority close and
@@ -56,8 +61,9 @@ export class WorkLifecycleReconciler {
       ORDER BY created_at,id
     `).all(timestamp) as InvocationRow[];
     for (const invocation of staleInvocations) {
-      const terminated = invocationRepo.terminateExpiredRuntimeLease(invocation.id, now);
-      if (terminated?.status === 'terminated') staleInvocationsTerminated += 1;
+      const recovered = this.reconcileExpiredInvocation(invocation.id, timestamp, now);
+      if (recovered.invocationTerminated) staleInvocationsTerminated += 1;
+      if (recovered.authorityClosed) authoritiesClosed += 1;
     }
 
     const failedInvocations = getDb().prepare(`
@@ -120,6 +126,29 @@ export class WorkLifecycleReconciler {
   ): boolean {
     const invocation = invocationRepo.getById(invocationId);
     return invocation ? this.reconcileFailedInvocation(invocation, causationId, now) : false;
+  }
+
+  /**
+   * Atomically settles an Invocation whose persisted Runtime lease expired,
+   * then closes only the Authority still pointing at that exact Attempt.
+   * A live replacement owner makes the lease CAS return no-op.
+   */
+  reconcileExpiredInvocation(
+    invocationId: string,
+    causationId: string,
+    now: Date = this.now(),
+    errorMessage?: string,
+  ): WorkLifecycleInvocationRecovery {
+    const terminated = invocationRepo.terminateExpiredRuntimeLease(
+      invocationId,
+      now,
+      errorMessage ? { error_message: errorMessage } : {},
+    );
+    if (!terminated) return { invocationTerminated: false, authorityClosed: false };
+    return {
+      invocationTerminated: true,
+      authorityClosed: this.reconcileInvocation(invocationId, causationId, now),
+    };
   }
 
   readonly handle: PlatformEventHandler = (event, { signal }) => {
