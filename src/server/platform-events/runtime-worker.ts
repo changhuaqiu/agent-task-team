@@ -39,6 +39,7 @@ import type { Server as IOServer } from 'socket.io';
 import { TaskWorkLifecycleProcessManager } from '../invocation-pipeline/task-work-lifecycle-process-manager';
 import { EvaluationWorkLifecycleProcessManager } from '../evaluation/evaluation-work-lifecycle-process-manager';
 import { AutomationRuntime } from '../automations';
+import { TaskProjectViewProjection } from './task-project-view-projection';
 
 let worker: PlatformEventRuntimeWorker | undefined;
 
@@ -161,6 +162,14 @@ export class PlatformEventRuntimeWorker {
       handle: taskWakeupRouter.handle,
     });
     if (resolved.io) {
+      const taskProjectView = new TaskProjectViewProjection(resolved.io);
+      this.dispatcher.register({
+        id: 'task-project-view-projection:v1',
+        pattern: 'task.*',
+        stereotype: 'projection',
+        reliability: 'durable',
+        handle: taskProjectView.handle,
+      });
       const taskWorkLifecycle = new TaskWorkLifecycleProcessManager(resolved.io);
       this.dispatcher.register({
         id: 'task-work-lifecycle-process-manager:v1',

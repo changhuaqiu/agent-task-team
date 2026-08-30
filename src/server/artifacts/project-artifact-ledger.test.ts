@@ -324,7 +324,7 @@ describe('projectArtifactLedger', () => {
     `).run(
       'outcome-1', 'outcome-key-1', 'contract-a2a', project.workspace_conversation_id,
       'a2a-pass:1', 1, 'attempt-1', 'token-1', 'submit_task_result', '{}',
-      '["workspace:reports/acceptance.md","test:vitest = 42 passed","workspace:.ath/team-log.md","git status --short","msg-1"]',
+      '["workspace:reports/acceptance.md","test:vitest = 42 passed","workspace:.ath/team-log.md","git status --short","msg-1","proxy.mjs:173-224","proxy.mjs:325","http://127.0.0.1:4173/summary health 200 / PID 42","http://127.0.0.1:4173/summary"]',
       '{}', 'correlation-1', 'cause-1', now, 'accepted', now,
     );
 
@@ -366,7 +366,14 @@ describe('projectArtifactLedger', () => {
         updatedBy: 'builder', workId: 'a2a-pass:1', workTitle: '完成验收报告',
       }),
       expect.objectContaining({ ref: 'test:vitest = 42 passed', status: 'registered', kind: 'proof' }),
+      expect.objectContaining({ ref: 'proxy.mjs', status: 'registered', kind: 'code' }),
+      expect.objectContaining({ ref: 'http://127.0.0.1:4173/summary', status: 'registered', kind: 'link' }),
     ]));
-    expect(projectArtifactLedger.list(project.id).map((item) => item.ref)).not.toEqual(expect.arrayContaining(['.ath/team-log.md', 'git status --short', 'msg-1']));
+    const refs = projectArtifactLedger.list(project.id).map((item) => item.ref);
+    expect(refs.filter((ref) => ref === 'proxy.mjs')).toHaveLength(1);
+    expect(refs).not.toEqual(expect.arrayContaining([
+      '.ath/team-log.md', 'git status --short', 'msg-1',
+      'http://127.0.0.1:4173/summary health 200 / PID 42',
+    ]));
   });
 });

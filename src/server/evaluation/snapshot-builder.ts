@@ -7,6 +7,7 @@ import { DEFAULT_RUBRIC_REVISION_ID, EVALUATOR_BUNDLE_REVISION, digest } from '.
 import type { ApplicationManifest } from './application-snapshot';
 import type { EvaluationRequest, EvidenceRef, SubjectSnapshot } from './types';
 import { agentDefinitionRepo } from '../agents/agent-definition-repo';
+import { collectEvaluationExecutionEvidence } from './execution-evidence';
 
 type Row = Record<string, unknown>;
 
@@ -45,6 +46,20 @@ function cleanRow(row: Row): Row {
     }
   }
   return result;
+}
+
+function collaborationEventEvidenceRef(event: Row): EvidenceRef {
+  const payload = event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+    ? event.payload as Record<string, unknown>
+    : {};
+  const chainId = payload.chainId ?? payload.chain_id;
+  const passId = payload.passId ?? payload.pass_id;
+  return {
+    kind: 'event',
+    id: String(event.id),
+    ...(chainId ? { chainId: String(chainId) } : {}),
+    ...(passId ? { passId: String(passId) } : {}),
+  };
 }
 
 function collectTaskIds(tasks: Row[], edges: Row[], rootTaskId?: string): Set<string> {
@@ -194,12 +209,6 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   const frozenApplication = offlineProvenance?.manifest;
   const conversation = db.prepare('SELECT * FROM conversation WHERE id = ?').get(request.conversationId) as Row | undefined;
   if (!conversation) throw new Error('Conversation not found');
-  if (request.chainId) {
-    const ownedChain = db.prepare('SELECT id FROM a2a_possession_chain WHERE id=? AND conversation_id=?')
-      .get(request.chainId, request.conversationId);
-    if (!ownedChain) throw new Error('Chain does not belong to conversation');
-  }
-
   const allTasks = rows('SELECT * FROM task WHERE conversation_id = ? AND created_at <= ? ORDER BY created_at,id',
     request.conversationId, cutoff);
   const allEdges = rows('SELECT * FROM task_edge WHERE conversation_id = ? AND created_at <= ? ORDER BY created_at,id',
@@ -211,6 +220,12 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   const tasks = allTasks.filter((task) => taskIds.has(String(task.id))).map(cleanRow);
   const edges = allEdges.filter((edge) =>
     taskIds.has(String(edge.from_task_id)) && taskIds.has(String(edge.to_task_id))).map(cleanRow);
+  const execution = collectEvaluationExecutionEvidence(db, {
+    conversationId: request.conversationId,
+    taskIds,
+    cutoffAt: cutoff,
+    ...(request.chainId ? { chainId: request.chainId } : {}),
+  });
   const taskActions = rows('SELECT * FROM task_action WHERE conversation_id = ? AND created_at <= ? ORDER BY created_at,id',
     request.conversationId, cutoff).filter((action) => {
       const ids = parse(action.task_ids, []) as unknown[];
@@ -218,12 +233,7 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
     }).map(cleanRow);
   const artifacts = rows('SELECT * FROM task_artifact_ref WHERE conversation_id = ? AND created_at <= ? ORDER BY created_at,id',
     request.conversationId, cutoff).filter((item) => taskIds.has(String(item.task_id))).map(cleanRow);
-  const spans = rows(`SELECT * FROM observation_span
-    WHERE conversation_id = ? AND started_at <= ? ORDER BY started_at,span_id`,
-    request.conversationId, cutoff).filter((span) =>
-      (span.task_id && taskIds.has(String(span.task_id))) ||
-      (request.chainId && span.chain_id === request.chainId) ||
-      (!request.rootTaskId && !request.chainId)).map(cleanRow);
+  const spans = execution.spans.map(cleanRow);
   const spanIds = new Set(spans.map((span) => String(span.span_id)));
   const payloads: Row[] = spanIds.size === 0 ? [] : rows(`SELECT p.* FROM observation_span_payload p
     JOIN observation_span s ON s.span_id=p.span_id
@@ -236,22 +246,20 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
     request.conversationId, cutoff).filter((proof) =>
       !String(proof.event_type).startsWith('eval.') && (
         (proof.task_id && taskIds.has(String(proof.task_id))) ||
-        (request.chainId && proof.chain_id === request.chainId) ||
-        (!request.rootTaskId && !request.chainId))).map(cleanRow);
+        (proof.chain_id && execution.chainIds.has(String(proof.chain_id))) ||
+        (proof.pass_id && execution.passIds.has(String(proof.pass_id))))).map(cleanRow);
   const messages = rows(`SELECT id,task_id,sender_type,sender_id,content,content_type,invocation_id,created_at
     FROM chat_message WHERE conversation_id=? AND created_at<=? AND visibility='public' ORDER BY created_at,id`,
-    request.conversationId, cutoff).filter((message) => request.mode === 'offline' && request.rootTaskId
-      ? Boolean(message.task_id) && taskIds.has(String(message.task_id))
-      : !message.task_id || taskIds.has(String(message.task_id))).map(cleanRow);
-  const invocations = rows(`SELECT id,task_id,agent_id,status,engine,account_id,exit_code,reason_code,usage,created_at,updated_at
-    FROM invocation WHERE conversation_id=? AND created_at<=? ORDER BY created_at,id`,
-    request.conversationId, cutoff).filter((invocation) =>
-      !invocation.task_id || taskIds.has(String(invocation.task_id))).map(cleanRow);
-  const passes = request.chainId
-    ? rows(`SELECT p.* FROM a2a_pass p JOIN a2a_possession_chain c ON c.id=p.chain_id
-        WHERE p.chain_id=? AND c.conversation_id=? AND p.created_at<=? ORDER BY p.created_at,p.id`,
-        request.chainId, request.conversationId, cutoff).map(cleanRow)
-    : [];
+    request.conversationId, cutoff).filter((message) =>
+      (message.task_id && taskIds.has(String(message.task_id)))
+      || (message.invocation_id && execution.invocationIds.has(String(message.invocation_id)))).map(cleanRow);
+  const invocations = execution.invocations.map(cleanRow);
+  const contracts = execution.contracts.map(cleanRow);
+  const chains = execution.chains.map(cleanRow);
+  const passGroups = execution.passGroups.map(cleanRow);
+  const passes = execution.passes.map(cleanRow);
+  const collaborationEvents = execution.collaborationEvents.map(cleanRow);
+  const lateFacts = execution.lateFacts;
   const evaluationCase = request.caseId
     ? db.prepare(`SELECT c.id,c.case_key,c.split,c.expected_labels,c.metadata
         FROM eval_case c JOIN eval_dataset d ON d.id=c.dataset_id
@@ -312,7 +320,8 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   if (tasks.length === 0) missing.push('tasks');
   if (spans.length === 0) missing.push('spans');
   if (proofs.length === 0) missing.push('proofs');
-  if (request.chainId && passes.length === 0) missing.push('handoff_receipts');
+  if (chains.length > 0 && passes.length === 0) missing.push('handoff_receipts');
+  if (lateFacts.length > 0) missing.push('mutable_state_at_cutoff');
   if (!revision) missing.push('code_revision');
   if (frozenApplication ? frozenApplication.team.roles.length === 0 : !conversation.team_pack_id || roleRows.length === 0) {
     missing.push('team_configuration_revision');
@@ -322,11 +331,12 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   const byDimension: Record<string, number> = {
     completion: tasks.length ? 1 : 0,
     delivery: taskActions.length || artifacts.length ? 1 : 0,
-    reliability: invocations.length ? 1 : 0,
+    reliability: invocations.length && !lateFacts.some((fact) => fact.startsWith('invocation:')) ? 1 : 0,
     efficiency: spans.some((span) => span.kind === 'tool') ? 1 : 0,
     correctness: messages.length || payloads.length ? 1 : 0,
     instruction_following: messages.length || payloads.length ? 1 : 0,
-    collaboration: request.chainId ? (passes.length ? 1 : 0) : 1,
+    collaboration: lateFacts.some((fact) => fact.startsWith('pass:') || fact.startsWith('pass_group:'))
+      ? 0 : chains.length ? (passes.length ? 1 : 0) : 1,
     clarity: messages.length || payloads.length ? 1 : 0,
     configuration: revision && (frozenApplication?.team.id ?? conversation.team_pack_id) &&
       (frozenApplication?.team.roles.length ?? roleRows.length) &&
@@ -335,7 +345,8 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   const coverage = Object.values(byDimension).reduce((sum, value) => sum + value, 0) / Object.keys(byDimension).length;
   const evidence = {
     conversation: cleanRow(conversation), tasks, edges, taskActions, artifacts, spans, payloads, proofs,
-    messages, invocations, passes, evaluationCase: evaluationCase ? cleanRow(evaluationCase) : undefined,
+    messages, contracts, chains, passGroups, passes, collaborationEvents, invocations, lateFacts,
+    evaluationCase: evaluationCase ? cleanRow(evaluationCase) : undefined,
   };
   const truncated = collectTruncatedPaths(evidence);
   for (const payload of payloads.filter((item) => Boolean(item.truncated))) {
@@ -354,6 +365,11 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
       kind: 'pass', id: String(pass.id), passId: String(pass.id),
       chainId: pass.chain_id ? String(pass.chain_id) : undefined,
     })),
+    ...passGroups.map((group) => ({
+      kind: 'pass_group', id: String(group.id),
+      chainId: group.chain_id ? String(group.chain_id) : undefined,
+    })),
+    ...collaborationEvents.map(collaborationEventEvidenceRef),
     ...taskActions.map((action) => ({ kind: 'action', id: String(action.id) })),
     ...artifacts.map((artifact) => ({ kind: 'artifact', id: String(artifact.id), taskId: String(artifact.task_id) })),
   ];

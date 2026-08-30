@@ -16,6 +16,7 @@
 - [x] 把聚合 outcome 工具拆为单意图结构化 MCP 工具并保持 owner-local Schema。
 - [x] MCP 工具返回统一 CommandReceipt；accepted 终态回执强制结束 turn。
 - [x] 增加 `ended_without_outcome`、重复终态、stale authority、stale revision 测试；持久 Worker 已覆盖无回执退出、canonical/ACP namespaced tool 已接纳回执正例，WorkContract repository 覆盖重复终态与 stale authority/revision。
+- [ ] 贯通 Task Graph `intent` 到 Task/Gate/AgentInbox/WorkContract；`review` / `verify` 自动绑定真实 Gate，不再退化为 planning 合同。
 - [x] 建立 `ath` CLI，采用 JSON stdin/stdout、稳定退出码和 `delivery_unknown`。
 - [x] 验证 MCP、CLI/Human API 对已接入命令复用同一 handler 与 receipt；其余命令随 registry 扩展补齐。
 
@@ -42,6 +43,7 @@
 - [x] Project 消息回复使用服务端校验的 `replyToMessageId/threadRootId`，Inbox 与消息流按同一 root 聚合；Thread 详情侧栏与精确深链待完成。
 - [x] 完成 Clowder 式 Artifact Ledger：成功写工具自动发现、Outcome evidence 自动登记、同 ref 合并、Project 页面与 Agent briefing 共用投影。
 - [x] 将 Project 产物视图重构为“贡献角色列 → 语义类别 → 产物卡片 → 详情”，并把 file URL、行范围和组合 evidence 归一为 canonical ref，避免同一交付件重复占位。
+- [ ] 收紧 Artifact Ledger：源码行号区间按文件去重，健康检查、命令输出和说明性 URL 只保留为 evidence，不进入正式产物页。
 - [x] 将 `work_handoff` 从不透明 payload 改为显式 MCP Schema，并由 ACP Adapter 统一外层/领域幂等身份，消除合法交接被 `a2a_outcome_invalid` 连续拒绝的问题。
 - [ ] 完成状态只从 receipt、artifact revision、gate 与 release policy 计算。
 - [x] 为 Task `in_review` 增加 revision-bound Gate durable backfill；普通 Project 幂等派发 reviewer，active Delivery 从同一 `gate.requested` 事实继续编排。
@@ -57,6 +59,7 @@
 - [x] Durable Inbox 具备 per-runtime-lane FIFO、公平 oldest-head、容量上限、lease/ACK fencing、退避与终态 expiry；显式 dead-letter 投影继续补齐。
 - [x] 每个 persistent worker turn 重新签发最小 MCP grant，并在所有终态/异常路径撤销；下一 Session 不继承上一 Invocation 的 MCP server。
 - [x] 区分 application failure 与 transport failure，只有后者替换 worker；同 lane 忙时不再错误切换 Worker，stale lease 不能释放新 turn。
+- [ ] Domain `task.*` 事件实时发布统一 `task.state` 桌面投影，避免 blocked/done 只能在刷新后可见。
 
 ## 验证与收口
 

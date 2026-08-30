@@ -141,6 +141,11 @@ daemon 不解析任何厂商专有 stdout，不判断某个厂商支持哪些参
 
 Runtime 文本、tool stream 和 prompt response 都是 `RuntimeObservation`。prompt response 的 completed 只结束 Invocation；Task、Artifact、Gate、Release 的事实变化必须来自命令回执。正常结束但没有 accepted terminal receipt 的 Invocation 记录 `ended_without_outcome`。
 
+ACP Adapter 暴露的 MCP 工具名可能带 server namespace（例如 `server_hash_work_report_blocked`）。Runtime
+判断终态回执时必须把该名称与 WorkContract 中的 canonical lifecycle tool 做边界匹配，并继续校验 receipt
+为 `applied/duplicate + exitAccepted=true`；不能因为 transport-qualified 名称不同，把已经落账的终态命令再次
+标记为 `ended_without_outcome`。名称归一只用于已授权工具集合，禁止用任意后缀扩大工具权限。
+
 Runtime 失败也是 observation，不是 Agent 答复。空 completion 的有界恢复仍失败时只输出 `error` 与稳定 reason code；不得合成“未返回最终文本”聊天消息。Project 顶部状态栏显示最近失败及可操作说明，原始诊断留在终端/可观测记录，Inbox 不投影 thinking、tool observation 或 Runtime failure 占位文本。
 
 ### 5.5 事件映射

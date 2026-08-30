@@ -174,7 +174,15 @@ function outcomeEvidence(root: string, value: string): Array<{ ref: string; kind
     if (/^(test|trace|proof|live-db|disk|e2e|cmd):/i.test(raw)) {
       return [{ ref: raw, kind: 'proof' as const }];
     }
-    if (/^https?:\/\//i.test(raw)) return [{ ref: raw }];
+    if (/^https?:\/\//i.test(raw)) {
+      if (/\s/.test(raw)) return [];
+      try {
+        const parsed = new URL(raw);
+        return ['http:', 'https:'].includes(parsed.protocol) ? [{ ref: raw }] : [];
+      } catch {
+        return [];
+      }
+    }
     const typed = raw.match(/^(workspace|path):(.*)$/i);
     if (typed) {
       const ref = normalizeProjectRelativePath(root, describedFileCandidate(typed[2]));

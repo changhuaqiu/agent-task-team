@@ -65,6 +65,7 @@
 - [x] 将首批 Agent 生命周期 MCP 工具接入统一 CommandService 与 CommandReceipt。
 - [x] 建立共用 handler 的 `ath` CLI 逃生仓，并让 `project.create` 同时服务 CLI 与 Human API。
 - [x] 正常 ACP completion 但没有 accepted outcome 时记录 `ended_without_outcome`，不得推进 Task/Delivery；已接纳 terminal receipt 为对应正例。
+- [ ] 终态 receipt 识别支持 ACP 的 MCP server-qualified tool name，并以已授权 canonical tool 集合限制后缀匹配。
 - [x] 以本地 Buzz EXE 的真实触发、session、tool command 与 CLI 写回链路复核生产调用图，并在规格中增加“文件存在不等于接线完成”的真实性门禁。
 - [x] daemon composition root 创建并长期持有 Supervisor/WorkerPool；健康 ACP transport 跨至少两个 Invocation 复用，per-Invocation 只创建/加载 Session 和签发 grant。
 - [ ] 将当前显式提及/授权触发收敛为可持久化的有序 first-match SubscriptionRule；表达式执行必须有长度、并发、超时、连续超时熔断和 fail-closed 上限，并由 Agent Profile/Project 频道投影同一规则事实。

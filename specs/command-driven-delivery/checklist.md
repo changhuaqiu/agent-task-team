@@ -19,6 +19,7 @@
 - [ ] 幂等、revision、authority epoch、attempt 和 fencing 在写入前校验。
 - [x] 终态 outcome 最多接纳一次；文本和进程退出不能替代 outcome。
 - [x] ACP runtime 的 canonical 与 server-namespaced lifecycle tool 只有在结构化 receipt 被接纳后才满足终态出口。
+- [ ] Task Graph 的 `intent` 不会在 Task commit 中丢失；`review` / `verify` 合同必须携带真实 Gate identity 与 `gate_record_decision`。
 - [ ] Task 完成需要当前 artifact revision 的质量回执。
 - [x] Task 进入 `in_review` 后可由 durable replay 幂等得到当前 artifact revision 的唯一 code-review Gate 与 reviewer 工作。
 - [x] 评审期间 Task revision 变化会原子取消旧 Gate/reviewer authority 并创建当前 Gate；replay 会再次清理迟到的旧 authority，stale/terminal Gate 无法签发 WorkContract，未授权、自评或 stale artifact 的 Gate outcome 在占用终态槽前被拒绝。
@@ -53,6 +54,8 @@
 - [x] Project“产物”页按实际贡献角色分列，列内仅展示存在的语义类别；搜索/状态筛选后仍保留角色与类别层级，详情信息不混入一级归类。
 - [x] 同一 Project 文件的 file URL、绝对/相对路径、行号与行范围证据归一为同一 canonical ref；逗号组合引用先拆分，验证回执归为 proof。
 - [x] Outcome 与传统 Task artifact 共用 evidence 解析；远程/畸形 file URL 和 Windows 大小写变体内部目录失败关闭，评审与合并回执不能覆盖实现者的 Agent/Work provenance。
+- [ ] 健康检查、命令输出、PID 和源码行号碎片不会成为独立正式产物；同一文件的多个 evidence range 只显示一张卡。
+- [ ] Task blocked/in_review/done 的 DomainEvent 无需刷新即可更新桌面工作分组。
 
 ## 验证
 

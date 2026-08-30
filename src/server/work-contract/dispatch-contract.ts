@@ -283,6 +283,9 @@ export function issueDispatchWorkContract(input: {
       ...(input.trigger.executionSubject
         ? [`ad_hoc_execution:${input.trigger.executionSubject.id}`]
         : []),
+      ...(input.trigger.replyTo?.type === 'quality_gate'
+        ? [`quality_gate:${input.trigger.replyTo.id}`]
+        : []),
     ];
     const authoritativeRevisions: Record<string, string | number> = {
       contextSnapshot: input.contextSnapshot.id,

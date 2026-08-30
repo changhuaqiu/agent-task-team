@@ -36,6 +36,7 @@ describe('AgentInboxScheduler', () => {
       projectAgentId: 'implementer',
       idempotencyKey: 'turn-1',
       command: {
+        replyTo: { type: 'quality_gate', id: 'gate-1' },
         source: 'user',
         prompt: 'Implement',
         correlationId: 'goal-trace-1',
@@ -73,6 +74,7 @@ describe('AgentInboxScheduler', () => {
       a2aHandoff?: { evidenceRefs: string[] };
       wakeup?: { reasonCode: string; reasonSummary?: string };
       legacyProposal?: boolean;
+      replyTo?: { type: string; id: string };
     } | undefined;
     const scheduler = new AgentInboxScheduler({
       inbox,
@@ -117,6 +119,7 @@ describe('AgentInboxScheduler', () => {
         reasonSummary: 'Evidence is incomplete',
       },
       legacyProposal: true,
+      replyTo: { type: 'quality_gate', id: 'gate-1' },
     });
     scheduler.stop();
   });

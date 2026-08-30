@@ -99,6 +99,13 @@ standalone continuation 必须和 accepted outcome 同事务完成。只有领�
 accepted/applied；owner 仍须强制 payload revision 等于冻结 authority，不能把安全性只交给 Adapter。
 异步事件处理器不能作为首次提交后仍可能失败的隐藏第二阶段。
 
+Task Graph 中每个 WorkItem 的 `intent` 是统一执行模型的一部分，必须从 MCP Schema、Outcome admission、
+Task authority 一直保留到 AgentInbox 与 WorkContract。`implement` 进入普通 Task 执行；`review` / `verify`
+不得在落库时退化成普通 `issue + planning`，而要把 WorkItem 置于等待 Gate 的权威状态、创建并绑定真实
+QualityGate，再以 `review_gate` / `test_gate` 签发只含 `gate_record_decision` 的合同。不得根据标题或自然
+语言中的“评审 / gate”临时猜测意图；缺少结构化 intent 时按普通执行处理。Gate identity、目标 Task revision
+和 evaluator 必须冻结在同一派发链中，避免“任务要求出 Gate 结论，但合同没有 Gate 工具”的死循环。
+
 ## 6. 新交付模型
 
 页面和流程围绕 `Project`、`WorkItem`（当前 Task）、`Artifact`、`Review/Gate` 和可选 `Release` 组织。“交付完成”是投影而不是按钮：所选 Release/目标范围内的必需 WorkItem 已通过、要求的 Artifact 存在、Gate 已通过、外部动作有可验证回执。没有 Release 的日常协作也能持续产出，不要求先创建“交付”。
@@ -136,6 +143,7 @@ accepted/applied；owner 仍须强制 payload revision 等于冻结 authority，
 - Artifact ref 的 identity 是可导航对象，不是证据文本原句。`file://`、Project 绝对路径、行号/行范围和逗号分隔的多个引用必须先拆分、去掉定位信息并归一到 canonical Project ref；同一文件的多个定位只形成一张当前卡片。命令、E2E、trace 与 live-db 等非文件验证回执归入 proof，不得伪装成文件路径。
 - 每次 Agent 唤醒时，最近产物、活跃 Work 与来源关系自动进入 context briefing。Agent 应继续修改已有 ref，并在终态 outcome 中引用精确 ref；这条规则由平台注入，不依赖模型记忆。
 - Project 与 Workspace“产物”页、Project 卡片计数和侧栏总数都读取同一 Ledger，展示自动发现与已登记两种状态，不提供重复的“创建产物”表单；`.ath` 内部状态文件与历史根目录 `TASKS.md` 控制投影不进入用户产物面。Release/Gate 仍只能消费 registered evidence，不能消费 working observation。
+- Evidence ref 不是天然产物。命令输出、健康检查、PID、带说明文字的 URL 和源码行号区间只属于 Gate/Outcome 证据；Ledger 只接纳可规范化的 Project 内文件、显式 artifact ref 或真实外部对象，并把同一文件的 `file:12-34` / `file:12:34` 引用折叠为一个对象。
 
 `agent_team.create/update/delete/deploy` 是 Agent Team 写入的唯一主路径。Web、Desktop、MCP 与 CLI 只构造相同命令；创建/更新 receipt 返回完整 AgentTeam，删除 receipt 返回冻结 identity，部署 receipt 返回 Team、Project Channel 和成员身份。更新与删除使用 revision，所有命令拒绝空 command/idempotency identity；幂等检查必须先于当前 Agent、Team、Catalog 或 Channel 读取及任何写入，并从原事件恢复冻结 receipt，迟到重放不得覆盖后续 Team 部署。旧事件若缺少 Project identity，只能从其冻结 Channel 的权威归属恢复；无法恢复必须失败关闭，禁止采用重放请求中的 Project。幂等身份覆盖 expected revision 和完整规范化输入。任何兼容 API 都必须委托 CommandService 或明确返回已停用，不能直接写 `team_pack` 或 `conversation.team_pack_id`。
 
@@ -182,6 +190,7 @@ WorkContract 必须保存准入决定、Agent revision、Task owner/revision 快
 
 - Workspace 默认打开跨 Project 的 Inbox/Activity；Project 默认进入绑定该 Project identity 的 Telegram 式协作流。协作流中的消息、Agent 运行观察和正式事实共享作用域与因果身份，但仍是不同事件类别。
 - Runtime observation 使用轻量、可折叠的活动表现，不与正式产物混排为同等事实。聊天主线只展示 thinking 摘要、最终答复和一个操作回执；逐条工具调用只属于 Invocation 观察详情。
+- Task 的 `blocked / in_progress / in_review / done` 变化必须从同一 DomainEvent 实时投影到桌面；页面不能等下一次全量刷新才修正状态，也不能把数据库已阻塞的 WorkItem 继续显示为“进行中”。
 - 回复使用持久 `replyToMessageId` 和由服务端校验/派生的 `threadRootId`；客户端不得靠引用文本解析 Thread。Inbox 与消息流必须按同一 root 聚合。
 - 重复 Runtime/同步活动在产品时间线按稳定语义键折叠，保留次数和最后时间；正式 Command Fact 不参与噪声折叠。
 - `CommandReceipt` 投影成任务提交评审、产物登记、评审要求修改、发布确认等事实卡片。

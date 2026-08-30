@@ -18,6 +18,7 @@ export interface TaskRow {
   conversation_id: string;
   title: string;
   category: 'issue' | 'change_request' | 'improvement';
+  intent: TaskIntent;
   description: string | null;
   status: TaskStatus;
   agent_id: string;
@@ -30,11 +31,14 @@ export interface TaskRow {
   updated_at: string;
 }
 
+export type TaskIntent = 'implement' | 'review' | 'verify' | 'plan';
+
 export interface NewTask {
   id: string;
   conversation_id: string;
   title: string;
   category?: TaskRow['category'];
+  intent?: TaskIntent;
   description?: string;
   agent_id: string;
   dependencies?: string[];
@@ -93,7 +97,7 @@ function taskStatusEvent(previousStatus: TaskStatus, status: TaskStatus): Domain
 
 export type TaskPatch = Pick<
   TaskRow,
-  'title' | 'description' | 'agent_id' | 'dependencies' | 'artifacts' | 'review_note'
+  'title' | 'description' | 'agent_id' | 'intent' | 'dependencies' | 'artifacts' | 'review_note'
 >;
 
 export const taskRepo = {
@@ -104,15 +108,16 @@ export const taskRepo = {
     return db.transaction(() => {
       db.prepare(
         `INSERT INTO task (
-          id, conversation_id, title, category, description, status, agent_id,
+          id, conversation_id, title, category, intent, description, status, agent_id,
           dependencies, artifacts, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
         input.conversation_id,
         input.title,
         input.category ?? 'issue',
+        input.intent ?? 'implement',
         input.description ?? null,
         status,
         input.agent_id,

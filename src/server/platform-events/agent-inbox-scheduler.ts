@@ -102,6 +102,7 @@ export class AgentInboxScheduler {
           a2aHandoff: item.command.a2aHandoff,
           contextScenario: item.command.contextScenario,
           wakeup: item.command.wakeup,
+          replyTo: item.command.replyTo,
           evaluation: item.command.evaluation,
           legacyProposal: item.command.legacyProposal,
           inboxItemId: item.id,
