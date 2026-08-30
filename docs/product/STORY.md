@@ -25,6 +25,35 @@ updated: 2026-08-30
 
 ---
 
+## 2026-08-31：Agent 失败后不再永久占着“进行中”
+
+### 原来的用户处境
+
+Agent 已经因启动失败或运行时租约过期而结束，任务却可能长期显示进行中；A2A 交接已完成或失败后，旧执行权仍然 active。同时，交付件页面会把命令、Trace、测试回执等验证信息和正式交付件混成一组卡片，角色列的交付归属被噪音打乱。
+
+### 优化后的变化
+
+- 过期或失败的 Invocation 会收尾并释放当前 WorkAuthority，原 Task 仍保留真实的未完成状态，由现有唤醒/交付控制决定重试或人工处理；
+- terminal Task 与 A2A Pass 会关闭各自权威路径，老版本留下的占用在桌面启动时幂等恢复；
+- 评估页分开显示任务完成度、终态路径收敛和结构化结果接纳率，不再用一个平均分掩盖“失败但已结算”与“永久卡死”的差别；
+- 角色列只放正式交付件，命令、测试、Trace、数据库和 E2E 回执继续作为验证证据，不再单独冒充交付件卡片。
+
+### 已验证的效果
+
+在真实桌面 SQLite 的一致备份上，候选版本将 1 个过期 Invocation 结束，关闭 22 个残留 active Authority，终态 A2A 占用从 20 降为 0，退役 handler 的 queued/running 从 2 降为 0，并回填 2 个历史完成时间；数据库完整性与外键检查均通过。Task 仍为 2/4 完成，没有把失败伪增成成功。全量回归 1978 项通过、2 项跳过，生产构建通过。
+
+### 仍然保留的边界
+
+这是组件/路径级收敛修复，证明失败后能结算、能继续，不代表 Agent 在代表性任务上的完成率已提升。后续仍需固定 TestSuiteRevision 和 baseline/candidate ApplicationSnapshot 的成对实验；真实数据库只有在新桌面程序启动后才会应用这些恢复变更。
+
+### 设计与实现依据
+
+- [Agent 完成可靠性规格](../../specs/agent-completion-reliability/spec.md)
+- [Agent 评估系统长期技术设计](../technical/evaluation/agent-evaluation-system.md)
+- [C 级前后对比记录](../technical/evaluation/2026-08-30-agent-completion-reliability-evaluation.md)
+
+---
+
 ## 2026-08-30：OpenCode Agent 不再“已接球但启动失败”
 
 ### 原来的处境

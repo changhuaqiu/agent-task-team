@@ -4,6 +4,8 @@ export type EvaluationEvidenceRow = Record<string, unknown>;
 
 export interface EvaluationExecutionEvidence {
   contracts: EvaluationEvidenceRow[];
+  authorities: EvaluationEvidenceRow[];
+  outcomes: EvaluationEvidenceRow[];
   chains: EvaluationEvidenceRow[];
   passGroups: EvaluationEvidenceRow[];
   passes: EvaluationEvidenceRow[];
@@ -76,6 +78,14 @@ export function collectEvaluationExecutionEvidence(
     .map((row) => [String(row.id), row])).values()];
   const contractIds = values(contracts, 'id');
   const workIds = values(contracts, 'work_id');
+  const authorityCandidates = rowsIn(db, (ids) => `SELECT * FROM work_authority
+      WHERE project_id=? AND work_id IN (${ids}) ORDER BY updated_at,work_id`,
+  workIds, [input.conversationId]);
+  const authorities = authorityCandidates.filter((row) => stateKnownAt(row, input.cutoffAt));
+  const outcomes = rowsIn(db, (ids) => `SELECT * FROM agent_outcome
+      WHERE project_id=? AND contract_id IN (${ids}) AND recorded_at<=?
+      ORDER BY recorded_at,id`,
+  contractIds, [input.conversationId], [input.cutoffAt]);
   const deliveryRunIds = new Set([...rootDeliveryRunIds, ...values(contracts, 'delivery_run_id')]);
 
   const taskPassCandidates = rowsIn(db, (taskIds) => `SELECT pass.* FROM a2a_pass pass
@@ -199,6 +209,8 @@ export function collectEvaluationExecutionEvidence(
     ...[...invocationsByTask, ...invocationsByContract, ...invocationsByWork]
       .filter((row) => !stateKnownAt(row, input.cutoffAt))
       .map((row) => `invocation:${String(row.id)}`),
+    ...authorityCandidates.filter((row) => !stateKnownAt(row, input.cutoffAt))
+      .map((row) => `work_authority:${String(row.work_id)}`),
     ...[...seedSpans, ...spansByInvocation]
       .filter((row) => !stateKnownAt(row, input.cutoffAt, 'ended_at'))
       .map((row) => `span:${String(row.span_id)}`),
@@ -206,6 +218,8 @@ export function collectEvaluationExecutionEvidence(
 
   return {
     contracts,
+    authorities,
+    outcomes,
     chains,
     passGroups,
     passes,

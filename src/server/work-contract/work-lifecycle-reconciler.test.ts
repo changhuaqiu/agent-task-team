@@ -9,6 +9,8 @@ import { PlatformEventLog } from '../platform-events/event-log';
 import { buildWorkIdentity } from './work-identity';
 import { WorkContractRepository } from './repository';
 import { WorkLifecycleReconciler } from './work-lifecycle-reconciler';
+import { invocationRepo } from '../repositories/invocation-repo';
+import { A2ACollaborationRepository } from '../a2a/collaboration';
 
 describe('WorkLifecycleReconciler', () => {
   let db: Database.Database;
@@ -206,5 +208,190 @@ describe('WorkLifecycleReconciler', () => {
 
     expect(inbox.get(deliveryItem.id)).toMatchObject({ status: 'cancelled' });
     expect(contracts.getAuthority(deliveryWorkId)).toBeUndefined();
+  });
+
+  it('terminates expired Invocations and closes failed current Work exactly once on startup', () => {
+    const task = taskRepo.create({
+      id: 'task-stale-runtime',
+      conversation_id: 'project-1',
+      title: 'Recover stale runtime',
+      agent_id: 'builder',
+    });
+    taskRepo.transition(task.id, { to: 'in_progress' });
+    const workId = buildWorkIdentity({
+      scope: 'task', targetId: task.id, agentId: 'builder', purpose: 'execute',
+    });
+    const contract = contracts.issue({
+      workId,
+      attemptId: 'attempt-stale-runtime',
+      projectId: 'project-1',
+      taskId: task.id,
+      agentId: 'builder',
+      goal: 'Recover stale runtime', acceptanceCriteria: ['Done'], role: {}, permissions: {},
+      authoritativeRefs: [`task:${task.id}`],
+      authoritativeRevisions: { task: task.revision + 1 },
+      contextSnapshotRef: 'context-stale', allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: 'corr-stale', causationId: 'cause-stale', now,
+    });
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      task_id: task.id,
+      agent_id: 'builder',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+      runtime_owner_id: 'daemon:old',
+      runtime_owner_token: 'lease-old',
+    });
+    invocationRepo.transition(contract.attemptId, { to: 'starting' });
+    db.prepare('UPDATE invocation SET lease_expiry=? WHERE id=?')
+      .run('2026-08-21T00:00:00.000Z', contract.attemptId);
+    const reconciler = new WorkLifecycleReconciler({
+      collaboration: new CollaborationKernel({ inbox }),
+      contracts,
+      now: () => now,
+    });
+
+    expect(reconciler.reconcilePersistedState()).toEqual({
+      staleInvocationsTerminated: 1,
+      authoritiesClosed: 1,
+    });
+    expect(invocationRepo.getById(contract.attemptId)).toMatchObject({
+      status: 'terminated',
+      outcome: 'failed',
+      reason_code: 'orphaned_runtime_owner_lease_expired',
+    });
+    expect(contracts.getAuthority(workId)).toMatchObject({ status: 'closed' });
+    expect(taskRepo.getById(task.id)).toMatchObject({ status: 'in_progress' });
+    expect(reconciler.reconcilePersistedState()).toEqual({
+      staleInvocationsTerminated: 0,
+      authoritiesClosed: 0,
+    });
+  });
+
+  it('releases current Work when a runtime start failure terminates its Invocation', async () => {
+    const task = taskRepo.create({
+      id: 'task-runtime-start-failed',
+      conversation_id: 'project-1',
+      title: 'Retry runtime start',
+      agent_id: 'builder',
+    });
+    taskRepo.transition(task.id, { to: 'in_progress' });
+    const workId = buildWorkIdentity({
+      scope: 'task', targetId: task.id, agentId: 'builder', purpose: 'execute',
+    });
+    const contract = contracts.issue({
+      workId,
+      attemptId: 'attempt-runtime-start-failed',
+      projectId: 'project-1',
+      taskId: task.id,
+      agentId: 'builder',
+      goal: 'Retry runtime start', acceptanceCriteria: ['Done'], role: {}, permissions: {},
+      authoritativeRefs: [`task:${task.id}`],
+      authoritativeRevisions: { task: task.revision + 1 },
+      contextSnapshotRef: 'context-runtime-start-failed',
+      allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: 'corr-runtime-start-failed', causationId: 'cause-runtime-start-failed', now,
+    });
+    invocationRepo.create({
+      id: contract.attemptId,
+      conversation_id: 'project-1',
+      task_id: task.id,
+      agent_id: 'builder',
+      work_contract_id: contract.contractId,
+      work_id: contract.workId,
+      work_epoch: contract.workEpoch,
+      fencing_token: contract.fencingToken,
+    });
+    invocationRepo.transition(contract.attemptId, { to: 'starting' });
+    invocationRepo.transition(contract.attemptId, {
+      to: 'terminated',
+      outcome: 'failed',
+      exit_code: 1,
+      reason_code: 'runtime_start_failed',
+    });
+    const terminated = log.append({
+      type: 'runtime.invocation.terminated',
+      category: 'runtime_lifecycle',
+      projectId: 'project-1',
+      streamKey: `invocation:${contract.attemptId}`,
+      aggregate: { type: 'invocation', id: contract.attemptId },
+      actor: { type: 'runtime', id: 'test-runtime' },
+      projectAgentId: 'builder',
+      invocationId: contract.attemptId,
+      correlationId: 'corr-runtime-start-failed',
+      payload: { outcome: 'failed', reasonCode: 'runtime_start_failed' },
+    });
+    const reconciler = new WorkLifecycleReconciler({
+      collaboration: new CollaborationKernel({ inbox }),
+      contracts,
+    });
+
+    await reconciler.handle(terminated, { signal: new AbortController().signal });
+
+    expect(contracts.getAuthority(workId)).toMatchObject({ status: 'closed' });
+    expect(taskRepo.getById(task.id)).toMatchObject({ status: 'in_progress' });
+  });
+
+  it('closes a terminal A2A Pass WorkAuthority from its durable event', async () => {
+    let sequence = 0;
+    const collaboration = new A2ACollaborationRepository({
+      db,
+      collaboration: new CollaborationKernel({ inbox }),
+      now: () => now,
+      idFactory: (prefix) => `${prefix}-${++sequence}`,
+    });
+    const chain = collaboration.createChain({
+      conversationId: 'project-1',
+      rootTriggerType: 'user_turn',
+      rootTriggerId: 'message-1',
+      holderId: 'lead',
+      holderType: 'agent',
+    });
+    const offered = collaboration.offerPassGroup({
+      chainId: chain.chain.id,
+      sourcePossessionId: chain.rootPossession.id,
+      expectedSourceRevision: chain.rootPossession.revision,
+      idempotencyKey: 'handoff-builder',
+      branches: [{
+        toAgentId: 'builder',
+        intent: 'implement',
+        packet: {
+          title: 'Build', requestedAction: 'Build it', possessionSummary: 'Ready',
+          relevantDecisions: [], evidenceRefs: [], constraints: [], openQuestions: [],
+          forbiddenBehaviors: [], sourceMessageIds: ['message-1'],
+        },
+      }],
+    });
+    const pass = offered.passes[0]!;
+    contracts.issue({
+      workId: `a2a-pass:${pass.id}`,
+      attemptId: 'attempt-a2a-terminal',
+      projectId: 'project-1',
+      agentId: 'builder',
+      goal: 'Build it', acceptanceCriteria: ['Done'], role: {}, permissions: {},
+      authoritativeRefs: [`a2a_pass:${pass.id}`], authoritativeRevisions: {},
+      contextSnapshotRef: 'context-a2a', allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: chain.chain.id, causationId: pass.id, now,
+    });
+    collaboration.failPass({
+      passId: pass.id,
+      expectedRevision: pass.revision,
+      status: 'error',
+      reasonCode: 'runtime_failed',
+      phase: 'run',
+    });
+    const failedEvent = log.listStream(`a2a_pass:${pass.id}`)
+      .find((event) => event.type === 'a2a.pass.failed')!;
+    const reconciler = new WorkLifecycleReconciler({
+      collaboration: new CollaborationKernel({ inbox }),
+      contracts,
+    });
+
+    await reconciler.handle(failedEvent, { signal: new AbortController().signal });
+
+    expect(contracts.getAuthority(`a2a-pass:${pass.id}`)).toMatchObject({ status: 'closed' });
   });
 });

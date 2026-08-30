@@ -191,11 +191,15 @@ export const taskRepo = {
       }
       const result = db.prepare(
         `UPDATE task
-         SET status=?, review_note=COALESCE(?, review_note), revision=revision+1, updated_at=?
+         SET status=?, review_note=COALESCE(?, review_note),
+             completed_at=CASE WHEN ? IN ('done','cancelled') THEN ? ELSE NULL END,
+             revision=revision+1, updated_at=?
          WHERE id=? AND status=? AND revision=?`,
       ).run(
         transition.to,
         transition.reviewNote ?? null,
+        transition.to,
+        now,
         now,
         id,
         previous.status,

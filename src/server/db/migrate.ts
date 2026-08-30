@@ -4727,6 +4727,23 @@ CREATE INDEX IF NOT EXISTS idx_workspace_command_journal_state
       }
     },
   },
+  {
+    version: 111,
+    run: (db) => {
+      const hasTask = Boolean(db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task'",
+      ).get());
+      if (!hasTask) return;
+      db.exec(`
+        UPDATE task
+        SET completed_at=COALESCE(completed_at,updated_at)
+        WHERE status IN ('done','cancelled') AND completed_at IS NULL;
+        UPDATE task
+        SET completed_at=NULL
+        WHERE status NOT IN ('done','cancelled') AND completed_at IS NOT NULL;
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

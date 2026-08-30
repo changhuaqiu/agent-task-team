@@ -64,6 +64,7 @@ export interface PlatformEventRuntimeWorkerOptions {
   phoenixDispatcher?: WorkerDispatcher;
   io?: IOServer;
   automation?: Pick<AutomationRuntime, 'handle' | 'claimDueSchedules'> | false;
+  workLifecycle?: WorkLifecycleReconciler;
 }
 
 export class PlatformEventRuntimeWorker {
@@ -156,6 +157,7 @@ export class PlatformEventRuntimeWorker {
     const taskWakeupRouter = new TaskWakeupRouter();
     this.dispatcher.register({
       id: 'task-wakeup-router:v2',
+      supersedes: ['task-wakeup-router:v1'],
       pattern: 'task.*',
       stereotype: 'router',
       reliability: 'durable',
@@ -187,11 +189,13 @@ export class PlatformEventRuntimeWorker {
       reliability: 'durable',
       handle: evaluationWorkLifecycle.handle,
     });
-    const workLifecycle = new WorkLifecycleReconciler();
+    const workLifecycle = resolved.workLifecycle ?? new WorkLifecycleReconciler();
     for (const [id, pattern] of [
       ['work-lifecycle-reconciler:task:v1', 'task.*'],
       ['work-lifecycle-reconciler:delivery:v1', 'delivery.run.*'],
       ['work-lifecycle-reconciler:late-inbox:v1', 'agent.work.enqueued'],
+      ['work-lifecycle-reconciler:runtime:v1', 'runtime.invocation.terminated'],
+      ['work-lifecycle-reconciler:a2a:v1', 'a2a.pass.*'],
     ] as const) {
       this.dispatcher.register({
         id,
@@ -265,6 +269,7 @@ export class PlatformEventRuntimeWorker {
       const a2aOutcome = new A2AOutcomeProcessManager(resolved.a2aOutcome);
       this.dispatcher.register({
         id: 'a2a-outcome-process-manager:v3',
+        supersedes: ['a2a-outcome-process-manager:v1', 'a2a-outcome-process-manager:v2'],
         pattern: 'agent.outcome.accepted',
         stereotype: 'process_manager',
         reliability: 'durable',
@@ -284,6 +289,7 @@ export class PlatformEventRuntimeWorker {
     const taskGraphOutcome = new TaskGraphOutcomeProcessManager();
     this.dispatcher.register({
       id: 'task-graph-outcome-process-manager:v2',
+      supersedes: ['task-graph-outcome-process-manager:v1'],
       pattern: 'agent.outcome.accepted',
       stereotype: 'process_manager',
       reliability: 'durable',

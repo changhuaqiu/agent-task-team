@@ -300,6 +300,11 @@ function merge(items: ArtifactProjectionItem[], limit: number): ProjectArtifactL
     });
 }
 
+function isFormalArtifact(item: ArtifactProjectionItem): boolean {
+  return item.kind !== 'proof'
+    && !/^(?:cmd|test|trace|proof|live-db|disk|e2e):/i.test(item.ref.trim());
+}
+
 export const projectArtifactLedger = {
   list(projectId: string, limit = 100): ProjectArtifactLedgerItem[] {
     const project = projectRepo.getById(projectId);
@@ -431,7 +436,10 @@ export const projectArtifactLedger = {
         });
       }
     }
-    return merge([...observed, ...registered, ...outcomeEvidenceItems], limit);
+    return merge(
+      [...observed, ...registered, ...outcomeEvidenceItems].filter(isFormalArtifact),
+      limit,
+    );
   },
 
   listAll(limit = 500): ProjectArtifactLedgerItem[] {

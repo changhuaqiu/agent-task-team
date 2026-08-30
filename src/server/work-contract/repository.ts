@@ -491,7 +491,8 @@ export class WorkContractRepository {
       .map((row) => row.work_id)
       .filter((workId) => {
         const identity = parseWorkIdentity(workId);
-        return identity?.scope === 'task' && identity.targetId === taskId;
+        return (identity?.scope === 'task' && identity.targetId === taskId)
+          || workId.startsWith('a2a-pass:');
       });
   }
 
@@ -520,7 +521,8 @@ export class WorkContractRepository {
       input.taskId,
     ).filter((authority) => {
       const identity = parseWorkIdentity(authority.work_id);
-      return identity?.scope === 'task' && identity.targetId === input.taskId;
+      return (identity?.scope === 'task' && identity.targetId === input.taskId)
+        || authority.work_id.startsWith('a2a-pass:');
     }).map((authority) => this.close({
       workId: authority.work_id,
       expectedEpoch: authority.current_epoch,

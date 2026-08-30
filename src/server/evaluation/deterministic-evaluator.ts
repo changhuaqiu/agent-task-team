@@ -2,6 +2,7 @@ import type { EvaluationScore, EvidenceRef, SubjectSnapshot } from './types';
 
 type Row = Record<string, unknown>;
 const TERMINAL = new Set(['done', 'abandoned', 'cancelled']);
+const TERMINAL_PASS = new Set(['completed', 'blocked', 'rejected', 'timeout', 'error']);
 
 function evidence(kind: string, rows: Row[]): EvidenceRef[] {
   return rows.slice(0, 20).map((row) => {
@@ -21,7 +22,7 @@ function evidence(kind: string, rows: Row[]): EvidenceRef[] {
 
 function score(dimensionKey: string, kind: 'gate' | 'deterministic', normalizedScore: number | undefined,
   label: EvaluationScore['label'], rationale: string, refs: EvidenceRef[], applicability: EvaluationScore['applicability'] = 'applicable'): EvaluationScore {
-  return { dimensionKey, evaluatorKind: kind, evaluatorRevision: 'deterministic-v3',
+  return { dimensionKey, evaluatorKind: kind, evaluatorRevision: 'deterministic-v4',
     applicability, normalizedScore, label, rationale, evidenceRefs: refs };
 }
 
@@ -89,6 +90,9 @@ export function evaluateDeterministically(snapshot: SubjectSnapshot): Evaluation
   const passes = Array.isArray(data.passes) ? data.passes : [];
   const collaborationEvents = Array.isArray(data.collaborationEvents) ? data.collaborationEvents : [];
   const invocations = Array.isArray(data.invocations) ? data.invocations : [];
+  const contracts = Array.isArray(data.contracts) ? data.contracts : [];
+  const authorities = Array.isArray(data.authorities) ? data.authorities : [];
+  const outcomes = Array.isArray(data.outcomes) ? data.outcomes : [];
   const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
   const taskRefs = evidence('task', tasks);
   const proofRefs = evidence('proof', proofs);
@@ -139,9 +143,14 @@ export function evaluateDeterministically(snapshot: SubjectSnapshot): Evaluation
     evidence('proof', safetyFailures), safetyFailures.length ? 'applicable' : 'not_applicable'));
 
   const completed = tasks.filter((task) => task.status === 'done').length;
+  const blocked = tasks.filter((task) => task.status === 'blocked').length;
+  const cancelled = tasks.filter((task) => task.status === 'cancelled').length;
+  const active = tasks.length - completed - blocked - cancelled;
   scores.push(score('completion', 'deterministic', tasks.length ? completed / tasks.length * 100 : undefined,
     tasks.length === 0 ? 'unknown' : completed === tasks.length ? 'pass' : completed ? 'partial' : 'fail',
-    tasks.length ? `完成率 ${completed}/${tasks.length}。` : '没有任务数据。', taskRefs,
+    tasks.length
+      ? `完成率 ${completed}/${tasks.length}；blocked ${blocked}，cancelled ${cancelled}，active ${active}。`
+      : '没有任务数据。', taskRefs,
     tasks.length ? 'applicable' : 'unknown'));
   const deliveryPoints = Math.min(100, artifacts.length * 25 + (hasDelivery ? 50 : 0));
   scores.push(score('delivery', 'deterministic', doneTasks.length ? deliveryPoints : undefined,
@@ -157,6 +166,61 @@ export function evaluateDeterministically(snapshot: SubjectSnapshot): Evaluation
     reliability === undefined ? 'unknown' : reliability >= 90 ? 'pass' : reliability >= 60 ? 'partial' : 'fail',
     invocations.length ? `${failures}/${invocations.length} 次调用失败。` : '没有调用数据。',
     evidence('invocation', invocations), invocations.length ? 'applicable' : 'unknown'));
+
+  const contractById = new Map(contracts.map((contract) => [String(contract.id), contract]));
+  const invocationById = new Map(invocations.map((invocation) => [String(invocation.id), invocation]));
+  const taskById = new Map(tasks.map((task) => [String(task.id), task]));
+  const passById = new Map(passes.map((pass) => [String(pass.id), pass]));
+  const convergenceCandidates = authorities.flatMap((authority) => {
+    const contract = contractById.get(String(authority.current_contract_id));
+    if (!contract) return [];
+    const invocation = invocationById.get(String(contract.attempt_id));
+    const task = contract.task_id ? taskById.get(String(contract.task_id)) : undefined;
+    const workId = String(authority.work_id ?? contract.work_id ?? '');
+    const pass = workId.startsWith('a2a-pass:') ? passById.get(workId.slice('a2a-pass:'.length)) : undefined;
+    const invocationFailed = invocation?.status === 'terminated' && invocation.outcome !== 'completed';
+    const invocationLeaseExpired = invocation?.status !== 'terminated'
+      && typeof invocation?.lease_expiry === 'string'
+      && invocation.lease_expiry <= snapshot.evidenceCutoffAt;
+    const ownerTerminal = Boolean(
+      invocationFailed
+      || invocationLeaseExpired
+      || (task && TERMINAL.has(String(task.status)))
+      || (pass && TERMINAL_PASS.has(String(pass.status))),
+    );
+    return ownerTerminal ? [{ authority, invocationLeaseExpired }] : [];
+  });
+  const unresolvedAuthorities = convergenceCandidates.filter(({ authority }) => authority.status !== 'closed');
+  const expiredInvocations = convergenceCandidates.filter(({ invocationLeaseExpired }) => invocationLeaseExpired).length;
+  const convergence = convergenceCandidates.length
+    ? (convergenceCandidates.length - unresolvedAuthorities.length) / convergenceCandidates.length * 100
+    : undefined;
+  const convergenceApplicability = convergenceCandidates.length
+    ? 'applicable' : authorities.length || contracts.length || invocations.length ? 'unknown' : 'not_applicable';
+  scores.push(score('path_convergence', 'gate', convergence,
+    convergence === undefined ? 'unknown' : convergence === 100 ? 'pass' : 'fail',
+    convergenceCandidates.length
+      ? `${convergenceCandidates.length - unresolvedAuthorities.length}/${convergenceCandidates.length} 个终态路径已关闭 WorkAuthority；过期非终态 Invocation ${expiredInvocations}，残留 active Authority ${unresolvedAuthorities.length}。`
+      : authorities.length ? '当前冻结范围没有需要收敛的终态路径。'
+        : contracts.length || invocations.length ? '执行证据存在但没有冻结到 WorkAuthority，不能判断路径收敛。'
+          : '当前任务没有 WorkContract 执行路径，路径收敛门禁不适用。',
+    evidence('work_authority', unresolvedAuthorities.length
+      ? unresolvedAuthorities.map(({ authority }) => authority)
+      : authorities),
+    convergenceApplicability));
+
+  const acceptedOutcomes = outcomes.filter((outcome) => outcome.admission_status === 'accepted').length;
+  const outcomeAcceptance = outcomes.length ? acceptedOutcomes / outcomes.length * 100 : undefined;
+  const rejectionReasons = [...new Set(outcomes
+    .filter((outcome) => outcome.admission_status === 'rejected')
+    .map((outcome) => String(outcome.rejection_reason ?? 'unknown')))];
+  scores.push(score('outcome_acceptance', 'deterministic', outcomeAcceptance,
+    outcomeAcceptance === undefined ? 'unknown' : outcomeAcceptance >= 95 ? 'pass'
+      : outcomeAcceptance >= 70 ? 'partial' : 'fail',
+    outcomes.length
+      ? `${acceptedOutcomes}/${outcomes.length} 个结构化 Outcome 被接纳${rejectionReasons.length ? `；拒绝原因：${rejectionReasons.join('、')}` : ''}。`
+      : '没有结构化 Outcome，接纳率不适用。',
+    evidence('agent_outcome', outcomes), outcomes.length ? 'applicable' : 'not_applicable'));
 
   const receiptCount = passes.length - incompletePasses.length;
   const handoffReliability = hasCollaborationTopology && passes.length

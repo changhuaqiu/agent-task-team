@@ -8,6 +8,7 @@ import { evaluationOperations } from './operations';
 import { buildSubjectSnapshot } from './snapshot-builder';
 import { evaluateDeterministically } from './deterministic-evaluator';
 import { A2ACollaborationRepository } from '../a2a/collaboration';
+import { WorkContractRepository } from '../work-contract/repository';
 
 const now = '2026-07-19T00:00:00.000Z';
 const judgeScores: EvaluationScore[] = ['correctness', 'instruction_following', 'collaboration', 'clarity'].map((dimensionKey) => ({
@@ -84,6 +85,61 @@ describe('AgentEvaluation', () => {
     const evidence = snapshot.evidence as Record<string, Array<Record<string, unknown>>>;
     expect(evidence.invocations.map((item) => item.id)).toEqual(['invocation-root']);
     expect(evidence.spans.map((item) => item.span_id)).not.toContain('span-unrelated');
+  });
+
+  it('freezes WorkAuthority and AgentOutcome as completion-path evidence', () => {
+    const contracts = new WorkContractRepository();
+    const contract = contracts.issue({
+      workId: 'task:task-root:agent:coordinator',
+      attemptId: 'attempt-eval-path',
+      projectId: 'conv-eval',
+      taskId: 'task-root',
+      agentId: 'coordinator',
+      goal: 'Complete the root task',
+      acceptanceCriteria: ['current gate passed'],
+      role: { name: 'coordinator' },
+      permissions: { tools: [] },
+      authoritativeRefs: ['task:task-root'],
+      authoritativeRevisions: { task: 0 },
+      contextSnapshotRef: 'context-eval-path',
+      allowedOutcomeTypes: ['submit_task_result'],
+      correlationId: 'trace-eval-path',
+      causationId: 'action-done',
+      now: new Date(now),
+    });
+    const admission = contracts.admitOutcome({
+      outcomeId: 'outcome-eval-path',
+      idempotencyKey: 'outcome-eval-path-key',
+      contractId: contract.contractId,
+      outcomeType: 'submit_task_result',
+      payload: { summary: 'done' },
+      evidenceRefs: ['artifact:root-delivery'],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: now,
+    }, new Date(now));
+    expect(admission.status).toBe('accepted');
+
+    const snapshot = buildSubjectSnapshot({
+      conversationId: 'conv-eval', rootTaskId: 'task-root', evidenceCutoffAt: now,
+    });
+    const evidence = snapshot.evidence as Record<string, Array<Record<string, unknown>>>;
+    expect(evidence.authorities).toEqual([
+      expect.objectContaining({ work_id: contract.workId, status: 'active' }),
+    ]);
+    expect(evidence.outcomes).toEqual([
+      expect.objectContaining({ id: 'outcome-eval-path', admission_status: 'accepted' }),
+    ]);
+    expect(snapshot.evidenceRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'work_authority', id: contract.workId }),
+      expect.objectContaining({ kind: 'agent_outcome', id: 'outcome-eval-path' }),
+    ]));
   });
 
   it('discovers A2A groups from task membership without a manually supplied chain id', () => {

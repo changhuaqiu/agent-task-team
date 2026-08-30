@@ -104,9 +104,8 @@ describe('projectArtifactLedger', () => {
       expect.arrayContaining(['.ath/TASKS.md', 'TASKS.md']),
     );
     expect(projectArtifactLedger.list(project.id).filter((item) => item.ref === 'src/main.ts')).toHaveLength(1);
-    expect(projectArtifactLedger.list(project.id)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ ref: 'cmd:npm test -> exit 0', kind: 'proof', updatedBy: 'builder' }),
-    ]));
+    expect(projectArtifactLedger.list(project.id).map((item) => item.ref))
+      .not.toContain('cmd:npm test -> exit 0');
     const split = projectArtifactLedger.list(project.id).filter((item) => (
       item.ref === 'src/a.ts' || item.ref === 'src/b.ts'
     ));
@@ -121,9 +120,8 @@ describe('projectArtifactLedger', () => {
     expect(fragment.subject).toEqual({ kind: 'project', id: project.id });
     expect(fragment.content).toContain('[已登记/code] src/main.ts');
     expect(fragment.content).toContain('evidence_refs');
-    expect(fragment.evidenceRefs).toEqual(expect.arrayContaining([
-      'src/main.ts', 'cmd:npm test -> exit 0',
-    ]));
+    expect(fragment.evidenceRefs).toEqual(expect.arrayContaining(['src/main.ts']));
+    expect(fragment.evidenceRefs).not.toContain('cmd:npm test -> exit 0');
   });
 
   it('keeps artifacts isolated by project', () => {
@@ -210,9 +208,8 @@ describe('projectArtifactLedger', () => {
       kind: 'code', status: 'registered', updatedBy: 'builder',
       workId: 'task-build', workTitle: '实现入口',
     });
-    expect(ledger).toEqual(expect.arrayContaining([
-      expect.objectContaining({ ref: 'E2E: POST /chat 200', kind: 'proof', updatedBy: 'reviewer' }),
-      expect.objectContaining({ ref: 'cmd:npm test -> exit 0', kind: 'proof', updatedBy: 'reviewer' }),
+    expect(ledger.map((item) => item.ref)).not.toEqual(expect.arrayContaining([
+      'E2E: POST /chat 200', 'cmd:npm test -> exit 0',
     ]));
     expect(ledger.map((item) => item.ref)).not.toEqual(expect.arrayContaining([
       'src/remote.ts', 'secret.ts', '%E0%A4%A',
@@ -365,11 +362,11 @@ describe('projectArtifactLedger', () => {
         ref: 'reports/acceptance.md', status: 'registered', kind: 'document',
         updatedBy: 'builder', workId: 'a2a-pass:1', workTitle: '完成验收报告',
       }),
-      expect.objectContaining({ ref: 'test:vitest = 42 passed', status: 'registered', kind: 'proof' }),
       expect.objectContaining({ ref: 'proxy.mjs', status: 'registered', kind: 'code' }),
       expect.objectContaining({ ref: 'http://127.0.0.1:4173/summary', status: 'registered', kind: 'link' }),
     ]));
     const refs = projectArtifactLedger.list(project.id).map((item) => item.ref);
+    expect(refs).not.toContain('test:vitest = 42 passed');
     expect(refs.filter((ref) => ref === 'proxy.mjs')).toHaveLength(1);
     expect(refs).not.toEqual(expect.arrayContaining([
       '.ath/team-log.md', 'git status --short', 'msg-1',

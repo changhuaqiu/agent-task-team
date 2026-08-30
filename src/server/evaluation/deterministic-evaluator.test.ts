@@ -77,10 +77,68 @@ describe('evaluateDeterministically', () => {
       ],
     }));
     const completion = scores.find((score) => score.dimensionKey === 'completion')!;
-    expect(completion).toMatchObject({ label: 'partial', rationale: '完成率 1/3。' });
+    expect(completion).toMatchObject({
+      label: 'partial',
+      rationale: '完成率 1/3；blocked 1，cancelled 1，active 0。',
+    });
     expect(completion.normalizedScore).toBeCloseTo(100 / 3);
     const gate = scores.find((score) => score.dimensionKey === 'gate.task_completion')!;
     expect(gate.label).toBe('fail');
     expect(gate.normalizedScore).toBeCloseTo(100 / 3);
+  });
+
+  it('fails an owner-terminal path while its current WorkAuthority remains active', () => {
+    const scores = evaluateDeterministically(subject({
+      tasks: [{ id: 'task-1', status: 'in_progress' }],
+      contracts: [{
+        id: 'contract-1', work_id: 'task:task-1:agent:builder:purpose:execute',
+        task_id: 'task-1', attempt_id: 'inv-1',
+      }],
+      authorities: [{
+        work_id: 'task:task-1:agent:builder:purpose:execute',
+        current_contract_id: 'contract-1', status: 'active',
+      }],
+      invocations: [{
+        id: 'inv-1', status: 'terminated', outcome: 'failed', reason_code: 'runtime_start_failed',
+      }],
+    }));
+
+    expect(scores.find((score) => score.dimensionKey === 'path_convergence')).toMatchObject({
+      normalizedScore: 0,
+      label: 'fail',
+      applicability: 'applicable',
+    });
+  });
+
+  it('separates settled failure paths from result success and reports Outcome admission', () => {
+    const scores = evaluateDeterministically(subject({
+      tasks: [{ id: 'task-1', status: 'in_progress' }],
+      contracts: [{
+        id: 'contract-1', work_id: 'task:task-1:agent:builder:purpose:execute',
+        task_id: 'task-1', attempt_id: 'inv-1',
+      }],
+      authorities: [{
+        work_id: 'task:task-1:agent:builder:purpose:execute',
+        current_contract_id: 'contract-1', status: 'closed',
+      }],
+      invocations: [{ id: 'inv-1', status: 'terminated', outcome: 'failed' }],
+      outcomes: [
+        { id: 'outcome-accepted', admission_status: 'accepted' },
+        { id: 'outcome-rejected', admission_status: 'rejected', rejection_reason: 'revision_stale' },
+      ],
+    }));
+
+    expect(scores.find((score) => score.dimensionKey === 'completion')).toMatchObject({
+      normalizedScore: 0,
+      label: 'fail',
+    });
+    expect(scores.find((score) => score.dimensionKey === 'path_convergence')).toMatchObject({
+      normalizedScore: 100,
+      label: 'pass',
+    });
+    expect(scores.find((score) => score.dimensionKey === 'outcome_acceptance')).toMatchObject({
+      normalizedScore: 50,
+      label: 'fail',
+    });
   });
 });

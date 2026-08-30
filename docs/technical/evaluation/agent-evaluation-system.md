@@ -7,7 +7,7 @@
 
 - `src/server/evaluation/agent-evaluation.ts` 是外部主接口，负责幂等提交、持久 job、重试租约、报告、重放与状态 proof。
 - `snapshot-builder.ts` 按 conversation/root task/optional chain/cutoff 冻结多 trace 证据，排除 thinking 和评估自身 proof，并记录代码、RoleCard、Skill、脱敏模型配置摘要、rubric 与 evaluator revision。
-- `deterministic-evaluator.ts` 先计算硬门禁，再计算完成、交付、可靠性和工具执行指标；`deterministic-v3` 在 v2 的工具正确性边界上增加根任务级交接回执、fan-out/join、恢复状态与 Agent 贡献画像。
+- `deterministic-evaluator.ts` 先计算硬门禁，再计算完成、交付、可靠性和工具执行指标；`deterministic-v4` 在 v3 的根任务级交接、fan-out/join、恢复状态与 Agent 贡献画像上，增加 WorkAuthority 终态路径收敛门和 AgentOutcome 结构化结果接纳率。
 - `judge.ts` 只允许项目显式选择的 OpenAI/Anthropic API Key 账号，无工具权限；没有账号、超预算、Provider 被禁或调用失败时保留确定性结果并转 `partial`。
 - migration 27–38 提供数据库级不可变 rubric/snapshot/score/attempt、ApplicationSnapshot、case execution、带 fencing token 的 job、原子预算预留、双 Judge 复核队列、盲测换序、数据集/实验、gap、policy 与 change proposal 表；历史 `eval_annotation` 表为旧数据和 retention 兼容保留，但当前没有 writer 或公开 route；migration 41 补齐自主交付 `revision`，migration 42 不信任旧 checkpoint 的版本水位，按实际结构补建自主交付表并把旧 `root_task_id` 外键重建为 `ON DELETE SET NULL`。
 - 关闭轮次在 valid exit 后于本地事务内冻结快照并提交 job；后台 worker 只消费冻结快照并执行评估，主 Agent loop 不等待 Judge。
@@ -26,6 +26,15 @@
 - SQLite 备份恢复、工作区 axe 可访问性扫描与 24-run/4-worker 容量演练已有自动化证据；生产环境继续积累真实 Provider 延迟分位数，但请求超时和总路径上界已由代码约束。
 
 ## 决策
+
+### 2026-08-30 Agent 完成路径可评测化
+
+“任务已完成”不再由单一 Task 状态代表。评测将结果成功、路径收敛和执行效率分开：Task 必须有当前 Gate/证据，终态 owner/attempt 必须具有终态 Invocation 且 WorkAuthority 已关闭，重试与交接则单独计入效率。`EvalSnapshotBuilder` 冻结 Authority 和 Outcome，cutoff 之后的 Authority 变更视为 late fact，不倒灌历史评测。
+
+- `path_convergence` 是 gate：只要已失败/过期的 Invocation 或终态 Task/A2A pass 仍保留 active Authority，即失败。
+- `outcome_acceptance` 是确定性指标：以被 WorkContract 权威边界接纳的 AgentOutcome 占比评估结构化交付质量。
+- 没有 Authority/Outcome 执行证据的历史样本保持 `not_applicable`，不把缺失的新事实伪装成通过或失败。
+- 本轮只建立组件/路径级可靠性证据；没有固定 TestSuite 与 baseline/candidate ApplicationSnapshot 前，不宣称端到端任务完成率提升。
 
 ### 2026-08-21 根任务级可观测证据闭包
 

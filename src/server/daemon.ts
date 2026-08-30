@@ -72,6 +72,7 @@ import {
   RuntimeSocketProjection,
   startPlatformEventRuntime,
 } from './platform-events';
+import { WorkLifecycleReconciler } from './work-contract/work-lifecycle-reconciler';
 import { ensureAutonomousDeliveryRuntime } from './autonomous-delivery/bootstrap';
 import { DeliveryTaskTruthReconciler } from './autonomous-delivery/delivery-task-truth-reconciler';
 import { registerDeliveryEffectAdapters } from './autonomous-delivery/delivery-effects';
@@ -264,6 +265,8 @@ export default function registerDaemon(io: IOServer) {
   registerInvocationCoordinator(io, invocationCoordinator);
   const agentInbox = new AgentInbox();
   const collaborationKernel = new CollaborationKernel({ inbox: agentInbox });
+  const workLifecycle = new WorkLifecycleReconciler({ collaboration: collaborationKernel });
+  workLifecycle.reconcilePersistedState();
   const agentInboxScheduler = new AgentInboxScheduler({
     inbox: agentInbox,
     submit: (trigger, options) => (
@@ -341,6 +344,7 @@ export default function registerDaemon(io: IOServer) {
     });
   };
   startPlatformEventRuntime({
+    workLifecycle,
     io,
     automation: new AutomationRuntime({
       onMessagePosted: publishProjectedMessage,

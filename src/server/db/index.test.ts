@@ -120,7 +120,7 @@ describe('SQLite Foundation', () => {
         VALUES ('group-2','work-1',2,'outcome-1')
       `).run()).toThrow();
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 110 });
+        .toEqual({ version: 111 });
     } finally {
       legacyDb.close();
     }
@@ -151,7 +151,7 @@ describe('SQLite Foundation', () => {
         'source_outcome_id',
       ]));
       expect(collidedDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 110 });
+        .toEqual({ version: 111 });
     } finally {
       collidedDb.close();
     }
@@ -735,7 +735,7 @@ describe('SQLite Foundation', () => {
         WHERE id='legacy-action'
       `).get()).toEqual({ type: 'activate', attempt_count: 0, max_attempts: 3 });
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 110 });
+        .toEqual({ version: 111 });
       expect(() => legacyDb.prepare(`
         INSERT INTO delivery_control_action (
           id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
@@ -909,7 +909,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 110 });
+      .toEqual({ version: 111 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -987,7 +987,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 110 });
+          .toEqual({ version: 111 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
@@ -1151,6 +1151,46 @@ describe('SQLite Foundation', () => {
       ) VALUES ('run-invalid','conv-delivery-v58','waiting_human','planning','{}',?,?)
     `).run(now, now)).toThrow(/invalid_delivery_run_state/);
     expect(db.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('backfills terminal task completion timestamps and clears stale nonterminal values', () => {
+    db.prepare('DELETE FROM _schema_version WHERE version=111').run();
+    db.prepare(`INSERT INTO conversation (id,title,status,created_at,updated_at)
+      VALUES ('conv-task-completion','Task completion','active',?,?)`).run(
+      '2026-08-30T01:00:00.000Z',
+      '2026-08-30T01:00:00.000Z',
+    );
+    db.prepare(`INSERT INTO task
+      (id,conversation_id,title,status,agent_id,created_at,updated_at,completed_at)
+      VALUES (?,?,?,?,?,?,?,?)`).run(
+      'task-terminal-completion',
+      'conv-task-completion',
+      'Terminal task',
+      'done',
+      'agent',
+      '2026-08-30T01:00:00.000Z',
+      '2026-08-30T01:05:00.000Z',
+      null,
+    );
+    db.prepare(`INSERT INTO task
+      (id,conversation_id,title,status,agent_id,created_at,updated_at,completed_at)
+      VALUES (?,?,?,?,?,?,?,?)`).run(
+      'task-active-completion',
+      'conv-task-completion',
+      'Active task',
+      'in_progress',
+      'agent',
+      '2026-08-30T01:00:00.000Z',
+      '2026-08-30T01:05:00.000Z',
+      '2026-08-30T01:04:00.000Z',
+    );
+
+    applyMigrations(db);
+
+    expect(db.prepare('SELECT completed_at FROM task WHERE id=?')
+      .get('task-terminal-completion')).toEqual({ completed_at: '2026-08-30T01:05:00.000Z' });
+    expect(db.prepare('SELECT completed_at FROM task WHERE id=?')
+      .get('task-active-completion')).toEqual({ completed_at: null });
   });
 
   it('enforces immutability of published evaluation revisions', () => {

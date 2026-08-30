@@ -29,6 +29,7 @@ export interface PlatformEventHandlerRegistration {
   handle: PlatformEventHandler;
   maxAttempts?: number;
   timeoutMs?: number;
+  supersedes?: readonly string[];
 }
 
 export interface PlatformEventDispatcherOptions {
@@ -107,6 +108,34 @@ export class PlatformEventDispatcher {
       .filter((registration) => registration.reliability === 'durable')
       .map((registration) => registration.id);
     return db.transaction(() => {
+      for (const registration of this.registrations.values()) {
+        if (registration.reliability !== 'durable') continue;
+        for (const retiredId of registration.supersedes ?? []) {
+          if (!retiredId.trim() || retiredId === registration.id) {
+            throw new Error(`platform_event_handler_supersedes_invalid:${registration.id}`);
+          }
+          db.prepare(`
+            UPDATE platform_event_delivery_attempt
+            SET status='abandoned',finished_at=?
+            WHERE status='running' AND delivery_id IN (
+              SELECT id FROM platform_event_delivery
+              WHERE handler_id=? AND status='running'
+            )
+          `).run(now, retiredId);
+          db.prepare(`
+            UPDATE platform_event_delivery
+            SET status='dead_letter',lease_owner=NULL,lease_expires_at=NULL,
+                current_attempt_id=NULL,next_attempt_at=?,last_error=?,updated_at=?,completed_at=?
+            WHERE handler_id=? AND status IN ('queued','running')
+          `).run(
+            now,
+            `handler_superseded_by:${registration.id}`,
+            now,
+            now,
+            retiredId,
+          );
+        }
+      }
       const expired = durableIds.length === 0
         ? []
         : db.prepare(`

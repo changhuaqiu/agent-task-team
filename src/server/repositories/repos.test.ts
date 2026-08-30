@@ -197,7 +197,8 @@ describe('task-repo', () => {
     taskRepo.create({ id: 'task-1', conversation_id: 'conv-1', title: 'T1', agent_id: 'a' });
     taskRepo.transition('task-1', { to: 'in_progress' });
     taskRepo.transition('task-1', { to: 'in_review' });
-    taskRepo.transition('task-1', { to: 'done', reviewNote: 'LGTM' });
+    const done = taskRepo.transition('task-1', { to: 'done', reviewNote: 'LGTM' });
+    expect(done?.completed_at).toBeTruthy();
     const task = taskRepo.getById('task-1')!;
     expect(task.status).toBe('done');
     expect(task.review_note).toBe('LGTM');

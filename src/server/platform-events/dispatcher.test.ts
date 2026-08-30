@@ -81,6 +81,37 @@ describe('PlatformEventDispatcher', () => {
     ]);
   });
 
+  it('dead-letters queued deliveries owned by an explicitly superseded handler', () => {
+    const oldDispatcher = createDispatcher();
+    oldDispatcher.register({
+      id: 'task-handler:v1',
+      pattern: 'task.*',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      handle: () => undefined,
+    });
+    append('task.ready', 'task:1');
+    expect(oldDispatcher.recover().enqueued).toBe(1);
+
+    const replacement = createDispatcher();
+    replacement.register({
+      id: 'task-handler:v2',
+      supersedes: ['task-handler:v1'],
+      pattern: 'task.*',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      handle: () => undefined,
+    });
+    replacement.recover();
+
+    expect(db.prepare(`
+      SELECT status,last_error FROM platform_event_delivery WHERE handler_id='task-handler:v1'
+    `).get()).toEqual({
+      status: 'dead_letter',
+      last_error: 'handler_superseded_by:task-handler:v2',
+    });
+  });
+
   it('discovers only events beyond the persisted handler cursor', () => {
     append('task.assigned', 'task:1');
     const dispatcher = createDispatcher();

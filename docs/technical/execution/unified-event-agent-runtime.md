@@ -398,3 +398,18 @@ Project EventQueue
 - Runtime UI 的状态来自 Agent 配置或浏览器猜测，而非 supervisor observed snapshot。
 
 替换完成后，健康 turn 只归还 worker lease，不关闭 ACP transport；只有配置 generation 变化、协议/传输失败、进程退出、hard timeout 或 shutdown 才回收进程树。Windows 桌面 Host 必须以 Job Object 或等价机制拥有所有后代进程。所有 observed snapshot 先在服务端删除秘密值，再允许投影到 Renderer。
+## Agent completion convergence（2026-08-30）
+
+任务完成可靠性使用三个独立事实衡量：Result success、Path convergence 与 Execution efficiency。
+`runtime.completed` 仍只是观察事实；Task `done` 仍由当前 revision 的 Gate 证据驱动。
+
+`WorkLifecycleReconciler` 是运行时工作收尾的统一 Module。它的 Interface 同时服务事件处理与启动恢复，
+内部负责以下不变量：过期 Invocation 终止、失败 Attempt Authority 关闭、终态 A2A Pass Authority 关闭、
+终态 Task/Delivery 所属 Authority 关闭，以及残留 Inbox Work 取消。关闭 Authority 只释放后续决策权，
+是否重试继续由 Task Wakeup 或 Delivery Control owner 决定，恢复过程不得自行执行外部非幂等写入。
+
+启动恢复必须幂等，并先于持久事件增量消费执行。这样即使旧 handler 已经消费过终态事件，
+或进程在 Invocation 终止与 Authority 关闭之间崩溃，重启后仍能从当前 owner facts 收敛。
+
+评估快照冻结相关 WorkAuthority 与 AgentOutcome；确定性评估分别报告 Task 完成率、终态路径收敛率、
+Outcome 接纳率和 Attempt 可靠性，不以单一综合分掩盖永久 active、拒绝 Outcome 或失败重试。

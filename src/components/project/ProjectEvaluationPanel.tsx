@@ -29,6 +29,7 @@ const LABELS: Record<string, string> = {
   handoff_reliability: '交接回执完整度', fanout_join: '并行分支汇合',
   branch_completion: '协作分支完成度', collaboration_recovery: '协作恢复健康度',
   collaboration_rework: '重复与返工', agent_contribution: 'Agent 贡献画像',
+  path_convergence: '终态路径收敛', outcome_acceptance: '结构化结果接纳率',
   correctness: '结果正确性', tool_correctness: '工具选择与参数正确性',
   instruction_following: '指令遵循', collaboration: '协作质量', clarity: '交付清晰度',
   'gate.task_completion': '完成门禁', 'gate.delivery_evidence': '交付门禁',

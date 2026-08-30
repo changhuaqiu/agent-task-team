@@ -255,6 +255,8 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
       || (message.invocation_id && execution.invocationIds.has(String(message.invocation_id)))).map(cleanRow);
   const invocations = execution.invocations.map(cleanRow);
   const contracts = execution.contracts.map(cleanRow);
+  const authorities = execution.authorities.map(cleanRow);
+  const outcomes = execution.outcomes.map(cleanRow);
   const chains = execution.chains.map(cleanRow);
   const passGroups = execution.passGroups.map(cleanRow);
   const passes = execution.passes.map(cleanRow);
@@ -331,7 +333,9 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   const byDimension: Record<string, number> = {
     completion: tasks.length ? 1 : 0,
     delivery: taskActions.length || artifacts.length ? 1 : 0,
-    reliability: invocations.length && !lateFacts.some((fact) => fact.startsWith('invocation:')) ? 1 : 0,
+    reliability: invocations.length && !lateFacts.some((fact) => (
+      fact.startsWith('invocation:') || fact.startsWith('work_authority:')
+    )) ? 1 : 0,
     efficiency: spans.some((span) => span.kind === 'tool') ? 1 : 0,
     correctness: messages.length || payloads.length ? 1 : 0,
     instruction_following: messages.length || payloads.length ? 1 : 0,
@@ -345,7 +349,8 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
   const coverage = Object.values(byDimension).reduce((sum, value) => sum + value, 0) / Object.keys(byDimension).length;
   const evidence = {
     conversation: cleanRow(conversation), tasks, edges, taskActions, artifacts, spans, payloads, proofs,
-    messages, contracts, chains, passGroups, passes, collaborationEvents, invocations, lateFacts,
+    messages, contracts, authorities, outcomes, chains, passGroups, passes,
+    collaborationEvents, invocations, lateFacts,
     evaluationCase: evaluationCase ? cleanRow(evaluationCase) : undefined,
   };
   const truncated = collectTruncatedPaths(evidence);
@@ -364,6 +369,12 @@ export function buildSubjectSnapshot(request: EvaluationRequest): SubjectSnapsho
     ...passes.map((pass) => ({
       kind: 'pass', id: String(pass.id), passId: String(pass.id),
       chainId: pass.chain_id ? String(pass.chain_id) : undefined,
+    })),
+    ...authorities.map((authority) => ({
+      kind: 'work_authority', id: String(authority.work_id),
+    })),
+    ...outcomes.map((outcome) => ({
+      kind: 'agent_outcome', id: String(outcome.id),
     })),
     ...passGroups.map((group) => ({
       kind: 'pass_group', id: String(group.id),
