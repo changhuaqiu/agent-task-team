@@ -163,7 +163,6 @@ export class TaskWakeupRouter {
       .filter((gate) => (
         gate.kind === 'code_review'
         && gate.artifact_revision !== String(currentRevision)
-        && (gate.status === 'requested' || gate.status === 'evaluating')
       ));
     if (staleGates.length === 0) return;
     const staleGateIds = new Set(staleGates.map((gate) => gate.id));
@@ -201,7 +200,9 @@ export class TaskWakeupRouter {
       workIds: [...staleWorkIds],
       reasonCode: 'task_review_artifact_superseded',
     });
-    for (const gate of staleGates) {
+    for (const gate of staleGates.filter((candidate) => (
+      candidate.status === 'requested' || candidate.status === 'evaluating'
+    ))) {
       qualityGateRepo.cancel({
         gateId: gate.id,
         actor: { type: 'system', id: 'task-review-gate-router' },
