@@ -71,3 +71,10 @@
 ## Decision
 
 通过 C 级组件/路径可靠性门：候选实现在固定场景和真实数据副本上将可自动判定的未收敛路径降为 0，且未修改 Task 结果事实。不通过 E 级任务完成率结论：后续必须在固定 TestSuiteRevision 上运行 baseline/candidate ApplicationSnapshot 成对实验。
+
+## Desktop deployment
+
+- `main` 已推送到 `origin/main`；独立审查最终结论为 0 Critical / 0 Important / Ready。
+- 已生成并启动 `desktop-build-581dea464aebe40989bea27c7427ce7d`，EXE SHA-256 为 `059ADDAEFEE3CD46B7A7B96956582302CB0B1542297237BC9D88A6977746B509`。
+- 真实库启动恢复后 schema=111，active Authority=0，terminal A2A active Authority=0，failed Invocation active Authority=0，退役 handler queued/running=0，终态 Task 缺完成时间=0；`integrity_check=ok`且无外键错误。
+- 恢复前的一致备份保留在 `data.db.before-agent-completion-20260831.bak`。WiX `light.exe` 长时间不结束，已在 release EXE 完整生成后终止仅 MSI 打包步骤；本轮未交付新 MSI。

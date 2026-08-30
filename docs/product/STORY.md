@@ -44,7 +44,7 @@ Agent 已经因启动失败或运行时租约过期而结束，任务却可能�
 
 ### 仍然保留的边界
 
-这是组件/路径级收敛修复，证明失败后能结算、能继续，不代表 Agent 在代表性任务上的完成率已提升。后续仍需固定 TestSuiteRevision 和 baseline/candidate ApplicationSnapshot 的成对实验；真实数据库只有在新桌面程序启动后才会应用这些恢复变更。
+这是组件/路径级收敛修复，证明失败后能结算、能继续，不代表 Agent 在代表性任务上的完成率已提升。后续仍需固定 TestSuiteRevision 和 baseline/candidate ApplicationSnapshot 的成对实验。真实数据库已由新桌面版本完成恢复，恢复前一致备份继续保留供回退核对。
 
 ### 设计与实现依据
 
