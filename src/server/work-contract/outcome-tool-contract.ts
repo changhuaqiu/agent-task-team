@@ -3,7 +3,7 @@ import type { AgentOutcomeType } from './types';
 export interface JsonSchema {
   type: string;
   description?: string;
-  enum?: string[];
+  enum?: Array<string | number>;
   properties?: Record<string, JsonSchema>;
   items?: JsonSchema;
   required?: string[];
@@ -12,6 +12,57 @@ export interface JsonSchema {
 const STRING_ARRAY: JsonSchema = {
   type: 'array',
   items: { type: 'string' },
+};
+
+const TASK_GRAPH_PAYLOAD_SCHEMA: JsonSchema = {
+  type: 'object',
+  description: 'Create or assign a revision-fenced project Task Graph. The platform injects expectedRevision.',
+  properties: {
+    tasks: {
+      type: 'array',
+      description: 'One or more new Tasks or existing ready/proposed WorkItems to assign.',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Stable Task or existing WorkItem id.' },
+          title: { type: 'string' },
+          agentId: { type: 'string', description: 'Exact Project Agent id that will own this Task.' },
+          description: { type: 'string' },
+          dependencies: STRING_ARRAY,
+          initialStatus: { type: 'string', enum: ['proposed', 'ready'] },
+        },
+        required: ['id', 'title', 'agentId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['tasks'],
+  additionalProperties: false,
+};
+
+const CONTINUE_PAYLOAD_SCHEMA: JsonSchema = {
+  type: 'object',
+  description: 'A bounded checkpoint that schedules the next fenced Work epoch.',
+  properties: {
+    schemaVersion: { type: 'integer', enum: [1] },
+    reason: {
+      type: 'string',
+      enum: ['multi_step', 'context_boundary', 'verification_follow_up'],
+    },
+    summary: { type: 'string' },
+    nextAction: { type: 'string' },
+    completedSteps: STRING_ARRAY,
+    remainingSteps: STRING_ARRAY,
+  },
+  required: [
+    'schemaVersion',
+    'reason',
+    'summary',
+    'nextAction',
+    'completedSteps',
+    'remainingSteps',
+  ],
+  additionalProperties: false,
 };
 
 const HANDOFF_PAYLOAD_SCHEMA: JsonSchema = {
@@ -56,6 +107,8 @@ const HANDOFF_PAYLOAD_SCHEMA: JsonSchema = {
 
 export function outcomePayloadSchema(outcomeType: AgentOutcomeType): JsonSchema {
   if (outcomeType === 'handoff_to_agent') return HANDOFF_PAYLOAD_SCHEMA;
+  if (outcomeType === 'propose_task_graph') return TASK_GRAPH_PAYLOAD_SCHEMA;
+  if (outcomeType === 'continue_work') return CONTINUE_PAYLOAD_SCHEMA;
   return { type: 'object', description: `Structured ${outcomeType} payload.` };
 }
 
@@ -67,7 +120,15 @@ export function adaptAcpOutcomePayload(
   outcomeType: AgentOutcomeType,
   payload: unknown,
   idempotencyKey: string,
+  authoritativeRevisions: Record<string, string | number> = {},
 ): unknown {
+  if (outcomeType === 'propose_task_graph') {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload ?? {};
+    return {
+      ...payload as Record<string, unknown>,
+      expectedRevision: authoritativeRevisions.taskGraph,
+    };
+  }
   if (outcomeType !== 'handoff_to_agent') return payload ?? {};
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload ?? {};
   const record = payload as Record<string, unknown>;

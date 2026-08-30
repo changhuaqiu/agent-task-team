@@ -37,7 +37,7 @@ describe('PlatformEventRuntimeWorker', () => {
     worker.start();
     worker.start();
     await vi.advanceTimersByTimeAsync(100);
-    expect(calls).toEqual({ register: 20, recover: 1, discover: 1, drain: 1 });
+    expect(calls).toEqual({ register: 21, recover: 1, discover: 1, drain: 1 });
 
     releaseDrain();
     await vi.advanceTimersByTimeAsync(10);
@@ -92,8 +92,11 @@ describe('PlatformEventRuntimeWorker', () => {
       id: 'gate-outcome-process-manager:v1',
       pattern: 'agent.outcome.accepted',
     }), expect.objectContaining({
-      id: 'task-graph-outcome-process-manager:v1',
+      id: 'task-graph-outcome-process-manager:v2',
       pattern: 'agent.outcome.accepted',
+    }), expect.objectContaining({
+      id: 'task-graph-scheduler-process-manager:v1',
+      pattern: 'task.done',
     }), expect.objectContaining({
       id: 'task-outcome-process-manager:v1',
       pattern: 'agent.outcome.accepted',
@@ -122,7 +125,7 @@ describe('PlatformEventRuntimeWorker', () => {
       id: 'evaluation-work-lifecycle-process-manager:v1',
       pattern: 'agent.work.*',
     })]));
-    expect(registrations).toHaveLength(21);
+    expect(registrations).toHaveLength(22);
   });
 
   it('registers Phoenix projection only when the collector is explicitly configured', () => {

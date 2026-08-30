@@ -110,6 +110,33 @@ describe('WorkspaceInboxRepository', () => {
     expect(repo.list().filter((item) => item.kind === 'message_thread')).toEqual([]);
   });
 
+  it('removes legacy synthetic Runtime failure messages from the Inbox', () => {
+    const project = projectRepo.create({ name: 'Alpha', rootPath: 'C:/alpha' });
+    const conversationId = project.workspace_conversation_id;
+    const failureId = messageRepo.append({
+      conversationId,
+      senderType: 'agent',
+      senderId: 'builder',
+      invocationId: 'inv-failed',
+      content: '⚠️ Agent runtime 未返回最终文本；本次调用已标记失败，请重试。',
+    });
+    const repo = new WorkspaceInboxRepository();
+    repo.project({
+      conversationKey: `message:${conversationId}:${failureId}`,
+      kind: 'message_thread',
+      projectId: project.id,
+      subject: { type: 'message_thread', id: failureId },
+      actor: { type: 'agent', id: 'builder' },
+      title: 'Runtime failure',
+      latestEventId: failureId,
+      latestAt: '2026-08-28T00:00:00.000Z',
+    });
+
+    repo.reconcile();
+
+    expect(repo.list().filter((item) => item.kind === 'message_thread')).toEqual([]);
+  });
+
   it('removes legacy tool rows and restores an eligible message when a tool advanced its thread', () => {
     const project = projectRepo.create({ name: 'Alpha', rootPath: 'C:/alpha' });
     const conversationId = project.workspace_conversation_id;

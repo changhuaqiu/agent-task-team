@@ -1,16 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AgentRun } from '../agent/types';
+import type { AgentEvent, AgentRun } from '../agent/types';
 import { buildAcpSubprocessEnv, PersistentAcpWorker } from './persistent-acp-worker';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const mockPath = join(currentDir, '../../test-helpers/acp/mockAcpAgent.ts');
 
 async function finish(run: AgentRun) {
+  const events: AgentEvent[] = [];
   const eventTypes: string[] = [];
-  for await (const event of run.events) eventTypes.push(event.type);
-  return { result: await run.result, eventTypes };
+  for await (const event of run.events) {
+    events.push(event);
+    eventTypes.push(event.type);
+  }
+  return { result: await run.result, events, eventTypes };
 }
 
 describe('PersistentAcpWorker', () => {
@@ -30,6 +34,8 @@ describe('PersistentAcpWorker', () => {
       const first = await finish(worker.execute('first', {}, {}));
       expect(first.result).toMatchObject({ status: 'completed', sessionId: 'mock-1', output: 'first' });
       expect(first.eventTypes.at(-1)).toBe('done');
+      expect(first.events).not.toHaveLength(0);
+      expect(first.events.every((event) => event.sessionId === 'mock-1')).toBe(true);
       expect(worker.ready()).toBe(true);
 
       const second = await finish(worker.execute('second', {}, {}));
@@ -117,6 +123,32 @@ describe('PersistentAcpWorker', () => {
         output: 'claim complete in prose',
       });
       expect(worker.ready()).toBe(true);
+    } finally {
+      await worker.shutdown();
+    }
+  }, 30_000);
+
+  it('reports an empty completion as a Runtime error without synthesizing answer text', async () => {
+    const worker = new PersistentAcpWorker({
+      id: 'worker-empty-completion', command: 'npx', args: ['tsx', mockPath],
+      cwd: process.cwd(), env: { MOCK_ACP_SCENARIO: 'tool_silent' }, engine: 'opencode',
+    });
+    try {
+      await worker.start();
+      const run = worker.execute('use a tool and answer', {}, {});
+      const text: string[] = [];
+      const errors: string[] = [];
+      for await (const event of run.events) {
+        if (event.type === 'text') text.push(event.content);
+        if (event.type === 'error') errors.push(event.content);
+      }
+
+      expect(await run.result).toMatchObject({
+        status: 'failed',
+        reasonCode: 'acp_tool_completion_missing',
+      });
+      expect(text).toEqual([]);
+      expect(errors.join('')).toContain('检查所选账号和模型');
     } finally {
       await worker.shutdown();
     }

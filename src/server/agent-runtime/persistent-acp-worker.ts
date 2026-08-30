@@ -91,8 +91,8 @@ const EMPTY_COMPLETION_RECOVERY_PROMPT =
   + 'Provide the final answer to the original user request now. '
   + 'Do not repeat any completed actions or tool calls.';
 
-const EMPTY_COMPLETION_FALLBACK =
-  '⚠️ Agent runtime 未返回最终文本；本次调用已标记失败，请重试。';
+const EMPTY_COMPLETION_ERROR =
+  'Agent 未能完成本次运行。请检查所选账号和模型后重试。';
 
 const SAFE_HOST_ENV_KEYS = [
   'APPDATA', 'COMSPEC', 'HOME', 'LANG', 'LC_ALL', 'LOCALAPPDATA', 'PATH', 'PATHEXT',
@@ -447,18 +447,25 @@ export class PersistentAcpWorker {
         }
         const event = mapper(notification.update);
         if (event) {
+          const scopedEvent = event.sessionId
+            ? event
+            : { ...event, sessionId: activeTurn.sessionId };
           visibleActivity = true;
-          if (event.type === 'tool_use' && event.tool?.callId && approvedToolNames.has(event.tool.name)) {
-            approvedCallIds.add(event.tool.callId);
+          if (
+            scopedEvent.type === 'tool_use'
+            && scopedEvent.tool?.callId
+            && approvedToolNames.has(scopedEvent.tool.name)
+          ) {
+            approvedCallIds.add(scopedEvent.tool.callId);
           }
-          const chars = event.content.length > this.resolvedLimits.maxEventChars
+          const chars = scopedEvent.content.length > this.resolvedLimits.maxEventChars
             ? this.resolvedLimits.maxEventChars
-            : event.content.length;
+            : scopedEvent.content.length;
           if (projectedChars + chars > this.resolvedLimits.maxOutputChars) {
             invalidate('failed', 'acp_output_limit', 'ACP projected output exceeded its limit');
             return;
           }
-          if (!emit(event)) {
+          if (!emit(scopedEvent)) {
             invalidate('failed', 'acp_event_limit', 'ACP event stream exceeded its limit');
             return;
           }
@@ -618,7 +625,7 @@ export class PersistentAcpWorker {
           && !acceptedTerminalCommand
           && (!output.trim() || (sawTool && !textAfterTool))
         ) {
-          emit({ type: 'text', content: EMPTY_COMPLETION_FALLBACK, sessionId: activeTurn.sessionId }, true);
+          emit({ type: 'error', content: EMPTY_COMPLETION_ERROR, sessionId: activeTurn.sessionId }, true);
           finish(
             'failed', sawTool ? 'acp_tool_completion_missing' : 'acp_empty_completion',
             'ACP ended without a final assistant message',

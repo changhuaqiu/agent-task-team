@@ -305,16 +305,19 @@ describe('AcpBackend (subprocess integration with mockAcpAgent)', () => {
     });
 
     const run = backend.execute('use a tool and answer', {});
-    const contents: string[] = [];
+    const text: string[] = [];
+    const errors: string[] = [];
     for await (const event of run.events) {
-      if (event.type === 'text') contents.push(event.content);
+      if (event.type === 'text') text.push(event.content);
+      if (event.type === 'error') errors.push(event.content);
     }
 
     expect(await run.result).toMatchObject({
       status: 'failed',
       reasonCode: 'acp_tool_completion_missing',
     });
-    expect(contents.join('')).toContain('未返回最终文本');
+    expect(text).toEqual([]);
+    expect(errors.join('')).toContain('检查所选账号和模型');
   }, 30000);
 
   it('treats an accepted terminal command receipt as the turn result without requiring prose', async () => {

@@ -27,6 +27,7 @@ import {
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentCatalogEntry } from './catalog';
+import { resolveOpenCodeModel } from '../../agent-runtime/open-code-model-resolver';
 
 // ---------------------------------------------------------------------------
 // Per-runtime setup
@@ -46,16 +47,14 @@ interface PrepareAcpOptions {
   env: Record<string, string>;
   /**
    * opencode model to write into the isolated temporary `opencode.json` fallback.
-   * Defaults to `deepseek/deepseek-chat` — the host's configured default
-   * (`zhipuai-coding-plan/glm-4.7`) emits only `agent_thought_chunk` with
-   * ~1 output token and produces NO `agent_message_chunk` (text), so a
-   * text-producing model is required. Ignored when `env.OPENCODE_CONFIG` is
-   * already set (the daemon's account-config path takes precedence).
+   * When omitted, resolve a text model from OpenCode's current local catalog.
+   * Ignored when `env.OPENCODE_CONFIG` is already set (the daemon's
+   * account-config path takes precedence).
    */
   opencodeModel?: string;
+  /** Deterministic catalog injection for tests; production reads OpenCode. */
+  opencodeModelCatalog?: string[];
 }
-
-const DEFAULT_OPENCODE_MODEL = 'deepseek/deepseek-chat';
 
 function bestEffortChmod(path: string, mode: number): void {
   try {
@@ -119,7 +118,12 @@ export function prepareAcpRuntime(
       // fallback so the agent uses a text-producing model instead of the
       // host's thought-only default.
       if (!opts.env.OPENCODE_CONFIG) {
-        const model = opts.opencodeModel ?? DEFAULT_OPENCODE_MODEL;
+        const model = resolveOpenCodeModel({
+          command: entry.launcher.command,
+          runtimeEnv: opts.env,
+          configuredModel: opts.opencodeModel,
+          modelCatalog: opts.opencodeModelCatalog,
+        });
         const configDir = mkdtempSync(join(tmpdir(), 'acp-opencode-config-'));
         const configPath = join(configDir, 'opencode.json');
         bestEffortChmod(configDir, 0o700);
@@ -131,7 +135,11 @@ export function prepareAcpRuntime(
         bestEffortChmod(configPath, 0o600);
         return {
           cwd: opts.cwd,
-          env: { ...opts.env, OPENCODE_CONFIG: configPath },
+          env: {
+            ...opts.env,
+            OPENCODE_CONFIG: configPath,
+            XDG_CONFIG_HOME: configDir,
+          },
           cleanup: idempotentTempCleanup(configDir),
         };
       }

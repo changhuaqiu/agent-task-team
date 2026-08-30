@@ -129,8 +129,8 @@ const EMPTY_COMPLETION_RECOVERY_PROMPT =
   + 'Provide the final answer to the original user request now. '
   + 'Do not repeat any completed actions or tool calls.';
 
-const EMPTY_COMPLETION_FALLBACK =
-  '⚠️ Agent runtime 未返回最终文本；本次调用已标记失败，请重试。';
+const EMPTY_COMPLETION_ERROR =
+  'Agent 未能完成本次运行。请检查所选账号和模型后重试。';
 
 function resolveLimits(overrides?: Partial<AcpRuntimeLimits>): AcpRuntimeLimits {
   const merged = { ...DEFAULT_LIMITS, ...overrides };
@@ -834,7 +834,7 @@ export class AcpBackend implements AgentBackend {
               && !acceptedTerminalCommand
               && (!output.trim() || (sawToolActivity && !hasTextAfterLastTool))
             ) {
-              emit({ type: 'text', content: EMPTY_COMPLETION_FALLBACK, sessionId }, true);
+              emit({ type: 'error', content: EMPTY_COMPLETION_ERROR, sessionId }, true);
               finalize(
                 'failed',
                 sawToolActivity ? 'acp_tool_completion_missing' : 'acp_empty_completion',

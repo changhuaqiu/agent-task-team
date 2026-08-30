@@ -10,6 +10,7 @@ import type { AgentOutcomeType, WorkContract } from './types';
 import { parseWorkIdentity } from './work-identity';
 import { AGENT_OUTCOME_TOOL_BY_TYPE } from './outcome-tools';
 import type { DispatchAdmissionGrant } from '../invocation-pipeline/dispatch-admission';
+import { taskGraphRepo } from '../repositories/task-graph-repo';
 
 const EXECUTION_OUTCOMES: AgentOutcomeType[] = [
   'continue_work',
@@ -228,8 +229,18 @@ export function issueDispatchWorkContract(input: {
       }
       : undefined;
     const currentEpoch = workContractRepo.getAuthority(workId)?.current_epoch ?? 0;
+    const gateWork = input.trigger.source === 'review_gate' || input.trigger.source === 'test_gate';
+    const allowedOutcomeTypes = gateWork
+      ? GATE_OUTCOMES
+      : input.admission.kind === 'planning'
+        ? PLANNING_OUTCOMES
+        : EXECUTION_OUTCOMES;
+    const grantsTaskGraphProposal = allowedOutcomeTypes.includes('propose_task_graph');
     const authoritativeRefs = [
       `context_snapshot:${input.contextSnapshot.id}`,
+      ...(grantsTaskGraphProposal
+        ? [`task_graph:${input.trigger.conversationId}`]
+        : []),
       ...(input.task ? [`task:${input.task.id}`] : []),
       ...(delivery ? [`delivery_run:${delivery.id}`] : []),
       ...(input.trigger.passId ? [`a2a_pass:${input.trigger.passId}`] : []),
@@ -240,6 +251,9 @@ export function issueDispatchWorkContract(input: {
     ];
     const authoritativeRevisions: Record<string, string | number> = {
       contextSnapshot: input.contextSnapshot.id,
+      ...(grantsTaskGraphProposal
+        ? { taskGraph: taskGraphRepo.revision(input.trigger.conversationId) }
+        : {}),
       ...(input.task ? { task: input.task.revision } : {}),
       ...(delivery ? { deliveryRun: delivery.revision } : {}),
       ...(input.trigger.possessionId
@@ -256,14 +270,7 @@ export function issueDispatchWorkContract(input: {
         : input.admission.kind === 'planning'
           ? ['Return a structured plan, assignment, handoff, blocker, or human decision request']
           : ['Return a structured outcome with evidence']);
-    const gateWork = input.trigger.source === 'review_gate' || input.trigger.source === 'test_gate';
-
     const outcomeRecovery = input.trigger.executionMode === 'outcome_recovery';
-    const allowedOutcomeTypes = gateWork
-      ? GATE_OUTCOMES
-      : input.admission.kind === 'planning'
-        ? PLANNING_OUTCOMES
-        : EXECUTION_OUTCOMES;
     const deliveryAuthorization = deliveryContract?.authorization !== null
       && typeof deliveryContract?.authorization === 'object'
       ? deliveryContract.authorization as Record<string, unknown>

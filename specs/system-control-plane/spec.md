@@ -254,6 +254,13 @@ releases it. Historical accepted `continue_work` rows that do not satisfy the ve
 schema remain on the legacy Invocation retry path; they are never silently reinterpreted as a new
 continuation.
 
+`ContinueGateLite` owns Delivery-run continuation only. For a standalone or A2A WorkContract with
+no Delivery run, admission MUST atomically create one idempotent continuation Inbox command before
+returning accepted. The command keeps the stable Work id, execution mode/subject, frozen execution stage and, when present, the active A2A chain and
+Possession revision; the Invocation pipeline creates the new fenced epoch when it consumes that
+command. A standalone Work may accept at most three continuations. Exhaustion is rejected before
+the Contract exit slot is consumed.
+
 `handoff_to_agent` is a terminal, event-driven delegation outcome rather than a polling
 checkpoint. WorkContract admission and the A2A outcome process manager MUST use the same parser
 and normalization rules for every branch, including evidence references. A handoff that cannot be
@@ -581,6 +588,20 @@ When Group Chat Task Flow is enabled, Task Authority includes the Task Graph con
 - artifact refs
 - split and merge lineage
 - reopen history
+
+Planning WorkContracts freeze the current Task Graph revision. The public `task_propose_graph` MCP
+schema exposes canonical task fields while the platform injects that frozen revision. Admission
+MUST call the Task Graph owner and commit deterministic graph effects in the same transaction as
+the accepted outcome. Every WorkContract that exposes this tool MUST freeze the same authority, and
+the owner MUST compare the payload revision to the frozen value. It may assign existing unassigned `proposed`/`ready` WorkItems without
+changing identity, but MUST reject project-external assignees, stale revisions, cycles, and attempts
+to rewrite executing, review, blocked, or terminal Tasks. For non-Delivery proposals, all assigned
+dependency-ready Tasks are enqueued before an applied receipt is returned. The durable outcome
+handler is an idempotent historical recovery path, including v1 event-id commit identities, missing
+frozen results, and pre-authority Contracts, not the initial mutation boundary. An old accepted
+proposal without a commit may use its payload revision only in this recovery path and remains stale-fenced.
+Dependency wakeup and delayed outcome replay use the latest graph commit touching the Task, so an
+older standalone proposal cannot override a later Delivery-owned or direct graph mutation.
 
 The group chat UI may render task capsules and action cards, but durable task state changes must be recorded as task actions.
 

@@ -45,3 +45,4 @@ export {
   RuntimeOwnershipLostError,
   isRuntimeOwnershipLost,
 } from './runtime-ownership-fence';
+export { RuntimeSetupError } from './runtime-setup-error';

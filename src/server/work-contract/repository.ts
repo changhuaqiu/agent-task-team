@@ -9,6 +9,7 @@ import { A2ACommandGuard } from '../a2a/command-guard';
 import { A2ACollaborationInvariantError } from '../a2a/errors';
 import { parseHandoffOutcome } from '../a2a/handoff-outcome';
 import { applyAcceptedA2AHandoff } from '../a2a/outcome-process-manager';
+import { applyAcceptedTaskGraphOutcome } from '../repositories/task-graph-outcome-process-manager';
 import {
   AGENT_OUTCOME_TYPES,
   type AgentOutcome,
@@ -19,6 +20,10 @@ import {
   type WorkContractRow,
 } from './types';
 import { parseWorkIdentity } from './work-identity';
+import {
+  applyAcceptedStandaloneContinuation,
+  standaloneContinuationBudgetRejection,
+} from './standalone-continuation';
 
 const OUTCOME_TYPE_SET = new Set<string>(AGENT_OUTCOME_TYPES);
 
@@ -128,10 +133,16 @@ function gateOutcomeRejectionReason(
   return undefined;
 }
 
-function continuationOutcomeRejectionReason(input: AgentOutcome): string | undefined {
+function continuationOutcomeRejectionReason(
+  input: AgentOutcome,
+  contract: WorkContractRow,
+  db: ReturnType<typeof getDb>,
+): string | undefined {
   if (input.outcomeType !== 'continue_work') return undefined;
   const admission = continueGateLite.admit(input.payload);
-  return admission.accepted ? undefined : admission.reasonCode;
+  return admission.accepted
+    ? standaloneContinuationBudgetRejection(contract, db)
+    : admission.reasonCode;
 }
 
 function handoffOutcomeRejectionReason(
@@ -661,7 +672,7 @@ export class WorkContractRepository {
         }
       }
       if (!rejectionReason && contract) {
-        rejectionReason = continuationOutcomeRejectionReason(input)
+        rejectionReason = continuationOutcomeRejectionReason(input, contract, db)
           ?? handoffOutcomeRejectionReason(input, contract)
           ?? a2aPossessionOutcomeRejectionReason(contract, frozenRevisions, db)
           ?? gateOutcomeRejectionReason(input, contract, db);
@@ -681,32 +692,51 @@ export class WorkContractRepository {
         }
       }
       const recordedAt = now.toISOString();
+      const candidateOutcome: AgentOutcomeRow = {
+        id: input.outcomeId,
+        idempotency_key: input.idempotencyKey,
+        contract_id: input.contractId,
+        project_id: input.projectId,
+        work_id: input.workId,
+        work_epoch: input.workEpoch,
+        attempt_id: input.attemptId,
+        fencing_token: input.fencingToken,
+        outcome_type: input.outcomeType,
+        payload_json: canonicalJson(input.payload ?? {}),
+        evidence_refs_json: canonicalJson(input.evidenceRefs),
+        authoritative_revisions_json: canonicalJson(input.authoritativeRevisions),
+        correlation_id: input.correlationId,
+        causation_id: input.causationId,
+        occurred_at: input.occurredAt,
+        admission_status: 'accepted',
+        rejection_reason: null,
+        recorded_at: recordedAt,
+      };
       if (!rejectionReason && contract && input.outcomeType === 'handoff_to_agent') {
         try {
           db.transaction(() => applyAcceptedA2AHandoff({
             db,
             contract,
-            outcome: {
-              id: input.outcomeId,
-              idempotency_key: input.idempotencyKey,
-              contract_id: input.contractId,
-              project_id: input.projectId,
-              work_id: input.workId,
-              work_epoch: input.workEpoch,
-              attempt_id: input.attemptId,
-              fencing_token: input.fencingToken,
-              outcome_type: input.outcomeType,
-              payload_json: canonicalJson(input.payload ?? {}),
-              evidence_refs_json: canonicalJson(input.evidenceRefs),
-              authoritative_revisions_json: canonicalJson(input.authoritativeRevisions),
-              correlation_id: input.correlationId,
-              causation_id: input.causationId,
-              occurred_at: input.occurredAt,
-              admission_status: 'accepted',
-              rejection_reason: null,
-              recorded_at: recordedAt,
-            },
+            outcome: candidateOutcome,
           }))();
+        } catch (error) {
+          const reasonCode = invariantReasonCode(error);
+          if (!reasonCode) throw error;
+          rejectionReason = reasonCode;
+        }
+      }
+      if (!rejectionReason && contract && input.outcomeType === 'propose_task_graph') {
+        try {
+          applyAcceptedTaskGraphOutcome({ contract, outcome: candidateOutcome });
+        } catch (error) {
+          const reasonCode = invariantReasonCode(error);
+          if (!reasonCode) throw error;
+          rejectionReason = reasonCode;
+        }
+      }
+      if (!rejectionReason && contract && input.outcomeType === 'continue_work') {
+        try {
+          applyAcceptedStandaloneContinuation({ contract, outcome: candidateOutcome, db });
         } catch (error) {
           const reasonCode = invariantReasonCode(error);
           if (!reasonCode) throw error;

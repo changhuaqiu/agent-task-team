@@ -164,7 +164,9 @@ Catalog（`src/server/agent/acp/agentCatalog.seed.json`）是启动事实源（s
 
 `runtimeSetup.ts` 的 `prepareAcpRuntime(entry, opts)` 在 spawn 前做文件系统 / 环境准备（无 spawn 副作用）：
 
-- **opencode**：主机默认模型 `zhipuai-coding-plan/glm-4.7` 只产 thought、不产 text，因此在隔离临时目录写 fallback config（默认 `deepseek/deepseek-chat`）并通过 `OPENCODE_CONFIG` 注入，不修改项目 cwd。若调用方已设置 `OPENCODE_CONFIG`，账号配置优先。
+- **opencode**：账号 provider 配置优先。没有账号配置时，平台从当前安装的 OpenCode provider model catalog 选择文本模型；Daemon 生成的提示词/Skills/权限配置与 Runtime Setup fallback 共用同一个解析器，并都显式写入 `model`，不会因为已有 `OPENCODE_CONFIG` 而退回本机失效默认值。隔离配置不修改项目 cwd；过期或缺失 model 在 ACP 启动前以 `runtime_model_unavailable` 失败，禁止硬编码长期漂移的 model id。
+- OpenCode 多实例共享宿主数据库与秒级日志命名，因此只有冷启动握手通过进程级闸门串行错开；Agent Pool 中已经 ready 的 worker 继续并发执行，不牺牲多 Agent 协作吞吐。
+- 平台生成的 OpenCode 配置同时注入 invocation-scoped `XDG_CONFIG_HOME`，launcher 使用 `--pure`。这样保留独立的宿主 data/auth store，但不继承用户全局插件与 MCP；本轮结构化 MCP 只由 ACP Session 显式注入。
 - **codex**：隔离 `CODEX_HOME`——在临时目录复制必要的 `~/.codex/auth.json` + `config.toml`，返回 `cleanup` 在 turn 结束后清理。codex-acp 经 `CODEX_HOME` 读取 ChatGPT OAuth 认证。
 - **claude**：passthrough（认证来自主机 Claude Code OAuth 或 `ANTHROPIC_API_KEY`），无 cwd 配置、无 env 覆盖。
 

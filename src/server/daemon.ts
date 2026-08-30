@@ -8,6 +8,7 @@ import { readAccount } from './accounts-file';
 import { readCredential } from './credentials';
 import { buildProbeEnv } from './cli-probe';
 import { generateRuntimeConfig, cleanupRuntimeConfig, makeInvocationId } from './opencode-config';
+import { resolveOpenCodeModel } from './agent-runtime/open-code-model-resolver';
 import { startTaskWatcher, syncTasksToDb } from './task-file-watcher';
 import {
   beginTasksMdProjectionClaim,
@@ -92,6 +93,7 @@ import {
   DirectedAgentRuntime,
   RuntimeOwnershipFence,
   RuntimeOwnershipLostError,
+  RuntimeSetupError,
   registerAgentRuntimeControl,
   isRuntimeOwnershipLost,
   type AgentRuntimeDispatchContext,
@@ -122,6 +124,25 @@ const LOCAL_DAEMON_NODE_ID = 'daemon:local';
 
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 5_000;
 const OPENCODE_PROJECT_SKILLS_DIR = join('.opencode', 'skills');
+
+function describeRuntimeSetupFailure(error: unknown): {
+  reasonCode: 'runtime_model_unavailable' | 'runtime_start_failed';
+  diagnosticMessage: string;
+  userMessage: string;
+} {
+  if (error instanceof RuntimeSetupError) {
+    return {
+      reasonCode: error.reasonCode,
+      diagnosticMessage: error.message,
+      userMessage: error.message,
+    };
+  }
+  return {
+    reasonCode: 'runtime_start_failed',
+    diagnosticMessage: error instanceof Error ? error.message : String(error),
+    userMessage: 'Agent 启动失败，请检查运行配置后重试。',
+  };
+}
 
 async function resolveExecutionAccount(accountId: string | undefined, engine: RuntimeCliEngine) {
   if (!accountId) return undefined;
@@ -840,12 +861,20 @@ export default function registerDaemon(io: IOServer) {
         const account = executionAccount?.account;
         const cred = executionAccount?.credential;
         const invocationId = makeInvocationId(agentId);
+        const runtimeModel = account && cred?.apiKey
+          ? undefined
+          : resolveOpenCodeModel({
+              command: ENGINE_COMMAND.opencode,
+              runtimeEnv: credentialEnv,
+              configuredModel: plan.preferredModel ?? account?.models?.[0],
+            });
         const result = generateRuntimeConfig(invocationId, {
           provider: account?.provider as AccountProvider | undefined,
           apiKey: cred?.apiKey,
           baseUrl: account?.baseUrl,
           models: account?.models,
           defaultModel: plan.preferredModel ?? account?.models?.[0],
+          runtimeModel,
           systemPrompt: systemPrompt || undefined,
           skillPaths: projectSkillPaths,
           managedSkillNames: contextReport?.loadedSkills ?? [],
@@ -1587,6 +1616,7 @@ export default function registerDaemon(io: IOServer) {
           return;
         }
         console.error(`[daemon] execution error for agent=${agentId}:`, err);
+        const setupFailure = describeRuntimeSetupFailure(err);
         const envelopeAtFailure = controlEnvelopeId
           ? executionEnvelopeRepo.getById(controlEnvelopeId)
           : undefined;
@@ -1600,8 +1630,8 @@ export default function registerDaemon(io: IOServer) {
                 expectedFrom: currentInvocation.status,
                 outcome: 'failed',
                 exit_code: 1,
-                reason_code: 'runtime_start_failed',
-                error_message: (err as Error)?.message,
+                reason_code: setupFailure.reasonCode,
+                error_message: setupFailure.diagnosticMessage,
                 })
                 : undefined;
               if (!terminated) {
@@ -1616,8 +1646,8 @@ export default function registerDaemon(io: IOServer) {
             console.error('[daemon] failed to terminate setup invocation:', invocationError);
           }
         }
-        finishObservation('error', 'runtime_start_failed');
-        runtimeEventCoordinator?.failSetup('runtime_start_failed');
+        finishObservation('error', setupFailure.reasonCode);
+        runtimeEventCoordinator?.failSetup(setupFailure.reasonCode);
         if (evaluation && envelopeAtFailure?.status === 'acknowledged') {
           try {
             const current = getDb().prepare('SELECT status FROM eval_case_execution WHERE id=?')
@@ -1628,8 +1658,8 @@ export default function registerDaemon(io: IOServer) {
                 conversationId,
                 status: 'failed',
                 observedManifestDigest: evaluationObservedDigest,
-                errorCode: 'runtime_start_failed_after_ack',
-                errorMessage: (err as Error)?.message,
+                errorCode: `${setupFailure.reasonCode}_after_ack`,
+                errorMessage: setupFailure.diagnosticMessage,
               });
             }
           } catch (transitionError) {
@@ -1640,9 +1670,9 @@ export default function registerDaemon(io: IOServer) {
           const receiptConversationId = projectId;
           const current = envelopeAtFailure;
           if (current?.status === 'acknowledged') {
-            dispatchGateway.markExecutionFailed(controlEnvelopeId, 'runtime_start_failed');
+            dispatchGateway.markExecutionFailed(controlEnvelopeId, setupFailure.reasonCode);
           } else if (current && current.status !== 'rejected' && current.status !== 'expired') {
-            dispatchGateway.reject(controlEnvelopeId, 'runtime_start_failed');
+            dispatchGateway.reject(controlEnvelopeId, setupFailure.reasonCode);
             const receiptId = `${controlEnvelopeId}:rejected`;
             projectViewPublisher.publish(receiptConversationId, {
               type: 'dispatch.receipt',
@@ -1663,7 +1693,7 @@ export default function registerDaemon(io: IOServer) {
                 phase: 'rejected',
                 chainId,
                 passId,
-                reasonCode: 'runtime_start_failed',
+                reasonCode: setupFailure.reasonCode,
                 createdAt: new Date().toISOString(),
               },
             });
@@ -1680,8 +1710,8 @@ export default function registerDaemon(io: IOServer) {
             projectId,
           }),
           payload: {
-            message: `内部错误：${(err as Error)?.message || '未知'}`,
-            reasonCode: 'internal_error',
+            message: setupFailure.userMessage,
+            reasonCode: setupFailure.reasonCode,
           },
         });
         projectViewPublisher.publish(projectId, {
@@ -1697,7 +1727,7 @@ export default function registerDaemon(io: IOServer) {
           payload: {
             code: 1,
             command: primaryCommand,
-            reasonCode: 'internal_error',
+            reasonCode: setupFailure.reasonCode,
           },
         });
         agentProcesses.remove(agentId, projectId);

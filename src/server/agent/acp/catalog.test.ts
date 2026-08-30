@@ -18,13 +18,13 @@ describe('AgentCatalog (loadCatalog + createBackend)', () => {
 
     const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
 
-    // --- opencode: native delivery, bare `opencode acp` launcher ---
+    // --- opencode: native delivery, isolated `opencode --pure acp` launcher ---
     const opencode = byId['opencode'];
     expect(opencode).toBeDefined();
     expect(opencode.protocol).toBe('acp');
     expect(opencode.delivery).toBe('native');
     expect(opencode.launcher.command).toBe('opencode');
-    expect(opencode.launcher.args).toEqual(['acp']);
+    expect(opencode.launcher.args).toEqual(['--pure', 'acp']);
 
     // --- claude: adapter delivery, pinned npx launcher ---
     const claude = byId['claude'];

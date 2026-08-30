@@ -94,6 +94,67 @@ describe('issueDispatchWorkContract', () => {
     ]);
   });
 
+  it('freezes the Task Graph revision for planning tools', () => {
+    db.prepare(`
+      INSERT INTO task_graph_revision (conversation_id,revision,updated_at)
+      VALUES ('project-1',4,?)
+    `).run(now.toISOString());
+    const snapshot: ContextSnapshot = {
+      id: 'context-planning',
+      query: {
+        scenario: 'planning', trigger: 'user_turn', conversationId: 'project-1',
+        agentId: 'planner', archetype: 'planner', budgetTokens: 1_000,
+        requiredContributorIds: [], now: now.toISOString(), requestDigest: 'planning-digest',
+      },
+      fragmentRefs: [], capabilities: [], constraints: [], missingRequired: [], omissions: [],
+      compiledPrompt: 'Plan the work.', createdAt: now.toISOString(),
+    };
+    const contract = issueDispatchWorkContract({
+      trigger: {
+        id: 'trigger-planning', source: 'user', conversationId: 'project-1',
+        agentId: 'planner', prompt: 'Plan the work.',
+      },
+      traceId: 'trace-planning', contextSnapshot: snapshot, role: { id: 'planner' },
+      admission: dispatchGrant('planning'),
+      executionProfile: { ...executionProfile, stage: 'plan' },
+      runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
+    });
+
+    expect(contract.authoritativeRefs).toContain('task_graph:project-1');
+    expect(contract.authoritativeRevisions).toMatchObject({ taskGraph: 4 });
+  });
+
+  it('never exposes Task Graph proposal without frozen graph authority', () => {
+    const task = taskRepo.create({
+      id: 'task-execution-authority', conversation_id: 'project-1',
+      title: 'Execute with graph authority', agent_id: 'implementer',
+    }, now);
+    const snapshot: ContextSnapshot = {
+      id: 'context-execution-authority',
+      query: {
+        scenario: 'execution', trigger: 'user_turn', conversationId: 'project-1',
+        agentId: 'implementer', archetype: 'worker', taskId: task.id, budgetTokens: 1_000,
+        requiredContributorIds: [], now: now.toISOString(), requestDigest: 'execution-digest',
+      },
+      fragmentRefs: [], capabilities: [], constraints: [], missingRequired: [], omissions: [],
+      compiledPrompt: 'Execute.', createdAt: now.toISOString(),
+    };
+    const contract = issueDispatchWorkContract({
+      trigger: {
+        id: 'trigger-execution-authority', source: 'workflow', conversationId: 'project-1',
+        agentId: 'implementer', taskId: task.id, prompt: 'Execute.',
+      },
+      traceId: 'trace-execution-authority', contextSnapshot: snapshot, task,
+      role: { id: 'implementer' }, admission: dispatchGrant('execution', task),
+      executionProfile,
+      runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
+    });
+
+    expect(contract.allowedOutcomeTypes).toContain('propose_task_graph');
+    expect(contract.authoritativeRefs).toContain('task_graph:project-1');
+    expect(contract.authoritativeRevisions).toHaveProperty('taskGraph', 0);
+  });
+
   it.each(['review_gate', 'test_gate'] as const)(
     'authorizes a bounded continuation for %s work',
     (source) => {
@@ -226,6 +287,8 @@ describe('issueDispatchWorkContract', () => {
       executionMode: 'outcome_recovery',
       authorization: {},
     });
+    expect(contract.authoritativeRefs).toContain('task_graph:project-1');
+    expect(contract.authoritativeRevisions).toMatchObject({ taskGraph: 0 });
     const instruction = renderWorkContractInstruction(contract);
     expect(instruction).toContain('command-only recovery turn');
     expect(instruction).toContain('Do not repeat implementation');

@@ -261,6 +261,46 @@ describe('durable message reconciliation', () => {
     });
   });
 
+  it('hides legacy synthetic Runtime failure text from the conversation', () => {
+    const failureRow = {
+      ...persistedEnvelope().payload.message,
+      id: 'msg-legacy-runtime-failure',
+      content: '⚠️ Agent runtime 未返回最终文本；本次调用已标记失败，请重试。',
+      content_type: 'text',
+    };
+
+    expect(mapMessagesToState({ 'project-a': [failureRow] })['project-a']).toEqual([]);
+  });
+
+  it('records a Runtime warning as status data without appending chat text', () => {
+    expect(consumeProjectViewEvent({
+      version: 2,
+      envelopeVersion: 1,
+      eventId: 'event-runtime-warning',
+      projectId: 'project-a',
+      occurredAt: timestamp,
+      type: 'runtime.warning',
+      delivery: 'transient',
+      actor: { type: 'agent', id: 'mario' },
+      subject: { type: 'invocation', id: 'inv-1' },
+      correlationId: 'inv-1',
+      causationId: 'runtime-event-1',
+      payload: {
+        message: '所选模型当前不可用',
+        reasonCode: 'runtime_model_unavailable',
+        invocationId: 'inv-1',
+      },
+    })).toBe(true);
+
+    expect(useTaskHubStore.getState().chatMessagesByConversation['project-a']).toBeUndefined();
+    expect(useTaskHubStore.getState().eventsByConversation['project-a']).toEqual([
+      expect.objectContaining({
+        type: 'runtime.warning',
+        payload: expect.objectContaining({ reasonCode: 'runtime_model_unavailable', agentId: 'mario' }),
+      }),
+    ]);
+  });
+
   it('projects live thinking deltas into the active Agent response', () => {
     expect(consumeProjectViewEvent({
       version: 2,
@@ -356,6 +396,12 @@ describe('durable message reconciliation', () => {
         expect.objectContaining({ id: secondId, invocationId: 'inv-2', isStreaming: true }),
       ]),
     );
+    expect(useTaskHubStore.getState().eventsByConversation['project-a']).toEqual([
+      expect.objectContaining({
+        type: 'run.finished',
+        payload: expect.objectContaining({ agentId: 'mario', code: 1, reasonCode: 'internal_error' }),
+      }),
+    ]);
   });
 
   it('reconciles a post-persistence notification without duplicating the completed stream', () => {

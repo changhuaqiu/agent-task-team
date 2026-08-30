@@ -624,17 +624,19 @@ ACP 执行端得到的是每次 Invocation 独占的 `agent_submit_outcome` 平�
 权威版本、correlation 和 causation，避免模型自行拼装安全信封。非 ACP 运行端可以使用
 `POST /api/agent-outcomes` 提交完整信封。
 
-Admission 只产生 `agent.outcome.accepted | agent.outcome.rejected` 协调事件，不直接修改 Task、
-Gate、A2A 或 Delivery。每个 Contract 只有一个 accepted 退出槽：`continue_work` 与终结性 Outcome
-互斥，首个 accepted 记录消费该槽；校验失败的 rejected 记录不消费。accepted `continue_work`
-只能由 ContinueGate 在新 fenced epoch 继续，不能在原 Contract 内再补 terminal Outcome。同一幂等键
-的不同内容属于冲突，而不是“重复成功”。后续领域变化仍必须由对应 owner 接收 Command 并完成自己的
-版本与证据校验。
+Admission 是 Agent 生命周期命令的原子提交边界。能够在本地确定完成的领域变化，必须调用对应
+owner 并与 `agent.outcome.accepted` 在同一个 SQLite 事务内提交；owner 校验或写入失败时只记录
+`agent.outcome.rejected`，不能先返回 accepted/applied 再依赖一个可能死信的异步 handler。真正需要
+等待外部结果或多阶段编排的 outcome 才由 Process Manager 继续推进；durable handler 对已同步提交的
+Task Graph、A2A 等 outcome 只承担幂等恢复。每个 Contract 只有一个 accepted 退出槽：
+`continue_work` 与终结性 Outcome 互斥，首个 accepted 记录消费该槽；校验失败的 rejected 记录不消费。
+同一幂等键的不同内容属于冲突，而不是“重复成功”。
 
 WorkContract 的 runtime permission 只能包含执行当前工作所需的本地能力与
 `agent_submit_outcome`，不得包含 Task/Task Graph 的创建、状态更新或改派工具。Task 是 Context 中的
-只读权威引用；`request_review`、`submit_task_result`、`propose_task_graph` 等 accepted Outcome 由对应
-Process Manager 交给 owner 落状态和 Gate，防止 Agent 先改 revision 再让自己的 Outcome 失效。
+只读权威引用；`request_review`、`submit_task_result`、`propose_task_graph` 等 Outcome 由 admission 或
+后续 Process Manager 调用对应 owner，防止 Agent 先改 revision 再让自己的 Outcome 失效。凡回执使用
+accepted/applied 语义，回执返回前对应的确定性 owner 事实必须已经存在。
 
 这解决了两种极端：
 
@@ -934,10 +936,17 @@ Human 提交 Goal
 - Harness 不在启动时自己用规则或 LLM 拆任务；Lead Agent 提出拆解。
 - Lead 的自然语言计划不是 Task Graph，只有被 Task owner 接纳的 Command 才是共享承诺。
 - Task Graph 一次提交要么整体通过，要么返回可修正的验证错误，避免其他 Agent 看见半张图。
-- `propose_task_graph` 由 durable Process Manager 翻译为现有 Task Graph owner 的
-  `commit(expectedRevision, idempotencyKey, tasks[])`；owner 在单事务内完成引用校验、DAG
-  校验、Tasks/depends_on edges/action 写入与 graph revision CAS。事件重放返回同一 commit，
-  内容漂移或并发旧 revision 被拒绝。
+- `propose_task_graph` 的 MCP Schema 直接描述 canonical `tasks[]`，平台从任何授予该能力的 WorkContract
+  冻结的 authority 注入 `expectedRevision`。Admission 调用现有 Task Graph owner 的
+  `commit(expectedRevision, idempotencyKey, tasks[])`，并在同一事务内完成 Project 成员、已有
+  WorkItem 可重规划状态、引用、DAG、Tasks/depends_on edges/action 与 graph revision CAS 校验。
+  accepted/applied 回执返回时，提交与依赖已满足的 standalone Task Inbox command 已经存在；
+  durable Process Manager 只幂等恢复历史 accepted outcome，并兼容 v1 使用 accepted event id 的 commit identity、缺失冻结 result
+  和旧 Contract 没有 graph authority 的升级数据；未 commit 的旧 outcome 仍受 payload revision 的 stale fence 约束。
+  owner 必须再次比较 payload revision 与 Contract 冻结值，不能只依赖 MCP Adapter 注入。事件重放返回同一 commit，内容漂移、
+  并发旧 revision、项目外负责人或对执行中/终态 Task 的改写均被拒绝。
+  任何初始或恢复派发还必须确认该 outcome 对应触达 Task 的最新 graph commit；Delivery 或其他 owner 后续接管后，dependency
+  scheduler 与延迟 Outcome handler 都不能回看旧 standalone proposal。
 - 这一边界不只约束 Lead Outcome。WebUI、Task Graph API、Harness `initializeGraph` 和
   group-chat task flow 的创建、拆分、合并、重开、阻塞、恢复、改派与取消全部调用同一个
   `mutate` owner。调用者必须提供当前 graph revision 与稳定幂等键；精确重放返回首次完整

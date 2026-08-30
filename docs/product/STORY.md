@@ -2,7 +2,7 @@
 topics: [product-story, user-outcomes, optimization, evidence]
 doc_kind: product-story
 created: 2026-08-02
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 # Agent Task Hub 产品故事
@@ -22,6 +22,65 @@ updated: 2026-08-28
 - 对应 spec、产品文档或技术设计的链接。
 
 只有直接覆盖所述用户效果的证据，才能支持“已经改善”：例如针对性自动化测试、真实界面观察或实际运行链验证。构建通过只能作为可交付性的辅助证据，不能单独证明用户体验已经改善。未验证目标不进入本故事文档，应留在 spec、计划或任务清单中。
+
+---
+
+## 2026-08-30：OpenCode Agent 不再“已接球但启动失败”
+
+### 原来的处境
+
+用户把工作交给 Luigi、Peach 后，平台虽然显示命令已接纳，实际运行却会继承本机已经失效的 OpenCode 默认模型并返回认证失败；两个 Agent 同时启动还会争用共享数据库和同秒日志。失败随后被包装成聊天中的“未返回最终文本”，收件箱和对话被 Runtime 噪音占据，真实 Invocation 甚至已经执行工具却仍显示 `starting`。
+
+### 优化后的变化
+
+- OpenCode 的模型选择只有一个实时 Catalog 解析入口，Daemon 配置和 ACP fallback 都显式写入同一个可用文本模型；
+- 平台 worker 以 `--pure` 和独立 `XDG_CONFIG_HOME` 启动，保留宿主认证，但不继承用户全局插件、MCP 和失效默认模型；
+- 多 Agent 只串行易冲突的冷启动握手，ready 后仍由 Agent Pool 并发执行；
+- ACP update 统一补齐 Session identity，第一条执行事件即可把 Invocation 推进到 `running`；
+- Runtime 失败进入 Project 顶部状态栏和可观测记录，不再合成聊天答复或 Inbox 条目；后续成功会清除旧失败提示。
+
+### 已验证的效果
+
+真实 OpenCode ACP smoke 在隔离配置下约 2 秒完成文本回复并以 `done` 收口。最终桌面 EXE `desktop-build-2facfabbf9bbb191887566fc91d295e5` 同时触发 Luigi、Peach 后使用 `deepseek/deepseek-v4-flash` 与 `opencode --pure acp`；Luigi 将在线面试任务推进到评审，Peach 跑通 `/summary` 成功和 400 失败路径。最终状态回归中 Peach Invocation 在约 5.4 秒内进入 `running` 并绑定真实 ACP Session。全量 270 个测试文件通过，1952 项通过、2 项按既有配置跳过；Next/TypeScript/Rust EXE 构建通过。
+
+### 仍然保留的边界
+
+Peach 的完整浏览器 E2E 仍需要项目明确授予浏览器 Skill；本轮没有伪造 gate decision。WiX `light.exe` 在当前机器仍无法生成 MSI，但 release EXE 已生成并运行，不影响本次本地桌面验收。
+
+### 设计与实现依据
+
+- [ACP 运行时统一接入规范](../../specs/acp-runtime-integration/spec.md)
+- [统一 ACP 执行链](../technical/execution/opencode-integration-executable-chain.md)
+- [Agent 可观测性](../technical/observability/agent-observability.md)
+
+---
+
+## 2026-08-30：规划与续作的“已接纳”终于等于真的会执行
+
+### 原来的处境
+
+协调 Agent 可以收到 `propose_task_graph` 已应用回执，但任务图 payload 随后才在异步处理器中失败，Task 仍是 todo、没有负责人；它再提交 `continue_work` 时，平台也可能只保存一条检查点而不启动下一轮。用户看到的是一份完整的恢复说明，系统实际没有任何 Agent 会继续工作。
+
+### 优化后的变化
+
+- planning Contract 冻结任务图 revision，结构化 MCP 公开真实 tasks 字段，由平台补齐 authority；
+- 任务图、已有 WorkItem 负责人、依赖和可运行 Agent Inbox 与 accepted outcome 同事务落账，任一步失败只返回 rejected；
+- 项目外 Agent、过期 revision、循环依赖以及执行中/终态任务改写都会在占用退出槽前拒绝；
+- 独立任务和 A2A 恢复的 `continue_work` 会原子排入下一轮命令并保留 Possession authority，最多三次；Delivery 仍沿用既有控制面容量与续作策略。
+
+### 已验证的效果
+
+定向测试覆盖合法规划即时派发、依赖完成后唤醒、历史升级/事件幂等重放、错误 payload、冻结 revision 绕过、项目外 Agent、执行中任务保护、Delivery 接管，以及 standalone/A2A continuation 的即时排队、去重、stage/subject/Possession 权限保持和预算耗尽。最终 ESLint、TypeScript、269 个测试文件（1941 项通过、2 项按配置跳过）和桌面服务 production build 通过；三轮独立代码审查最终无 Critical/Important。
+
+### 仍然保留的边界
+
+升级前已经 accepted、但 payload 本身不完整的历史任务图 outcome 不会被伪造为成功；恢复处理器会保留其失败证据，需要以新 Contract 提交合法 proposal。Delivery continuation 的调度与容量模型没有改变。
+
+### 设计与实现依据
+
+- [Outcome Commit Atomicity 归档规格](../archive/specs/outcome-commit-atomicity/spec.md)
+- [平台 Harness 状态机设计](../technical/execution/platform-harness-state-machine-design.md)
+- [前端控制面收敛设计](../technical/execution/frontend-control-plane-convergence.md)
 
 ---
 

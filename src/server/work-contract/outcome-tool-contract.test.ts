@@ -47,4 +47,34 @@ describe('ACP outcome tool contract', () => {
       summary: 'legacy explanatory metadata',
     });
   });
+
+  it('publishes field-level schemas for Task Graph proposals and continuations', () => {
+    expect(outcomePayloadSchema('propose_task_graph')).toMatchObject({
+      required: ['tasks'],
+      additionalProperties: false,
+      properties: {
+        tasks: {
+          items: {
+            required: ['id', 'title', 'agentId'],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+    expect(outcomePayloadSchema('continue_work')).toMatchObject({
+      required: [
+        'schemaVersion', 'reason', 'summary', 'nextAction', 'completedSteps', 'remainingSteps',
+      ],
+      additionalProperties: false,
+    });
+  });
+
+  it('injects the frozen Task Graph revision into the canonical proposal', () => {
+    expect(adaptAcpOutcomePayload('propose_task_graph', {
+      tasks: [{ id: 'work-1', title: 'Implement', agentId: 'luigi' }],
+    }, 'proposal-key', { taskGraph: 7 })).toEqual({
+      expectedRevision: 7,
+      tasks: [{ id: 'work-1', title: 'Implement', agentId: 'luigi' }],
+    });
+  });
 });

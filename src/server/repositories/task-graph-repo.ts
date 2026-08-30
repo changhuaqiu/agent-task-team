@@ -6,6 +6,7 @@ import { taskRepo, type NewTask, type TaskPatch, type TaskRow } from './task-rep
 export type TaskActionType =
   | 'task.created'
   | 'task.split'
+  | 'task.planned'
   | 'task.claimed'
   | 'task.handoff_requested'
   | 'task.handoff_accepted'
@@ -428,13 +429,33 @@ export const taskGraphRepo = {
       }
 
       const existing = taskRepo.getByConversation(input.conversationId);
+      const existingById = new Map(existing.map((task) => [task.id, task]));
       const knownIds = new Set([...existing.map((task) => task.id), ...ids]);
       const dependencyMap = new Map<string, readonly string[]>(
         existing.map((task) => [task.id, dependencyIds(task)]),
       );
       for (const task of input.tasks) {
-        if (taskRepo.getById(task.id)) {
-          throw new InvalidTaskGraphError(`Task ${task.id} already exists`);
+        const taskOutsideConversation = taskRepo.getById(task.id);
+        if (taskOutsideConversation && taskOutsideConversation.conversation_id !== input.conversationId) {
+          throw new InvalidTaskGraphError(`Task ${task.id} belongs to another conversation`);
+        }
+        const current = existingById.get(task.id);
+        if (current) {
+          if (!['proposed', 'ready'].includes(current.status)) {
+            throw new InvalidTaskGraphError(
+              `Task ${task.id} cannot be replanned from status ${current.status}`,
+            );
+          }
+          if (current.agent_id && current.agent_id !== task.agent_id) {
+            throw new InvalidTaskGraphError(
+              `Task ${task.id} is already assigned to ${current.agent_id}`,
+            );
+          }
+          if (task.initialStatus && task.initialStatus !== current.status) {
+            throw new InvalidTaskGraphError(
+              `Task ${task.id} initialStatus does not match its current status`,
+            );
+          }
         }
         const dependencies = [...new Set(task.dependencies ?? [])];
         for (const dependency of dependencies) {
@@ -451,18 +472,43 @@ export const taskGraphRepo = {
       }
       assertAcyclicDependencies(dependencyMap);
 
-      const tasks = input.tasks.map((task) => taskRepo.create({
-        ...task,
-        conversation_id: input.conversationId,
-        dependencies: [...new Set(task.dependencies ?? [])],
-        correlationId: input.correlationId,
-        causationId: input.causationId,
-      }));
+      const tasks = input.tasks.map((task) => {
+        const current = existingById.get(task.id);
+        const dependencies = [...new Set(task.dependencies ?? [])];
+        if (!current) {
+          return taskRepo.create({
+            ...task,
+            conversation_id: input.conversationId,
+            dependencies,
+            correlationId: input.correlationId,
+            causationId: input.causationId,
+          });
+        }
+        const description = task.description ?? current.description;
+        const changed = current.title !== task.title
+          || current.description !== description
+          || current.agent_id !== task.agent_id
+          || JSON.stringify(dependencyIds(current)) !== JSON.stringify(dependencies);
+        if (!changed) return current;
+        const updated = taskRepo.update(task.id, {
+          title: task.title,
+          description,
+          agent_id: task.agent_id,
+          dependencies: JSON.stringify(dependencies),
+        }, {
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
+        if (!updated) throw new InvalidTaskGraphError(`Task ${task.id} update failed`);
+        return updated;
+      });
       const action = taskGraphRepo.appendAction({
         conversationId: input.conversationId,
         actorId: input.actorId,
         actorType: input.actorType,
-        type: tasks.length === 1 ? 'task.created' : 'task.split',
+        type: input.tasks.every((task) => existingById.has(task.id))
+          ? 'task.planned'
+          : tasks.length === 1 ? 'task.created' : 'task.split',
         taskIds: tasks.map((task) => task.id),
         payload: {
           idempotencyKey,
@@ -471,6 +517,12 @@ export const taskGraphRepo = {
           nextRevision: input.expectedRevision + 1,
         },
       });
+      for (const task of tasks) {
+        db.prepare(`
+          DELETE FROM task_edge
+          WHERE conversation_id=? AND from_task_id=? AND type='depends_on'
+        `).run(input.conversationId, task.id);
+      }
       const edges = tasks.flatMap((task) =>
         dependencyIds(task).map((dependency) => taskGraphRepo.addEdge({
           conversationId: input.conversationId,

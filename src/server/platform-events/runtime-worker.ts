@@ -25,6 +25,7 @@ import { A2AProjectViewProjection } from './a2a-project-view-projection';
 import { ControlSlotReleaseProcessManager } from '../autonomous-delivery/control-slot-release-process-manager';
 import { GateOutcomeProcessManager } from '../quality-gate/outcome-process-manager';
 import { TaskGraphOutcomeProcessManager } from '../repositories/task-graph-outcome-process-manager';
+import { TaskGraphSchedulerProcessManager } from '../repositories/task-graph-scheduler-process-manager';
 import { TaskOutcomeProcessManager } from '../repositories/task-outcome-process-manager';
 import {
   TaskGateLifecycleProcessManager,
@@ -273,12 +274,21 @@ export class PlatformEventRuntimeWorker {
     });
     const taskGraphOutcome = new TaskGraphOutcomeProcessManager();
     this.dispatcher.register({
-      id: 'task-graph-outcome-process-manager:v1',
+      id: 'task-graph-outcome-process-manager:v2',
       pattern: 'agent.outcome.accepted',
       stereotype: 'process_manager',
       reliability: 'durable',
       timeoutMs: 5_000,
       handle: taskGraphOutcome.handle,
+    });
+    const taskGraphScheduler = new TaskGraphSchedulerProcessManager();
+    this.dispatcher.register({
+      id: 'task-graph-scheduler-process-manager:v1',
+      pattern: 'task.done',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      timeoutMs: 5_000,
+      handle: taskGraphScheduler.handle,
     });
     const taskOutcome = new TaskOutcomeProcessManager();
     this.dispatcher.register({
