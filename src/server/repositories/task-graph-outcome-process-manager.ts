@@ -353,8 +353,49 @@ export function applyAcceptedTaskGraphOutcome(input: {
         `Task Graph proposal revision ${proposal.expectedRevision} does not match frozen authority ${frozenRevision}`,
       );
     }
+    assertCoordinationObligation(input.contract, proposal);
     return commitTaskGraphProposal(input.contract, input.outcome, proposal);
   }).immediate();
+}
+
+function assertCoordinationObligation(
+  contract: WorkContractRow,
+  proposal: ParsedTaskGraphOutcome,
+): void {
+  let permissions: unknown;
+  try {
+    permissions = JSON.parse(contract.permissions_json);
+  } catch {
+    throw new TaskGraphOutcomeInvariantError(
+      'task_graph_coordination_contract_invalid',
+      'WorkContract permissions are invalid',
+    );
+  }
+  if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) return;
+  const coordination = (permissions as Record<string, unknown>).coordination;
+  if (!coordination || typeof coordination !== 'object' || Array.isArray(coordination)) return;
+  const record = coordination as Record<string, unknown>;
+  if (record.mode !== 'task_graph_first') return;
+  if (
+    !Array.isArray(record.requiredTaskIds)
+    || record.requiredTaskIds.length === 0
+    || record.requiredTaskIds.some((taskId) => typeof taskId !== 'string' || !taskId.trim())
+  ) {
+    throw new TaskGraphOutcomeInvariantError(
+      'task_graph_coordination_contract_invalid',
+      'Task Graph-first coordination requires frozen Task IDs',
+    );
+  }
+  const proposalTaskIds = new Set(proposal.tasks.map((task) => task.id));
+  const missingTaskIds = (record.requiredTaskIds as string[])
+    .map((taskId) => taskId.trim())
+    .filter((taskId) => !proposalTaskIds.has(taskId));
+  if (missingTaskIds.length > 0) {
+    throw new TaskGraphOutcomeInvariantError(
+      'task_graph_coordination_tasks_missing',
+      `Task Graph proposal omits frozen coordination Tasks: ${missingTaskIds.join(', ')}`,
+    );
+  }
 }
 
 function commitTaskGraphProposal(

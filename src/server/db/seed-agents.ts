@@ -1,4 +1,5 @@
 import { getDb } from './index';
+import { DEFAULT_COORDINATOR_INSTRUCTIONS } from '@/shared/agent-definition';
 
 interface PresetAgent {
   id: string;
@@ -29,7 +30,7 @@ export function seedPresetAgents(): void {
 
   for (const agent of PRESET_AGENTS) {
     const instructions = agent.id === 'mario'
-      ? '负责理解目标、拆解工作、协调团队并推动交付闭环。'
+      ? DEFAULT_COORDINATOR_INSTRUCTIONS
       : agent.id === 'luigi'
         ? '负责在明确边界内完成全栈实现，并提供可验证的实现证据。'
         : agent.id === 'peach'

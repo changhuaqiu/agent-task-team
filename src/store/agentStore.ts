@@ -6,7 +6,10 @@ import {
   type AccountAuthMode,
   type AccountProvider,
 } from '@/lib/account-auth';
-import type { AgentResponsibility } from '@/shared/agent-definition';
+import {
+  DEFAULT_COORDINATOR_INSTRUCTIONS,
+  type AgentResponsibility,
+} from '@/shared/agent-definition';
 
 // --- Agent Role & Roster ---
 
@@ -45,7 +48,7 @@ const FALLBACK_AGENTS: Agent[] = [
     isOnline: true,
     cliEngine: 'codex',
     accountIds: [],
-    instructions: '负责理解目标、拆解工作、协调团队并推动交付闭环。',
+    instructions: DEFAULT_COORDINATOR_INSTRUCTIONS,
     responsibility: 'coordinator',
     skillIds: [],
     canModifyCode: true,

@@ -307,6 +307,12 @@ This is intentionally a narrow server-side scheduler, not a general planner. If
 there is no explicit owner or reviewer, the framework does not guess. It only
 leaves a visible notification for the planner/coordinator to decide.
 
+### Coordinator planning contract
+
+The planner/coordinator decision is itself governed by an immutable WorkContract. When planning admission finds one or more unassigned `proposed` or `ready` Tasks, the contract freezes those IDs as a `task_graph_first` coordination obligation. The Coordinator must inspect the goal, acceptance criteria, current graph and Project members, then submit one structured Task Graph proposal that includes and assigns every frozen Task. Multi-step work should add bounded nodes, dependencies and review/verification intents where they materially define execution order or closure.
+
+A narrative plan, chat mention or direct A2A handoff is not a substitute for this proposal. The accepted-Outcome owner verifies coverage before any mutation, commits the complete graph in one transaction, and then dispatches every dependency-ready assigned Task through the Collaboration Kernel. Therefore the Coordinator coordinates and replans; it does not implement the work, duplicate scheduler dispatch, or claim that another Agent started without a durable receipt. Truly missing, non-inferable product choices may still exit through a human-decision request, and external blockers may exit through a structured blocker.
+
 Wakeup copy uses “系统轻推” so users understand this as a gentle nudge, not hidden orchestration.
 
 Automatic wakeup applies only to an already-modeled Task Graph node whose owner/reviewer and dependency state are known. A chat mention, an unresolved external reference, or a task that has not been created cannot rely on dependency wakeup and must not be described as “the system will schedule it automatically”.

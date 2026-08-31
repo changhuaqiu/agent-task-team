@@ -14,6 +14,8 @@
 
 这不是单条提示词缺失，而是派工契约自相矛盾：验收条件要求能力 A，执行配置却没有激活或授权能力 A。同时“Agent 绑定即全部激活”会把无关 Skill 正文塞进 Prompt，降低规则信噪比。
 
+Coordinator 还存在一类同源缺陷：角色定义虽然写了“拆解、协调”，planning WorkContract 却允许直接文本转交，且旧项目中的默认 Agent instructions 不会随版本升级。结果是马里奥可以给出叙述性计划，却没有把未分配的根任务纳入 Task Graph、指定负责人并触发平台调度。该职责不能只依赖可变提示词，必须由每次 Invocation 都携带的 WorkContract 冻结并由 Outcome owner 校验。
+
 ## 3. 设计原则
 
 - 参考 Clowder 的 L0 + SOP stage + hard predicate 分层，但只学习机制，不复制文案或产品标识。
@@ -23,6 +25,7 @@
 - 明确点名、Task/场景强信号优先；语义向量路由仍不在本期。
 - Web E2E 需要真实浏览器时，平台授予受限的本地浏览器验证命令；不得因普通验证请求升级给用户。
 - outcome recovery 保持最小能力，只允许结果收口。
+- Coordinator 的统筹职责属于运行期业务约束而非人格：当 planning admission 发现当前 Project 仍有 `proposed/ready` 且未分配的 Task 时，WorkContract 必须冻结这些 Task 的协调义务，并将 Task Graph proposal 设为正常退出路径。
 
 ## 4. 核心契约
 
@@ -43,6 +46,7 @@ interface ExecutionProfile {
 
 - task-bound work：由 WorkContract 自身声明 `task_receipt` capability；不激活遗留的 `task-status-receipt`，也不暴露 `task_update_status`。
 - planning：通过 `propose_task_graph` Outcome 提交任务图；不激活会引导直接写 Task 的遗留 `task-management`。
+- coordinator planning：若存在未分配的 `proposed/ready` Task，权限信封写入 `coordination.mode=task_graph_first` 和 `requiredTaskIds`；允许继续工作、提交 Task Graph、报告阻塞或请求必要人工决策，不允许用直接 handoff 绕过 Task Graph。proposal 必须覆盖并分配全部冻结 Task；提交被接受后由平台原子提交任务图并自动派发依赖已满足的已分配 Task，Coordinator 不得虚报已启动或重复手工派发。
 - review gate / code review：激活 `code-review`；存在 Git 合并策略时激活 `git-collaboration`。
 - Delivery policy 要求 Web E2E，或 Task/指令明确包含浏览器、Playwright、Web E2E 强信号：激活并要求 `browser-verification`，声明 `browser_verification` capability。普通 verification/test gate 可以使用自动测试或人工审查，不被误升格为浏览器验证。
 - prompt 中 `$skill-name`：精确激活并要求同名已绑定 Skill；未知或未绑定时 fail closed。
@@ -53,11 +57,13 @@ interface ExecutionProfile {
 
 WorkContract 持久化 `executionProfile`。只有包含 `browser_verification` capability 且 authority 仍有效的 WorkContract，ACP 权限策略才允许受限的本地 Playwright 命令：项目脚本 `test/e2e` 或直接 `npx/pnpm exec playwright test`。任意 shell 拼接、后台进程、外部发布与通用 `node -e` 继续拒绝。
 
+Coordinator planning 的 `coordination.requiredTaskIds` 同样是冻结权限事实。Task Graph Outcome owner 在接受 proposal 之前必须确认每个 ID 都出现在 proposal 中且获得有效 Project 成员 owner；缺失任一冻结 Task 时拒绝整个 Outcome，不产生部分图或伪派发回执。
+
 无论 Skill config 声明什么工具，WorkContract issuance 与 MCP grant 都统一裁掉 `task_create`、`task_update_status`、`task_assign`、`collaboration_record_pr/review/merge`。浏览器产物服务由 `browser-verification` Skill 独立提供；任务状态、Task Graph receipt 与 Gate 只由 accepted Outcome 后的 owner 更新。
 
 ## 7. 观测
 
-ContextReport 必须同时展示 eligible、activated、loaded 与 activation reason。未激活 Skill 以 `not_activated_for_execution_profile` 记录，token 为 0。WorkContract instruction 展示阶段、能力与唯一出口，不重复角色人格或工具调用过程。
+ContextReport 必须同时展示 eligible、activated、loaded 与 activation reason。未激活 Skill 以 `not_activated_for_execution_profile` 记录，token 为 0。WorkContract instruction 展示阶段、能力与唯一出口，不重复角色人格或工具调用过程；但必须展示 Coordinator 的冻结协调义务，因为它是当前 Invocation 的运行期约束，不是角色人格。
 
 ## 8. 退出条件
 
@@ -66,4 +72,5 @@ ContextReport 必须同时展示 eligible、activated、loaded 与 activation re
 - 浏览器验证 Skill 作为 preset 安装并绑定到内建执行/质量角色。
 - Web E2E WorkContract 自动获得受限浏览器验证能力；普通任务不能获得。
 - 现网同形态任务不再加载无关 Git Skill，并不会因本地浏览器验证权限请求升级给用户。
+- 存在未分配根 Task 的 Coordinator planning WorkContract 只能通过覆盖冻结 Task 的 Task Graph proposal 正常完成；平台接受后自动调度就绪 owner，旧默认马里奥配置在不覆盖用户自定义 instructions 的前提下升级。
 - 设计文档、测试、类型检查与构建保持一致。

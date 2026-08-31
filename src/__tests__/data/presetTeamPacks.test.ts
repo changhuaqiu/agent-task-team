@@ -83,4 +83,13 @@ describe('default team collaboration template', () => {
     expect(roles.find((role) => role.id === 'mario')?.soul).toContain('宣布“管道已启动”前');
     expect(roles.find((role) => role.id === 'peach')?.soul).toContain('collaboration_record_review');
   });
+
+  it('makes Mario own Task Graph decomposition and coordination instead of direct handoff', () => {
+    const mario = defaultTeam().roles.find((role) => role.id === 'mario');
+
+    expect(mario?.soul).toContain('Task Graph-first 统筹');
+    expect(mario?.soul).toContain('必须在一份结构化 Task Graph proposal 中覆盖并分配这些任务');
+    expect(mario?.soul).toContain('平台会自动派发');
+    expect(mario?.soul).toContain('统筹阶段不亲自实现');
+  });
 });

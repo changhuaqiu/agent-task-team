@@ -124,6 +124,55 @@ describe('issueDispatchWorkContract', () => {
 
     expect(contract.authoritativeRefs).toContain('task_graph:project-1');
     expect(contract.authoritativeRevisions).toMatchObject({ taskGraph: 4 });
+    expect(contract.allowedOutcomeTypes).toContain('handoff_to_agent');
+  });
+
+  it('freezes Task Graph-first coordination when a coordinator sees unassigned work', () => {
+    taskRepo.create({
+      id: 'task-unassigned-root', conversation_id: 'project-1',
+      title: 'Deliver the user goal', agent_id: '',
+    }, now);
+    const snapshot: ContextSnapshot = {
+      id: 'context-coordination',
+      query: {
+        scenario: 'planning', trigger: 'user_turn', conversationId: 'project-1',
+        agentId: 'mario', archetype: 'planner', budgetTokens: 1_000,
+        requiredContributorIds: [], now: now.toISOString(), requestDigest: 'coordinate-root',
+      },
+      fragmentRefs: [], capabilities: [], constraints: [], missingRequired: [], omissions: [],
+      compiledPrompt: 'Coordinate the work.', createdAt: now.toISOString(),
+    };
+    const contract = issueDispatchWorkContract({
+      trigger: {
+        id: 'trigger-coordination', source: 'user', conversationId: 'project-1',
+        agentId: 'mario', prompt: 'Coordinate the work.',
+      },
+      traceId: 'trace-coordination', contextSnapshot: snapshot, role: { id: 'mario' },
+      admission: dispatchGrant('planning'),
+      executionProfile: { ...executionProfile, stage: 'plan' },
+      runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: [] },
+    });
+
+    expect(contract.allowedOutcomeTypes).toEqual([
+      'continue_work',
+      'propose_task_graph',
+      'report_blocked',
+      'request_human_decision',
+    ]);
+    expect(contract.permissions).toMatchObject({
+      coordination: {
+        mode: 'task_graph_first',
+        requiredTaskIds: ['task-unassigned-root'],
+      },
+    });
+    expect(contract.acceptanceCriteria.join('\n')).toContain('task-unassigned-root');
+
+    const instruction = renderWorkContractInstruction(contract);
+    expect(instruction).toContain('Task Graph-first coordination is mandatory');
+    expect(instruction).toContain('task-unassigned-root');
+    expect(instruction).toContain('automatically dispatches dependency-ready assigned Tasks');
+    expect(instruction).toContain('do not perform implementation');
+    expect(instruction).toContain('direct handoff cannot substitute');
   });
 
   it('never exposes Task Graph proposal without frozen graph authority', () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createTestDb, setTestDb } from './index';
 import { listAgents, upsertAgent, deleteAgent } from './agentQueries';
 import { seedPresetAgents } from './seed-agents';
+import { DEFAULT_COORDINATOR_INSTRUCTIONS } from '@/shared/agent-definition';
 
 function storedAgent(id: string) {
   return listAgents().find((agent) => agent.id === id);
@@ -33,6 +34,12 @@ describe('agentQueries', () => {
     it('preset agents contain expected ids', () => {
       const ids = listAgents().map((a) => a.id).sort();
       expect(ids).toEqual(['dk', 'luigi', 'mario', 'peach']);
+    });
+
+    it('seeds Mario with the Task Graph-first coordinator contract', () => {
+      expect(storedAgent('mario')?.instructions).toBe(DEFAULT_COORDINATOR_INSTRUCTIONS);
+      expect(storedAgent('mario')?.instructions).toContain('必须通过结构化 Task Graph proposal');
+      expect(storedAgent('mario')?.instructions).toContain('统筹阶段不亲自实现');
     });
 
     it('seeding twice does not duplicate rows', () => {

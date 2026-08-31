@@ -136,6 +136,89 @@ describe('TaskGraphOutcomeProcessManager', () => {
     ]);
   });
 
+  it('rejects a coordinator proposal that omits frozen unassigned work, then dispatches the corrected graph', () => {
+    taskRepo.create({
+      id: 'task-coordination-root',
+      conversation_id: 'project-task-graph',
+      title: 'Coordinate this goal',
+      agent_id: '',
+    }, NOW);
+    const revision = taskGraphRepo.revision('project-task-graph');
+    const contracts = new WorkContractRepository();
+    const contract = contracts.issue({
+      workId: 'planning:coordination-root',
+      attemptId: 'inv-coordination-root',
+      projectId: 'project-task-graph',
+      agentId: 'planner',
+      goal: 'Decompose and coordinate the goal',
+      acceptanceCriteria: ['Cover the frozen root Task'],
+      role: { responsibility: 'coordinator' },
+      permissions: {
+        coordination: {
+          mode: 'task_graph_first',
+          requiredTaskIds: ['task-coordination-root'],
+        },
+      },
+      authoritativeRefs: ['task_graph:project-task-graph'],
+      authoritativeRevisions: { taskGraph: revision },
+      contextSnapshotRef: 'context-coordination-root',
+      allowedOutcomeTypes: ['propose_task_graph'],
+      correlationId: 'trace-coordination-root',
+      causationId: 'request-coordination-root',
+      now: NOW,
+    });
+    const outcome = (input: {
+      id: string;
+      tasks: Array<{ id: string; title: string; agentId: string; dependencies?: string[] }>;
+    }): AgentOutcome => ({
+      outcomeId: input.id,
+      idempotencyKey: input.id,
+      contractId: contract.contractId,
+      outcomeType: 'propose_task_graph',
+      payload: { expectedRevision: revision, tasks: input.tasks },
+      evidenceRefs: [],
+      projectId: contract.projectId,
+      workId: contract.workId,
+      workEpoch: contract.workEpoch,
+      attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken,
+      authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId,
+      causationId: contract.contractId,
+      occurredAt: NOW.toISOString(),
+    });
+
+    expect(contracts.admitOutcome(outcome({
+      id: 'outcome-coordination-missing-root',
+      tasks: [{ id: 'task-unrelated', title: 'Unrelated', agentId: 'builder' }],
+    }))).toMatchObject({
+      status: 'rejected',
+      outcome: { rejection_reason: 'task_graph_coordination_tasks_missing' },
+    });
+    expect(taskGraphRepo.revision('project-task-graph')).toBe(revision);
+    expect(getDb().prepare('SELECT COUNT(*) count FROM agent_inbox_item').get())
+      .toEqual({ count: 0 });
+
+    expect(contracts.admitOutcome(outcome({
+      id: 'outcome-coordination-corrected',
+      tasks: [
+        { id: 'task-coordination-root', title: 'Coordinate this goal', agentId: 'builder' },
+        {
+          id: 'task-coordination-review', title: 'Review the result', agentId: 'reviewer',
+          dependencies: ['task-coordination-root'],
+        },
+      ],
+    }))).toMatchObject({ status: 'accepted' });
+    expect(taskRepo.getById('task-coordination-root')).toMatchObject({
+      agent_id: 'builder',
+      status: 'ready',
+    });
+    expect(getDb().prepare(`
+      SELECT project_agent_id,json_extract(command_json,'$.taskId') task_id
+      FROM agent_inbox_item
+    `).all()).toEqual([{ project_agent_id: 'builder', task_id: 'task-coordination-root' }]);
+  });
+
   it('turns verify intent into one revision-fenced QualityGate command', async () => {
     const contracts = new WorkContractRepository();
     const contract = contracts.issue({

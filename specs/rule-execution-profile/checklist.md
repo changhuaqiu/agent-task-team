@@ -12,3 +12,7 @@
 - [x] 全量测试、类型检查、受影响路径 lint、build 通过（仓库全量 lint 仍有既有历史债务）。
 - [x] 长期设计文档与实现一致。
 - [ ] 合并重启后真实任务不再加载无关 Git Skill，且项目内 Codex edit / Playwright 验证不再误触发人工决策。
+- [x] Coordinator 遇到未分配根 Task 时不能以文本 handoff 代替 Task Graph proposal。
+- [x] Coordinator proposal 必须覆盖并分配 WorkContract 冻结的全部 Task ID。
+- [x] accepted proposal 由平台提交任务图并自动派发依赖已满足的 owner，不要求 Agent 重复派发。
+- [x] 旧默认马里奥 instructions 自动升级，用户自定义 instructions 不被覆盖。

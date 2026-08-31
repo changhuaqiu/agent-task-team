@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import { createTestDb } from './index';
 import { applyMigrations } from './migrate';
 import { PlatformEventLog } from '../platform-events/event-log';
+import { DEFAULT_COORDINATOR_INSTRUCTIONS } from '@/shared/agent-definition';
 
 describe('SQLite Foundation', () => {
   let db: Database.Database;
@@ -120,7 +121,7 @@ describe('SQLite Foundation', () => {
         VALUES ('group-2','work-1',2,'outcome-1')
       `).run()).toThrow();
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 111 });
+        .toEqual({ version: 112 });
     } finally {
       legacyDb.close();
     }
@@ -151,7 +152,7 @@ describe('SQLite Foundation', () => {
         'source_outcome_id',
       ]));
       expect(collidedDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 111 });
+        .toEqual({ version: 112 });
     } finally {
       collidedDb.close();
     }
@@ -735,7 +736,7 @@ describe('SQLite Foundation', () => {
         WHERE id='legacy-action'
       `).get()).toEqual({ type: 'activate', attempt_count: 0, max_attempts: 3 });
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 111 });
+        .toEqual({ version: 112 });
       expect(() => legacyDb.prepare(`
         INSERT INTO delivery_control_action (
           id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
@@ -909,7 +910,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 111 });
+      .toEqual({ version: 112 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -987,7 +988,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 111 });
+          .toEqual({ version: 112 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();
@@ -1191,6 +1192,28 @@ describe('SQLite Foundation', () => {
       .get('task-terminal-completion')).toEqual({ completed_at: '2026-08-30T01:05:00.000Z' });
     expect(db.prepare('SELECT completed_at FROM task WHERE id=?')
       .get('task-active-completion')).toEqual({ completed_at: null });
+  });
+
+  it('upgrades only the legacy default Mario coordinator instructions', () => {
+    const now = '2026-09-01T00:00:00.000Z';
+    db.prepare(`
+      INSERT INTO agents (
+        id,name,role_card_id,theme,emoji,is_preset,instructions,created_at,updated_at
+      ) VALUES ('mario','Mario','','mario','⭐',1,?,?,?)
+    `).run('负责理解目标、拆解工作、协调团队并推动交付闭环。', now, now);
+    db.prepare('DELETE FROM _schema_version WHERE version=112').run();
+
+    applyMigrations(db);
+
+    expect(db.prepare('SELECT instructions,revision FROM agents WHERE id=?').get('mario'))
+      .toMatchObject({ instructions: DEFAULT_COORDINATOR_INSTRUCTIONS, revision: 2 });
+
+    db.prepare(`UPDATE agents SET instructions='我的自定义统筹规则' WHERE id='mario'`).run();
+    db.prepare('DELETE FROM _schema_version WHERE version=112').run();
+    applyMigrations(db);
+
+    expect(db.prepare('SELECT instructions FROM agents WHERE id=?').get('mario'))
+      .toEqual({ instructions: '我的自定义统筹规则' });
   });
 
   it('enforces immutability of published evaluation revisions', () => {

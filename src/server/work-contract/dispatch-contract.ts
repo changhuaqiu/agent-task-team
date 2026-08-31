@@ -37,6 +37,13 @@ const PLANNING_OUTCOMES: AgentOutcomeType[] = [
   'request_human_decision',
 ];
 
+const COORDINATION_OUTCOMES: AgentOutcomeType[] = [
+  'continue_work',
+  'propose_task_graph',
+  'report_blocked',
+  'request_human_decision',
+];
+
 const DOMAIN_MUTATION_TOOLS = new Set([
   'task_create',
   'task_update_status',
@@ -62,6 +69,10 @@ interface WorkContractPermissions {
   tools?: unknown;
   authorization?: unknown;
   dispatchAdmission?: unknown;
+  coordination?: {
+    mode?: 'task_graph_first';
+    requiredTaskIds?: unknown;
+  };
 }
 
 function permissionEnvelope(contract: WorkContract): WorkContractPermissions {
@@ -265,8 +276,20 @@ export function issueDispatchWorkContract(input: {
       : undefined;
     const currentEpoch = workContractRepo.getAuthority(workId)?.current_epoch ?? 0;
     const gateWork = input.trigger.source === 'review_gate' || input.trigger.source === 'test_gate';
+    const coordinationRequiredTaskIds = input.admission.kind === 'planning'
+      && input.admission.role.responsibility === 'coordinator'
+      ? (db.prepare(`
+          SELECT id FROM task
+          WHERE conversation_id=?
+            AND status IN ('proposed','ready')
+            AND trim(agent_id)=''
+          ORDER BY created_at,id
+        `).all(input.trigger.conversationId) as Array<{ id: string }>).map((row) => row.id)
+      : [];
     const allowedOutcomeTypes = gateWork
       ? GATE_OUTCOMES
+      : coordinationRequiredTaskIds.length > 0
+        ? COORDINATION_OUTCOMES
       : input.admission.kind === 'planning'
         ? PLANNING_OUTCOMES
         : EXECUTION_OUTCOMES;
@@ -302,12 +325,20 @@ export function issueDispatchWorkContract(input: {
       ? input.task.description?.trim() || input.task.title
       : undefined;
     const goal = taskGoal || deliveryContract?.goal?.trim() || input.trigger.prompt;
-    const acceptanceCriteria = deliveryContract?.acceptanceCriteria?.filter(Boolean)
+    const baseAcceptanceCriteria = deliveryContract?.acceptanceCriteria?.filter(Boolean)
       ?? (input.task
         ? [`Complete task: ${input.task.title}`, 'Submit evidence for the claimed result']
         : input.admission.kind === 'planning'
           ? ['Return a structured plan, assignment, handoff, blocker, or human decision request']
           : ['Return a structured outcome with evidence']);
+    const acceptanceCriteria = coordinationRequiredTaskIds.length > 0
+      ? [
+          ...baseAcceptanceCriteria,
+          `Include and assign every frozen unassigned Task in one Task Graph proposal: ${coordinationRequiredTaskIds.join(', ')}`,
+          'Add bounded tasks, dependencies, and review or verification intents when required for execution and closure',
+          'Do not implement, bypass the Task Graph with a direct handoff, or claim dispatch without a durable receipt',
+        ]
+      : baseAcceptanceCriteria;
     const outcomeRecovery = input.trigger.executionMode === 'outcome_recovery';
     const deliveryAuthorization = deliveryContract?.authorization !== null
       && typeof deliveryContract?.authorization === 'object'
@@ -334,6 +365,12 @@ export function issueDispatchWorkContract(input: {
           agentDefinitionId: input.admission.role.definitionId,
           agentDefinitionRevision: input.admission.role.definitionRevision,
         },
+        ...(coordinationRequiredTaskIds.length > 0 ? {
+          coordination: {
+            mode: 'task_graph_first' as const,
+            requiredTaskIds: coordinationRequiredTaskIds,
+          },
+        } : {}),
         runtime: {
           engine: input.runtime.engine,
           runtimeId: input.runtime.runtimeId,
@@ -365,6 +402,13 @@ export function issueDispatchWorkContract(input: {
 export function renderWorkContractInstruction(contract: WorkContract): string {
   const outcomeRecovery = isOutcomeRecoveryContract(contract);
   const executionProfile = permissionEnvelope(contract).executionProfile;
+  const coordination = permissionEnvelope(contract).coordination;
+  const requiredTaskIds = coordination?.mode === 'task_graph_first'
+    && Array.isArray(coordination.requiredTaskIds)
+    ? coordination.requiredTaskIds.filter((taskId): taskId is string => (
+        typeof taskId === 'string' && Boolean(taskId.trim())
+      ))
+    : [];
   const lifecycleTools = contract.allowedOutcomeTypes
     .map((outcomeType) => AGENT_OUTCOME_TOOL_BY_TYPE[outcomeType]);
   return [
@@ -386,7 +430,15 @@ export function renderWorkContractInstruction(contract: WorkContract): string {
       ? [`Authorized dispatch: ${JSON.stringify(permissionEnvelope(contract).dispatchAdmission)}.`]
       : []),
     ...(executionProfile?.stage === 'plan' ? [
-      'This is a planning contract. Do not edit files or implement the requested change; inspect, decompose, assign, hand off, or request a decision.',
+      'This is a planning contract. Do not edit files or implement the requested change; inspect, decompose, assign, coordinate, or request a decision.',
+    ] : []),
+    ...(requiredTaskIds.length > 0 ? [
+      'Coordinator duty: Task Graph-first coordination is mandatory for this Invocation.',
+      `Inspect the goal, acceptance criteria, current Task Graph, and Project members. One accepted task_propose_graph result must include and assign every frozen Task: ${requiredTaskIds.join(', ')}.`,
+      'For multi-step work, add bounded tasks, dependencies, and review or verification intents needed for execution and closure.',
+      'A narrative plan, chat mention, or direct handoff cannot substitute for the Task Graph proposal.',
+      'After acceptance the platform commits the graph and automatically dispatches dependency-ready assigned Tasks. Do not duplicate dispatch or claim another Agent started without a durable receipt.',
+      'Remain the coordinator for blockers, replanning, gates, and closure; do not perform implementation in this planning contract. Request a human decision only for a truly missing choice that cannot be inferred from Project facts.',
     ] : []),
     ...(outcomeRecovery ? [
       'Do not repeat implementation, review, verification, shell commands, file edits, delegation, or exploratory work.',
