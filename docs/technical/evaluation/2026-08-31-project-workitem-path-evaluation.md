@@ -65,7 +65,7 @@ pnpm build
 - 组件用例证明切换 WorkItem 后活动 conversationId、A2A 作用域与 Artifact workId 同步切换；现代 workstream 跟随权威 Conversation，复用 Project Conversation 的 legacy WorkItem 仍可独立选择。角色列只显示有贡献的角色，列内再按实现/设计与文档等业务类别组织。
 - 本地真实页面中，Project 显示 3 个独立工作项；项目活动有 0 个 textbox，所选工作项活动有 1 个 textbox；从工作项 A 的活动页真实创建 B 后，列表、标题、详情和唯一输入器全部切到 B。Project 入口回到概览；宽屏完成真实浏览器验证，窄屏折叠由响应式结构断言覆盖。
 - 全量回归：271 个文件通过、2 个跳过；1980 项通过、2 项跳过。TypeScript 和 production build 通过；build 仅保留已知 NFT 动态文件追踪警告。三轮独立复审最终为 0 Critical / 0 Important，Ready to merge。
-- Rust release EXE 构建通过，Renderer/Service build identity 为 `desktop-build-677cc39950678d53a4cf2561cd91f04f`；EXE SHA-256 为 `BF0774B887EBB867EA3F485C557EBD63D6F28FCB4122ED6E988318F7E7E97307`。
+- 在 `main` 清空旧 Service staging 后重新完成 Rust release 构建；Renderer/Service build identity 唯一为 `desktop-build-03f33ae76d76cbfda2be76e0c9812268`，EXE SHA-256 为 `1EAD600CAE9113DAF5C70DB0653C3FD51C551729BE0FD43A7FB256E04E963894`。
 
 ## Decision
 
