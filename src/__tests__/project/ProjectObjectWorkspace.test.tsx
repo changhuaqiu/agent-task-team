@@ -45,7 +45,7 @@ describe('ProjectObjectWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '工作项' }));
     expect(screen.getByRole('region', { name: '项目工作项' })).toBeDefined();
-    expect(screen.getByTestId('a2a-status-bar')).toBeDefined();
+    expect(screen.queryByTestId('a2a-status-bar')).toBeNull();
     expect(screen.queryByRole('button', { name: '创建工作' })).toBeNull();
     expect(screen.queryByTestId('global-chat-room')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '概览' }));

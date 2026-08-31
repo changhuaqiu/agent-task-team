@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 import { PlatformEventLog } from '../platform-events/event-log';
 import { projectRepo } from '../repositories/project-repo';
+import { conversationRepo } from '../repositories/conversation-repo';
 import { taskRepo } from '../repositories/task-repo';
 import type { ContextQuery } from '@/lib/agent-context/ContextManager';
 import { ArtifactLedgerContextContributor } from './context-contributor';
@@ -133,6 +134,50 @@ describe('projectArtifactLedger', () => {
 
     expect(projectArtifactLedger.list(alpha.id)).toEqual([]);
     expect(projectArtifactLedger.list(beta.id)[0]).toMatchObject({ ref: 'src/beta.ts' });
+  });
+
+  it('filters by workstream before merging the same reference across WorkItems', () => {
+    const project = projectRepo.create({ name: 'Alpha', rootPath: PROJECT_ROOT });
+    const workA = conversationRepo.create({
+      id: 'workstream-a', title: 'Work A', project_id: project.id, workspace_kind: 'workstream',
+    });
+    const workB = conversationRepo.create({
+      id: 'workstream-b', title: 'Work B', project_id: project.id, workspace_kind: 'workstream',
+    });
+    taskRepo.create({ id: 'task-a', conversation_id: workA.id, title: 'Task A', agent_id: 'builder' });
+    taskRepo.create({ id: 'task-b', conversation_id: workB.id, title: 'Task B', agent_id: 'reviewer' });
+    const insertAction = getDb().prepare(`
+      INSERT INTO task_action (id,conversation_id,actor_id,actor_type,type,task_ids,payload,created_at)
+      VALUES (?,?,?,?,?,?,?,?)
+    `);
+    const insertArtifact = getDb().prepare(`
+      INSERT INTO task_artifact_ref
+        (id,conversation_id,task_id,kind,label,path,created_by_action_id,created_at)
+      VALUES (?,?,?,?,?,?,?,?)
+    `);
+    insertAction.run('action-a', workA.id, 'builder', 'agent', 'task.review_requested', '["task-a"]', '{}', '2026-08-27T01:00:00.000Z');
+    insertAction.run('action-b', workB.id, 'reviewer', 'agent', 'task.review_requested', '["task-b"]', '{}', '2026-08-27T02:00:00.000Z');
+    insertArtifact.run('artifact-a', workA.id, 'task-a', 'file', 'shared.ts', 'src/shared.ts', 'action-a', '2026-08-27T01:00:00.000Z');
+    insertArtifact.run('artifact-b', workB.id, 'task-b', 'file', 'shared.ts', 'src/shared.ts', 'action-b', '2026-08-27T02:00:00.000Z');
+    getDb().prepare(`
+      INSERT INTO invocation (id,conversation_id,agent_id,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,?)
+    `).run('inv-work-a', workA.id, 'builder', 'running', '2026-08-27T03:00:00.000Z', '2026-08-27T03:00:00.000Z');
+    appendToolPair({
+      conversationId: workA.id,
+      invocationId: 'inv-work-a',
+      callId: 'write-delivery-level',
+      toolName: 'write_file',
+      toolInput: JSON.stringify({ file_path: 'docs/delivery.md' }),
+    });
+
+    expect(projectArtifactLedger.list(project.id, 100, { conversationId: workA.id, workIds: ['task-a'] }))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ ref: 'src/shared.ts', workId: 'task-a' }),
+        expect.objectContaining({ ref: 'docs/delivery.md', updatedBy: 'builder' }),
+      ]));
+    expect(projectArtifactLedger.list(project.id, 100, { conversationId: workB.id, workIds: ['task-b'] }))
+      .toEqual([expect.objectContaining({ ref: 'src/shared.ts', workId: 'task-b' })]);
   });
 
   it('canonicalizes located evidence and keeps the actual producer when a reviewer registers it', () => {

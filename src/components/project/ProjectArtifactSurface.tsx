@@ -110,10 +110,11 @@ const OPERATION_LABEL = {
   register: '登记证据',
 } as const;
 
-export function ProjectArtifactSurface({ project, agents = [], workId }: {
+export function ProjectArtifactSurface({ project, agents = [], conversationId, workIds }: {
   project: WorkspaceProject;
   agents?: Array<{ id: string; name: string; emoji?: string }>;
-  workId?: string;
+  conversationId?: string;
+  workIds?: string[];
 }) {
   const [artifacts, setArtifacts] = useState<ProjectArtifactLedgerItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -123,12 +124,20 @@ export function ProjectArtifactSurface({ project, agents = [], workId }: {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const workScopeKey = workIds?.join('\u0000') ?? null;
+  const scopedWorkIds = useMemo(
+    () => workScopeKey === null ? null : new Set(workScopeKey ? workScopeKey.split('\u0000') : []),
+    [workScopeKey],
+  );
 
   const refresh = useCallback(async (quiet = false) => {
     if (quiet) setRefreshing(true);
     else setLoading(true);
     try {
-      const response = await fetch(`/api/artifacts?projectId=${encodeURIComponent(project.id)}`, { cache: 'no-store' });
+      const query = new URLSearchParams({ projectId: project.id });
+      if (conversationId) query.set('conversationId', conversationId);
+      for (const id of scopedWorkIds ?? []) query.append('workId', id);
+      const response = await fetch(`/api/artifacts?${query.toString()}`, { cache: 'no-store' });
       const payload = await response.json() as { artifacts?: ProjectArtifactLedgerItem[]; error?: string };
       if (!response.ok) throw new Error(payload.error ?? 'artifact_load_failed');
       const next = payload.artifacts ?? [];
@@ -141,17 +150,14 @@ export function ProjectArtifactSurface({ project, agents = [], workId }: {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [project.id]);
+  }, [conversationId, project.id, scopedWorkIds]);
 
   useEffect(() => {
     const controller = window.setTimeout(() => void refresh(), 0);
     return () => window.clearTimeout(controller);
   }, [refresh]);
 
-  const scopedArtifacts = useMemo(
-    () => workId ? artifacts.filter((artifact) => artifact.workId === workId) : artifacts,
-    [artifacts, workId],
-  );
+  const scopedArtifacts = artifacts;
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
     return scopedArtifacts.filter((artifact) => {
@@ -188,12 +194,14 @@ export function ProjectArtifactSurface({ project, agents = [], workId }: {
     }
   }
 
-  return <section className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-app))] p-4 sm:p-6" aria-label={workId ? '工作项交付件' : '项目产物'}>
+  const scoped = Boolean(conversationId || workIds);
+
+  return <section className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-app))] p-4 sm:p-6" aria-label={scoped ? '工作项交付件' : '项目产物'}>
     <section className="mx-auto flex min-h-[520px] max-w-7xl flex-col overflow-hidden rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))]">
       <header className="border-b border-[hsl(var(--border-subtle))] px-4 py-4 sm:px-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-medium">{workId ? '本工作项的角色交付' : '角色交付'}</h3>{scopedArtifacts.length > 0 && <><span className="rounded-full bg-[hsl(var(--bg-muted))] px-2 py-0.5 text-xs text-[hsl(var(--text-secondary))]">{scopedArtifacts.length} 项</span><span className="text-xs text-[hsl(var(--text-tertiary))]">{registeredCount} 项已登记</span></>}</div>
+            <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-medium">{scoped ? '本工作项的角色交付' : '角色交付'}</h3>{scopedArtifacts.length > 0 && <><span className="rounded-full bg-[hsl(var(--bg-muted))] px-2 py-0.5 text-xs text-[hsl(var(--text-secondary))]">{scopedArtifacts.length} 项</span><span className="text-xs text-[hsl(var(--text-tertiary))]">{registeredCount} 项已登记</span></>}</div>
             <p className="mt-1 max-w-2xl text-xs leading-5 text-[hsl(var(--text-tertiary))]">先看每个角色交付了什么，再按实现、文档与验证分类；无需另外创建产物。</p>
           </div>
           <button type="button" onClick={() => void refresh(true)} disabled={refreshing} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-2.5 text-xs hover:bg-[hsl(var(--bg-muted))] disabled:opacity-50"><RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />刷新</button>

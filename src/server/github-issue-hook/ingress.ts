@@ -106,10 +106,17 @@ export class GitHubIssueAgentIngress {
       });
       const conversationId = generateSortableId('workstream');
       const title = `#${payload.issue.number} ${payload.issue.title.trim()}`;
+      const contract = compileGitHubIssueGoalContract(payload, input.config, conversationId);
+      const issueContext = [
+        contract.goal,
+        payload.issue.body?.trim(),
+        `来源：${payload.issue.html_url}`,
+        `验收条件：\n${contract.acceptanceCriteria.map((criterion) => `- ${criterion}`).join('\n')}`,
+      ].filter(Boolean).join('\n\n');
       conversationRepo.create({
         id: conversationId,
         title,
-        goal: title,
+        goal: issueContext,
         project_path: input.config.projectPath,
         git_repo_root: input.config.projectPath,
         use_worktree: true,
@@ -117,7 +124,6 @@ export class GitHubIssueAgentIngress {
         project_id: project.id,
         workspace_kind: 'workstream',
       });
-      const contract = compileGitHubIssueGoalContract(payload, input.config, conversationId);
       const snapshot = runtime.start(contract);
       const timestamp = this.now().toISOString();
       const mapping = this.repository.create({

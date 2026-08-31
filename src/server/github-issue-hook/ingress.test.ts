@@ -52,6 +52,7 @@ describe('GitHubIssueAgentIngress', () => {
     if (result.disposition !== 'accepted') throw new Error('expected accepted result');
     expect(conversationRepo.getById(result.mapping.conversation_id)).toMatchObject({
       title: '#42 Add automatic issue intake',
+      goal: expect.stringMatching(/Create an automatic intake path\.[\s\S]*https:\/\/github\.com\/acme\/widgets\/issues\/42[\s\S]*Verify webhook signatures/),
       project_path: projectPath,
       git_repo_root: projectPath,
       use_worktree: 1,

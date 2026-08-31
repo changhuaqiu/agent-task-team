@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ProjectWorkItemsWorkspace } from '@/components/project/ProjectWorkItemsWorkspace';
 import { useTaskHubStore, type Conversation, type WorkspaceProject } from '@/store/taskHubStore';
 import type { Task } from '@/store/taskStore';
@@ -8,8 +8,11 @@ import type { Task } from '@/store/taskStore';
 vi.mock('@/components/task-hub/GlobalChatRoom', () => ({
   GlobalChatRoom: () => <div data-testid="scoped-chat">{useTaskHubStore.getState().selectedConversationId}</div>,
 }));
+vi.mock('@/components/task-hub/A2APossessionStrip', () => ({
+  A2APossessionStrip: ({ conversationId }: { conversationId: string }) => <div data-testid="scoped-possession">{conversationId}</div>,
+}));
 vi.mock('@/components/project/ProjectArtifactSurface', () => ({
-  ProjectArtifactSurface: ({ workId }: { workId?: string }) => <div data-testid="scoped-artifacts">{workId}</div>,
+  ProjectArtifactSurface: ({ conversationId, workIds }: { conversationId?: string; workIds?: string[] }) => <div data-testid="scoped-artifacts">{conversationId}:{workIds?.join(',')}</div>,
 }));
 
 afterEach(() => cleanup());
@@ -50,15 +53,23 @@ describe('ProjectWorkItemsWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /Issue A/ }));
     expect(useTaskHubStore.getState().selectedConversationId).toBe('workstream-a');
     expect(useTaskHubStore.getState().selectedTaskId).toBeNull();
+    expect(screen.getByTestId('scoped-possession').textContent).toBe('workstream-a');
 
     fireEvent.click(screen.getByRole('button', { name: '活动' }));
     expect(screen.getByTestId('scoped-chat').textContent).toBe('workstream-a');
 
     fireEvent.click(screen.getByRole('button', { name: '交付件' }));
-    expect(screen.getByTestId('scoped-artifacts').textContent).toBe('work-a');
+    expect(screen.getByTestId('scoped-artifacts').textContent).toBe('workstream-a:work-a');
 
     fireEvent.click(screen.getByRole('button', { name: /Issue B/ }));
     fireEvent.click(screen.getByRole('button', { name: '活动' }));
     expect(screen.getByTestId('scoped-chat').textContent).toBe('workstream-b');
+    expect(screen.getByRole('region', { name: 'Issue B 工作项详情' })).toBeDefined();
+    expect(screen.getByTestId('scoped-possession').textContent).toBe('workstream-b');
+
+    act(() => useTaskHubStore.getState().setSelectedConversationId('workstream-a'));
+    expect(screen.getByRole('region', { name: 'Issue A 工作项详情' })).toBeDefined();
+    expect(screen.getByTestId('scoped-chat').textContent).toBe('workstream-a');
+    expect(screen.getByTestId('scoped-possession').textContent).toBe('workstream-a');
   });
 });

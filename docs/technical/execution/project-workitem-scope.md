@@ -59,7 +59,7 @@ Issue ingress 映射保存该 workstream Conversation 与 DeliveryRun；同一 I
 
 - Runtime、Task Graph、消息和自主交付以 WorkItem conversationId 隔离。
 - Project context contributor 可注入项目摘要和同目录冲突信号，但不注入其他工作项原始消息。
-- 完成判断以工作项根 Task、当前 authority、正式 Artifact、Review/Gate 为闭环；Project 只汇总。
+- 完成判断以工作项根 Task、当前 authority、正式 Artifact、Review/Gate 为闭环；Project 只汇总。工作项交付在 ledger 按文件引用合并前，先以 workstream Conversation 和根/子 Task `workId` 筛选；这同时保留无 Task 的 delivery-level 证据，并避免同一文件被另一 WorkItem 的更新抢占归属。
 - Project workspace 的运行摘要不得因选中子 workstream 漂移。
 
 ## 迁移与退出条件

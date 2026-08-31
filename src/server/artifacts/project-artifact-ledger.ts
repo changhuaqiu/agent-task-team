@@ -17,6 +17,7 @@ interface RuntimeEventRow {
   task_id: string | null;
   task_title: string | null;
   invocation_agent_id: string | null;
+  conversation_id: string;
 }
 
 interface RegisteredArtifactRow {
@@ -31,6 +32,7 @@ interface RegisteredArtifactRow {
   actor_id: string | null;
   action_type: string | null;
   task_title: string | null;
+  conversation_id: string;
 }
 
 interface OutcomeEvidenceRow {
@@ -43,10 +45,17 @@ interface OutcomeEvidenceRow {
   task_id: string | null;
   task_title: string | null;
   goal: string;
+  conversation_id: string;
 }
 
 interface ArtifactProjectionItem extends ProjectArtifactLedgerItem {
   producerRank: number;
+  conversationId: string;
+}
+
+interface ArtifactLedgerScope {
+  conversationId?: string;
+  workIds?: string[];
 }
 
 const MUTATION_TOOL = /(apply[_ -]?patch|edit|write|create|delete|remove|replace|notebook)/i;
@@ -294,8 +303,9 @@ function merge(items: ArtifactProjectionItem[], limit: number): ProjectArtifactL
   return [...byRef.values()]
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     .slice(0, Math.max(1, Math.min(200, limit)))
-    .map(({ producerRank, ...item }) => {
+    .map(({ producerRank, conversationId, ...item }) => {
       void producerRank;
+      void conversationId;
       return item;
     });
 }
@@ -306,11 +316,11 @@ function isFormalArtifact(item: ArtifactProjectionItem): boolean {
 }
 
 export const projectArtifactLedger = {
-  list(projectId: string, limit = 100): ProjectArtifactLedgerItem[] {
+  list(projectId: string, limit = 100, scope?: ArtifactLedgerScope): ProjectArtifactLedgerItem[] {
     const project = projectRepo.getById(projectId);
     if (!project) throw new Error('artifact_project_not_found');
     const registeredRows = getDb().prepare(`
-      SELECT artifact.id,artifact.task_id,artifact.kind,artifact.label,artifact.path,artifact.url,
+      SELECT artifact.id,artifact.conversation_id,artifact.task_id,artifact.kind,artifact.label,artifact.path,artifact.url,
         artifact.proof_event_id,artifact.created_at,action.actor_id,action.type AS action_type,
         task.title AS task_title
       FROM task_artifact_ref artifact
@@ -341,6 +351,7 @@ export const projectArtifactLedger = {
         updatedAt: row.created_at,
         updatedBy: row.actor_id ?? 'system',
         producerRank: registeredProducerRank(row.action_type),
+        conversationId: row.conversation_id,
         operations: ['register'],
         workId: row.task_id,
         ...(row.task_title ? { workTitle: row.task_title } : {}),
@@ -349,7 +360,7 @@ export const projectArtifactLedger = {
     });
 
     const outcomeRows = getDb().prepare(`
-      SELECT outcome.id,outcome.work_id,outcome.outcome_type,outcome.evidence_refs_json,outcome.recorded_at,
+      SELECT outcome.id,outcome.project_id AS conversation_id,outcome.work_id,outcome.outcome_type,outcome.evidence_refs_json,outcome.recorded_at,
         contract.agent_id,contract.task_id,task.title AS task_title,contract.goal
       FROM agent_outcome outcome
       JOIN work_contract contract ON contract.id=outcome.contract_id
@@ -377,6 +388,7 @@ export const projectArtifactLedger = {
           updatedAt: row.recorded_at,
           updatedBy: row.agent_id,
           producerRank: row.outcome_type === 'record_gate_decision' ? 1 : row.task_id ? 3 : 2,
+          conversationId: row.conversation_id,
           operations: ['register'],
           workId: row.task_id ?? row.work_id,
           workTitle: workTitle(row.task_title, row.goal),
@@ -386,7 +398,7 @@ export const projectArtifactLedger = {
     });
 
     const runtimeRows = getDb().prepare(`
-      SELECT event.type,event.payload,event.recorded_at,event.invocation_id,
+      SELECT event.type,event.project_id AS conversation_id,event.payload,event.recorded_at,event.invocation_id,
         event.project_agent_id,event.actor_id,invocation.task_id,task.title AS task_title,
         invocation.agent_id AS invocation_agent_id
       FROM platform_event event
@@ -429,6 +441,7 @@ export const projectArtifactLedger = {
           updatedAt: row.recorded_at,
           updatedBy: row.project_agent_id ?? row.invocation_agent_id ?? row.actor_id,
           producerRank: 4,
+          conversationId: row.conversation_id,
           operations: [operation(toolName)],
           ...(row.task_id ? { workId: row.task_id } : {}),
           ...(row.task_title ? { workTitle: row.task_title } : {}),
@@ -436,8 +449,14 @@ export const projectArtifactLedger = {
         });
       }
     }
+    const scopeWorkIds = new Set(scope?.workIds ?? []);
+    const scopedItems = [...observed, ...registered, ...outcomeEvidenceItems].filter((item) => (
+      !scope
+      || (scope.conversationId && item.conversationId === scope.conversationId)
+      || (item.workId && scopeWorkIds.has(item.workId))
+    ));
     return merge(
-      [...observed, ...registered, ...outcomeEvidenceItems].filter(isFormalArtifact),
+      scopedItems.filter(isFormalArtifact),
       limit,
     );
   },

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { AlertCircle, Check, Circle, Clock3, FileCheck2, Plus, Rows3, Sparkles } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { GlobalChatRoom } from '@/components/task-hub/GlobalChatRoom';
+import { A2APossessionStrip } from '@/components/task-hub/A2APossessionStrip';
 import { projectWorkItems, type ProjectWorkItem } from '@/lib/project-work-items';
 import { cn } from '@/lib/utils';
 import type { Conversation, WorkspaceProject } from '@/store/taskHubStore';
@@ -34,11 +35,12 @@ export function ProjectWorkItemsWorkspace({ project, conversations, tasks, prefe
     agents: state.agentRoster,
   })));
   const items = useMemo(() => projectWorkItems(project, conversations, tasks), [conversations, project, tasks]);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => preferredWorkItem
+    ? workItemKey({ conversationId: preferredWorkItem.conversationId, id: preferredWorkItem.taskId })
+    : null);
   const [detailTab, setDetailTab] = useState<DetailTab>('summary');
-  const selected = items.find((item) => workItemKey(item) === selectedKey)
-    ?? items.find((item) => item.id === preferredWorkItem?.taskId && item.conversationId === preferredWorkItem.conversationId)
-    ?? items.find((item) => item.conversationId === selectedConversationId)
+  const selected = items.find((item) => item.conversationId === selectedConversationId)
+    ?? items.find((item) => workItemKey(item) === selectedKey)
     ?? items[0]
     ?? null;
   const agentById = new Map(agents.map((agent) => [agent.id, agent]));
@@ -64,9 +66,15 @@ export function ProjectWorkItemsWorkspace({ project, conversations, tasks, prefe
 
     {selected && <section className="flex min-w-0 flex-1 flex-col bg-[hsl(var(--bg-card))]" aria-label={`${selected.title} 工作项详情`}>
       <header className="shrink-0 border-b border-[hsl(var(--border-subtle))] px-5 pt-4"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex items-center gap-2"><WorkStatusIcon status={selected.status} /><h3 className="truncate text-base font-semibold">{selected.title}</h3>{selected.legacy && <span className="rounded bg-[hsl(var(--bg-muted))] px-1.5 py-0.5 text-[9px] text-[hsl(var(--text-tertiary))]">旧项目数据</span>}</div><p className="mt-1.5 line-clamp-2 text-xs leading-5 text-[hsl(var(--text-tertiary))]">{selected.description || '暂无补充说明'}</p></div><span className="shrink-0 rounded-full bg-[hsl(var(--bg-muted))] px-2 py-1 text-[10px]">{CATEGORY[selected.category]}</span></div><nav className="mt-4 flex items-center gap-5 overflow-x-auto" aria-label="工作项视图">{([['summary', '详情'], ['activity', '活动'], ['artifacts', '交付件']] as Array<[DetailTab, string]>).map(([id, label]) => <button key={id} type="button" onClick={() => select(selected, id)} className={cn('shrink-0 border-b-2 pb-3 text-xs', detailTab === id ? 'border-[hsl(var(--text-primary))] font-medium' : 'border-transparent text-[hsl(var(--text-tertiary))]')}>{label}</button>)}</nav></header>
+      <A2APossessionStrip conversationId={selected.conversationId} />
       {detailTab === 'summary' && <WorkItemSummary item={selected} agents={agentById} />}
       {detailTab === 'activity' && <div className="min-h-0 flex-1"><GlobalChatRoom variant="embedded" /></div>}
-      {detailTab === 'artifacts' && <ProjectArtifactSurface project={project} agents={agents} workId={selected.id} />}
+      {detailTab === 'artifacts' && <ProjectArtifactSurface
+        project={project}
+        agents={agents}
+        conversationId={selected.legacy ? undefined : selected.conversationId}
+        workIds={selected.tasks.map((task) => task.id)}
+      />}
     </section>}
   </main>;
 }

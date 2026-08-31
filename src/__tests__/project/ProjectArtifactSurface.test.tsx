@@ -13,6 +13,7 @@ const project: WorkspaceProject = {
 const artifacts: ProjectArtifactLedgerItem[] = [
   { id: 'registered', projectId: 'alpha', ref: 'src/main.ts', label: 'main.ts', kind: 'code', status: 'registered', updatedAt: '2026-08-27T01:00:00.000Z', updatedBy: 'builder', operations: ['edit', 'register'], workId: 'task-1', workTitle: '实现入口' },
   { id: 'working', projectId: 'alpha', ref: 'docs/plan.md', label: 'plan.md', kind: 'document', status: 'working', updatedAt: '2026-08-27T00:30:00.000Z', updatedBy: 'reviewer', operations: ['create'] },
+  { id: 'child', projectId: 'alpha', ref: 'tests/child.test.ts', label: 'child.test.ts', kind: 'test', status: 'registered', updatedAt: '2026-08-27T01:10:00.000Z', updatedBy: 'reviewer', operations: ['create'], workId: 'task-child', workTitle: '子任务验证' },
 ];
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -32,9 +33,9 @@ describe('ProjectArtifactSurface', () => {
 
     expect((await screen.findAllByText('main.ts')).length).toBeGreaterThan(0);
     expect(screen.getByText('plan.md')).toBeDefined();
-    expect(screen.getByText('2 项')).toBeDefined();
-    expect(screen.getByText('1 项已登记')).toBeDefined();
-    expect(screen.getByText('2 位贡献者 · 2 项产物')).toBeDefined();
+    expect(screen.getByText('3 项')).toBeDefined();
+    expect(screen.getByText('2 项已登记')).toBeDefined();
+    expect(screen.getByText('2 位贡献者 · 3 项产物')).toBeDefined();
     expect(screen.queryByRole('button', { name: /创建产物/ })).toBeNull();
     expect(screen.getByText('🛠️ Builder')).toBeDefined();
     expect(screen.getByRole('region', { name: '🛠️ Builder 的交付' })).toBeDefined();
@@ -60,5 +61,21 @@ describe('ProjectArtifactSurface', () => {
     expect(screen.getByRole('button', { name: 'main.ts，已登记' }).getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: '复制引用' }));
     await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenCalledWith('src/main.ts'));
+  });
+
+  it('includes deliverables from every Task inside the selected WorkItem', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ artifacts: artifacts.filter((item) => ['task-1', 'task-child'].includes(item.workId ?? '')) }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<ProjectArtifactSurface project={project} workIds={['task-1', 'task-child']} />);
+
+    expect((await screen.findAllByText('main.ts')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('child.test.ts').length).toBeGreaterThan(0);
+    expect(screen.queryByText('plan.md')).toBeNull();
+    expect(screen.getByRole('region', { name: '工作项交付件' })).toBeDefined();
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/workId=task-1.*workId=task-child/), { cache: 'no-store' });
   });
 });
