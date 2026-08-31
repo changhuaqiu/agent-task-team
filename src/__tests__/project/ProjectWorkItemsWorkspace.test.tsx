@@ -72,4 +72,24 @@ describe('ProjectWorkItemsWorkspace', () => {
     expect(screen.getByTestId('scoped-chat').textContent).toBe('workstream-a');
     expect(screen.getByTestId('scoped-possession').textContent).toBe('workstream-a');
   });
+
+  it('keeps separate legacy WorkItems selectable inside their shared Project conversation', () => {
+    useTaskHubStore.setState({
+      selectedConversationId: project.workspaceConversationId,
+      selectedTaskId: null,
+      conversations,
+      tasks: [],
+      agentRoster: [],
+    });
+    render(<ProjectWorkItemsWorkspace project={project} conversations={conversations} tasks={[
+      { ...task('legacy-a', project.workspaceConversationId, '2026-08-31T00:01:00.000Z'), title: 'Legacy A' },
+      { ...task('legacy-b', project.workspaceConversationId, '2026-08-31T00:02:00.000Z'), title: 'Legacy B' },
+    ]} onCreate={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Legacy A/ }));
+    expect(screen.getByRole('region', { name: 'Legacy A 工作项详情' })).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: /Legacy B/ }));
+    expect(screen.getByRole('region', { name: 'Legacy B 工作项详情' })).toBeDefined();
+    expect(useTaskHubStore.getState().selectedConversationId).toBe(project.workspaceConversationId);
+  });
 });

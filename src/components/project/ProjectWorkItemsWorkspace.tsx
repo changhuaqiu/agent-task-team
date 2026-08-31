@@ -39,8 +39,10 @@ export function ProjectWorkItemsWorkspace({ project, conversations, tasks, prefe
     ? workItemKey({ conversationId: preferredWorkItem.conversationId, id: preferredWorkItem.taskId })
     : null);
   const [detailTab, setDetailTab] = useState<DetailTab>('summary');
-  const selected = items.find((item) => item.conversationId === selectedConversationId)
-    ?? items.find((item) => workItemKey(item) === selectedKey)
+  const localSelected = items.find((item) => workItemKey(item) === selectedKey);
+  const conversationSelected = items.find((item) => item.conversationId === selectedConversationId);
+  const selected = (localSelected?.conversationId === selectedConversationId ? localSelected : conversationSelected)
+    ?? localSelected
     ?? items[0]
     ?? null;
   const agentById = new Map(agents.map((agent) => [agent.id, agent]));
