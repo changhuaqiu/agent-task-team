@@ -95,7 +95,7 @@ describe('ProjectWorkspace', () => {
     expect(screen.queryByText(/新建交付/)).toBeNull();
   });
 
-  it('switches conversation scope and selected Work atomically from global lenses', () => {
+  it('opens global work inside its Project hierarchy without launching the legacy Task drawer', () => {
     resetWorkspace('workspace-alpha');
     useTaskHubStore.setState({ tasks: [crossProjectTask] });
     render(<ProjectWorkspace onAddProject={vi.fn()} />);
@@ -103,6 +103,7 @@ describe('ProjectWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: '打开跨项目工作' }));
 
     expect(useTaskHubStore.getState().selectedConversationId).toBe('workspace-bravo');
-    expect(useTaskHubStore.getState().selectedTaskId).toBe('task-bravo');
+    expect(useTaskHubStore.getState().selectedTaskId).toBeNull();
+    expect(screen.getByTestId('project-object-workspace').textContent).toBe('Bravo');
   });
 });

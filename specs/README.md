@@ -40,6 +40,7 @@
 | [`rule-execution-profile/`](rule-execution-profile/) | active | 将阶段、Skill 激活、必需能力、权限和唯一出口编译为服务端 WorkContract，而不是依赖角色自由记忆规则 |
 | [`trace-runtime-hardening/`](trace-runtime-hardening/) | active | 用最近真实 Trace 修复 WorkContract 唯一出口、任务状态越权、ACP 会话膨胀和 Phoenix 在线投影 |
 | [`agent-completion-reliability/`](agent-completion-reliability/) | active | 从 Result success、Path convergence 与 Execution efficiency 三层修复任务卡死、Authority 泄漏和完成率失真 |
+| [`project-workitem-hierarchy/`](project-workitem-hierarchy/) | active | 将 Project、工作项、Task 与活动分层；新工作独立定域，旧项目兼容迁移，GitHub Issue 复用 Project |
 
 ## 依赖关系
 

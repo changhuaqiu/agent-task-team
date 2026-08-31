@@ -124,6 +124,9 @@
 
 ## Phase 9：按本地 EXE 真实触发链纠正主交互
 
+> 2026-08-31：本阶段关于“Project 默认常驻协作流”的结论已被
+> `specs/project-workitem-hierarchy/` 替代；以下条目只保留历史验证记录。
+
 - [x] 在本地 Buzz EXE 中沿一次真实消息触发追踪到 Agent ACP session、运行轨迹、CLI 命令与同流最终回复；不再只根据对象列表和设置页推断主链路。
 - [x] 推翻“Project 默认概览、聊天按需侧栏”的旧结论，Project 默认常驻协作流，工作/评审/产物作为同一正式事实集的镜头。
 - [x] Agent Profile 默认展示真实活动，并增加信息、运行、频道和技能视角；无事实时使用空态，不伪造日志或 supervisor 状态。
@@ -141,3 +144,10 @@
 - [x] 将 `tool_use` / `tool_result` 从持久 Workspace Inbox 投影中排除，清理已有工具条目，并保持工具运行记录在 Project 协作流中可追溯。
 - [x] 按 Buzz 真实 Transcript 层级收敛 Agent 回复：thinking 与最终答复为主线，工具事件合并为一个操作回执，完整轨迹进入 Invocation 观察详情；实时与持久 thinking 使用同一展示投影。
 - [x] 将实时 stream identity 从 Agent 提升为 Invocation，覆盖同 Agent 并发隔离；持久化 tool completion/failure 并阻止 Runtime 观察触发消息 Automation。
+
+## Phase 10：Project / WorkItem 分层
+
+- [x] 以 `specs/project-workitem-hierarchy/` 冻结 Project、工作项、Task 与活动作用域。
+- [ ] 新工作项原子创建独立 workstream 与根 Task；GitHub Issue 按目录复用 Project。
+- [ ] Project 默认打开概览，工作项详情承载独立活动与角色交付件。
+- [ ] 删除无消费者的 Project 默认聊天和旧工作列表组件，并完成新旧项目回归。

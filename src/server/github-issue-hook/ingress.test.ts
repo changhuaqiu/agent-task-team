@@ -6,6 +6,7 @@ import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository'
 import type { GoalContract } from '../autonomous-delivery/types';
 import { createTestDb, resetDb, setTestDb } from '../db';
 import { conversationRepo } from '../repositories/conversation-repo';
+import { projectRepo } from '../repositories/project-repo';
 import { GitHubIssueAgentIngress } from './ingress';
 import { githubIssueHookConfig, githubIssuePayload } from '@/test-helpers/github-issue-hook';
 
@@ -54,7 +55,10 @@ describe('GitHubIssueAgentIngress', () => {
       project_path: projectPath,
       git_repo_root: projectPath,
       use_worktree: 1,
+      project_id: projectRepo.getByRootPath(projectPath)?.id,
+      workspace_kind: 'workstream',
     });
+    expect(projectRepo.list()).toHaveLength(1);
     expect(deliveryRepository.getSnapshot(result.mapping.delivery_run_id)?.contract.source)
       .toMatchObject({ issueNumber: 42, repository: 'acme/widgets' });
     expect(capturedContract?.acceptanceCriteria).toContain('Verify webhook signatures');
@@ -87,7 +91,8 @@ describe('GitHubIssueAgentIngress', () => {
     expect(first.disposition).toBe('accepted');
     expect(sameDelivery.disposition).toBe('duplicate');
     expect(sameIssue.disposition).toBe('duplicate');
-    expect(conversationRepo.list()).toHaveLength(1);
+    expect(projectRepo.list()).toHaveLength(1);
+    expect(conversationRepo.list()).toHaveLength(2);
     expect(deliveryRepository.listReconcileCandidates()).toHaveLength(1);
   });
 

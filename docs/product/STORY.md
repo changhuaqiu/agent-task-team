@@ -2,7 +2,7 @@
 topics: [product-story, user-outcomes, optimization, evidence]
 doc_kind: product-story
 created: 2026-08-02
-updated: 2026-08-30
+updated: 2026-08-31
 ---
 
 # Agent Task Hub 产品故事
@@ -22,6 +22,35 @@ updated: 2026-08-30
 - 对应 spec、产品文档或技术设计的链接。
 
 只有直接覆盖所述用户效果的证据，才能支持“已经改善”：例如针对性自动化测试、真实界面观察或实际运行链验证。构建通过只能作为可交付性的辅助证据，不能单独证明用户体验已经改善。未验证目标不进入本故事文档，应留在 spec、计划或任务清单中。
+
+---
+
+## 2026-08-31：Project 不再是所有 Issue 共用的群聊
+
+### 原来的用户处境
+
+一个 Project 下的 Issue、变更、任务、Agent 回复和交付件都涌入同一条聊天流。用户难以判断一段讨论和一份产物属于哪件工作，Agent 也缺少稳定的单工作边界。
+
+### 优化后的变化
+
+- Project 默认打开概览，仅汇总进度、风险和近期工作；项目活动只读，不再提供一个会混淆归属的全局输入器。
+- 每个 Issue、变更或改进以独立工作项呈现，自己持有目标、Task/Subtask、活动、交付件和完成证据。
+- 交付件先按贡献角色分列，再在角色列内按实现、设计与文档、验证与评审等业务类别组织。
+- GitHub Issue 复用同一仓库 Project，已接收但尚未规划的 Issue 也会立即显示；旧 Project 不需重建。
+
+### 已验证的效果
+
+确定性服务端用例证明同一 Project 中两个新 Work 获得两个不同执行作用域，Project workspace 中的新 Task 为 0。本地真实页面显示 2 个独立工作项，项目活动有 0 个输入器，所选工作项活动有 1 个输入器。全量回归 271 个文件、1977 项通过，2 项按既有配置跳过；TypeScript 和 production build 通过。
+
+### 仍然保留的边界
+
+这是对象、路径和作用域的 C 级改善，不代表 Agent 在代表性真实任务上的完成率已提升。这一结论需要候选桌面版累积足够 Trace 后做 ApplicationSnapshot 成对实验。
+
+### 设计与实现依据
+
+- [Project 工作项分层规格](../../specs/project-workitem-hierarchy/spec.md)
+- [Project 与工作项产品决策](ux/2026-08-31-project-workitem-hierarchy.md)
+- [C 级路径评测](../technical/evaluation/2026-08-31-project-workitem-path-evaluation.md)
 
 ---
 

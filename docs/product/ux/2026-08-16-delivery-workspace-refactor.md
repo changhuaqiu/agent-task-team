@@ -4,6 +4,10 @@
 > Date: 2026-08-16
 > Active spec: `specs/frontend-architecture-refactor/`
 
+> 2026-08-31 更新：Project 默认常驻协作流及“Project 输入框”决策已被
+> `docs/product/ux/2026-08-31-project-workitem-hierarchy.md` 替代。Project 现在是长期聚合容器，
+> 新讨论与执行默认归属于独立工作项；本文件其余交付事实与渐进展示原则继续有效。
+
 ## 一、用户问题
 
 当前首页把“项目、会话、群聊、任务、团队、评估、调试”同时放到第一层。用户进入页面后首先看到的是

@@ -15,8 +15,8 @@
 ## 2. 冻结决策
 
 1. Project 是可独立存在的长期工作目录、协作空间和身份边界；Conversation 与 Delivery Run 都是内部兼容/编排对象，不再作为用户开始工作的前置概念。
-2. Workspace 默认打开跨 Project 的事实 Activity；Project 默认打开常驻协作流，消息、Agent 回复和 Command Fact 使用同一时间线。运行细节附着于回复并渐进展开。
-3. Workspace 镜头为动态、项目、工作、评审、产物；Project 主内容按协作、工作、评审、产物组织。协作是默认入口，其余镜头消费同一正式投影，不建立平行事实源。
+2. Workspace 默认打开跨 Project 的事实 Activity；Project 默认打开概览，工作项详情承载自身消息、Agent 回复和 Command Fact。Project 活动只读聚合，运行细节附着于对应工作项回复并渐进展开。
+3. Workspace 镜头为动态、项目、工作、评审、产物；Project 主内容按概览、工作项、交付、发布、活动组织。所有镜头消费同一正式投影，不建立平行事实源。
 4. WebUI 自动消费者只更新展示投影；所有自动执行和恢复由服务端 owner 完成。
 5. 建立 Project Work Projection 和 `CommandService` 两个深 Module；MCP、CLI 与 Web/Desktop 只是 Adapter，不新增第二个全局事实 Store，也不各自实现写入规则。
 6. 浏览器最终不得发出 `terminal:start`，任务 mutation 不得自动调用 `dispatchToAgent`。
@@ -26,16 +26,16 @@
 10. 验收进度必须可追溯到正式验收证据。主视图按验收标准展示结论与证据引用，并提供验证方式、验证人、报告、规格、代码版本和完成时间；Agent 聊天中的口头声明不得计入验收进度或证据包。
 11. 交付首屏采用有界水合和按需加载：状态快照不携带未被首屏消费的调试记录，只携带每个交付最近一段活动；设置、弹窗、评估与调试组件按用户意图加载；任务关系图只在用户打开关系图时请求。完整历史仍保留在服务端，并通过选中交付后的后台对账与时间线渐进展开访问。
 12. Web 和桌面共享同一个 Renderer 壳层：窗口 Chrome、Project 侧栏、工作总览、Project workspace 和按需对象详情为固定层级；桌面 Host 不复制业务页面。
-13. 全局侧栏稳定导航工作动态、Agents 与 Projects；Project 不嵌套 Delivery 或 Conversation，不把 Buzz 的 CommunityRail 生搬为 Project。
+13. 全局侧栏稳定导航工作动态、Agents 与 Projects；Project 内显式展示工作项层级，但不向用户暴露 DeliveryRun 或 Conversation，不把外部产品的导航对象生搬为 Project。
 14. Project 选中后即可协作，Agent 请求显式绑定 Project identity/path 与 WorkContract；用户无需先创建空 Delivery。没有 Project 时只展示“添加项目”空态。
 15. 工作总览提供跨 Project 的进行中、待评审、已完成与阻塞口径；不得用 Runtime 状态或 Agent 口头声明凑统计。
-16. Project 主面常驻绑定当前 Project 的 Conversation；WorkItem、Artifact、Review/Gate 与 Release 以事实卡进入同一流并可打开权威详情。右侧只展示 Project context，不再藏匿主协作入口。
+16. Project workspace Conversation 只保留项目级历史讨论和运行摘要兼容；新 WorkItem 使用独立 workstream Conversation，Artifact、Review/Gate 与 Release 关联 WorkItem 并在 Project 聚合。Project 默认页不挂载聊天输入器。
 17. 协作草稿按 Project workspace identity 隔离；上翻阅读不自动抢回底部，并提供瞬时新增活动提示。引用回复在 relation 尚未进入 Command 契约前只提交可见引用文本。切换正式对象镜头不得清空草稿或改变消息归属。
 18. 全局唯一主创建动作是“添加项目”；产品页面不再提供“新建交付”，有界发布需要时由未来 Release 聚合表达。
 19. Agent 是一等聚合对象，拥有稳定身份、工作指令、Skills、ACP Runtime、模型账号/模型、权限和运行状态；不存在独立“角色素材”或“团队能力”产品对象。团队与交付只引用 Agent identity，不再分别拼装 execution profile。Runtime Catalog 和 Skill Library 是 Agent 编辑器中的资源来源，不与 Agent 并列为主要配置对象。
 20. Agent Profile 默认打开活动，并提供信息、运行、频道和技能视角。活动来自真实 Invocation/消息投影；运行来自 supervisor/worker/session observed state；任何环境变量值、凭据和敏感进程参数不得进入 DOM、辅助功能树或诊断响应。
 21. 继承运行环境默认登录状态的 Agent 必须在所有协作入口呈现为已采用默认配置，不能仅因 `accountIds` 为空显示“未绑定账号”；单独配置模式缺失必需账号时才显示待配置状态。
-22. Project 协作输入器采用单一会话面：输入区、`@`、表情和一个圆形发送动作构成完整主交互；内部任务引用、自动接手、路由和 Runtime 说明不得常驻在输入器周围，Agent 管理不得形成第二条操作栏。
+22. WorkItem 活动输入器采用单一会话面：输入区、`@`、表情和一个圆形发送动作构成完整主交互；内部任务引用、自动接手、路由和 Runtime 说明不得常驻在输入器周围，Agent 管理不得形成第二条操作栏。Project 概览和聚合活动不显示该输入器。
 23. `@` 候选是输入器内的按需 Agent 选择器；消息搜索/筛选只在长时间线中按需出现；Agent 派发与交接的正常状态压缩为可展开单行，只有失败或阻塞进入高显著性状态。
 24. 输入器必须在提及控件内投影当前已寻址 Agent；Runtime 确认接管后，`dispatch.receipt:acknowledged` 按原始 `messageId + targetAgentId` 投影为用户消息下的确认反应。不得用时间邻近、当前持球人或乐观客户端状态猜测确认；progress 与 terminal receipt 必须独立保留，并使用统一的 phase 顺序处理同时间戳，保证实时投影与重启水合一致。
 25. 全局 surface 使用一个共享的有界工作区网格；header、filter、main 与 252px context rail 在超宽屏保持同轴且相邻，子 surface 不得再次独立居中收缩。

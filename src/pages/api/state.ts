@@ -17,10 +17,16 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const autonomousConversationIds = new Set(autonomousDeliveryRepo.listConversationIds());
-    const conversations = conversationRepo.list().map((conversation) => ({
-      ...conversation,
-      autonomous: autonomousConversationIds.has(conversation.id),
-    }));
+    const conversations = conversationRepo.list().map((conversation) => {
+      const delivery = autonomousConversationIds.has(conversation.id)
+        ? autonomousDeliveryRepo.getLatestByConversation(conversation.id)
+        : undefined;
+      return {
+        ...conversation,
+        autonomous: Boolean(delivery),
+        root_task_id: delivery?.run.root_task_id ?? null,
+      };
+    });
     const tasks = taskRepo.list();
 
     // Keep bootstrap bounded. The selected conversation reconciles a larger

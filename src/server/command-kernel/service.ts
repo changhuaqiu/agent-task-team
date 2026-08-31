@@ -120,6 +120,8 @@ export interface WorkOutcomeCommandResult {
 }
 
 export interface WorkCreateCommandResult {
+  projectId: string;
+  conversation: ConversationRow;
   task: TaskRow;
 }
 
@@ -346,17 +348,43 @@ export class CommandService {
     if (!project?.workspace_conversation_id) {
       return genericRejectedReceipt(command, 'work_project_not_found') as CommandReceipt<WorkCreateCommandResult>;
     }
-    const taskId = `work-${createHash('sha256').update(command.idempotencyKey).digest('hex').slice(0, 24)}`;
+    const identityHash = createHash('sha256').update(command.idempotencyKey).digest('hex').slice(0, 24);
+    const conversationId = `workstream-${identityHash}`;
+    const taskId = `work-${identityHash}`;
     try {
       return getDb().transaction((): CommandReceipt<WorkCreateCommandResult> => {
+        const existingConversation = conversationRepo.getById(conversationId);
+        if (
+          existingConversation
+          && (
+            existingConversation.project_id !== project.id
+            || existingConversation.workspace_kind !== 'workstream'
+          )
+        ) {
+          throw new PlatformEventDedupeConflictError(command.idempotencyKey);
+        }
+        const workspace = conversationRepo.getById(project.workspace_conversation_id);
+        if (!workspace) throw new Error('project_workspace_not_found');
+        const conversation = existingConversation ?? conversationRepo.create({
+          id: conversationId,
+          title: command.input.title.trim(),
+          goal: command.input.description?.trim() || command.input.title.trim(),
+          priority: workspace.priority,
+          project_path: project.root_path,
+          git_repo_root: workspace.git_repo_root ?? project.root_path,
+          use_worktree: true,
+          team_pack_id: workspace.team_pack_id ?? undefined,
+          project_id: project.id,
+          workspace_kind: 'workstream',
+        });
         const replaying = taskCommandService.hasRecordedCommand(
-          project.workspace_conversation_id,
+          conversation.id,
           command.idempotencyKey,
         );
         const commit = taskCommandService.create({
-          conversationId: project.workspace_conversation_id,
+          conversationId: conversation.id,
           expectedGraphRevision: taskCommandService.expectedGraphRevision(
-            project.workspace_conversation_id,
+            conversation.id,
             command.idempotencyKey,
           ),
           idempotencyKey: command.idempotencyKey,
@@ -378,7 +406,7 @@ export class CommandService {
         const event = new PlatformEventLog().append({
           type: 'work.created',
           category: 'domain',
-          projectId: project.workspace_conversation_id,
+          projectId: conversation.id,
           streamKey: `work:${task.id}`,
           aggregate: { type: 'work', id: task.id, version: task.revision },
           actor: { type: command.actor.type as 'user' | 'agent' | 'system', id: command.actor.id },
@@ -388,6 +416,7 @@ export class CommandService {
           dedupeKey: `command:${command.idempotencyKey}:work.created`,
           payload: {
             projectId: command.projectId,
+            conversationId: conversation.id,
             title: command.input.title.trim(),
             category: command.input.category,
             description: command.input.description?.trim() ?? '',
@@ -400,7 +429,7 @@ export class CommandService {
           revision: task.revision,
           eventIds: [event.eventId],
           evidenceRefs: [],
-          result: { task },
+          result: { projectId: project.id, conversation, task },
           recordedAt: event.recordedAt,
         };
       })();

@@ -10,10 +10,6 @@ vi.mock('@/components/task-hub/GlobalChatRoom', () => ({
 vi.mock('@/components/task-hub/A2APossessionStrip', () => ({
   A2APossessionStrip: ({ conversationId }: { conversationId: string }) => <div data-testid="a2a-status-bar" data-conversation-id={conversationId}>Agent status</div>,
 }));
-vi.mock('@/components/project/ProjectWorkSurface', () => ({
-  ProjectWorkSurface: () => <div data-testid="project-work-surface">Work</div>,
-}));
-
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -26,7 +22,7 @@ const project: WorkspaceProject = {
 };
 
 describe('ProjectObjectWorkspace', () => {
-  it('opens the persistent collaboration stream as the project primary surface', () => {
+  it('opens a Project overview without mounting a global chat composer', () => {
     useTaskHubStore.setState({
       selectedConversationId: project.workspaceConversationId,
       agentRoster: [],
@@ -35,25 +31,25 @@ describe('ProjectObjectWorkspace', () => {
 
     render(<ProjectObjectWorkspace project={project} conversations={[]} tasks={[]} blockers={{}} />);
 
-    const collaboration = screen.getByRole('main', { name: '项目协作流' });
+    const overview = screen.getByRole('main', { name: '项目概览' });
     const statusBar = screen.getByTestId('a2a-status-bar');
     const projectNavigation = screen.getByRole('navigation', { name: '项目视图' });
-    expect(collaboration).toBeDefined();
-    expect(collaboration.contains(statusBar)).toBe(false);
+    expect(overview).toBeDefined();
+    expect(overview.contains(statusBar)).toBe(false);
     expect(screen.getByTestId('project-object-workspace').contains(statusBar)).toBe(true);
     expect(projectNavigation.compareDocumentPosition(statusBar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(statusBar.compareDocumentPosition(collaboration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(statusBar.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(statusBar.getAttribute('data-conversation-id')).toBe(project.workspaceConversationId);
     expect(screen.queryByTestId('agent-bar')).toBeNull();
-    expect(screen.getByTestId('global-chat-room').getAttribute('data-variant')).toBe('embedded');
-    expect(screen.queryByRole('button', { name: '与 Agent 协作' })).toBeNull();
+    expect(screen.queryByTestId('global-chat-room')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: '工作' }));
-    expect(screen.getByTestId('project-work-surface')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: '工作项' }));
+    expect(screen.getByRole('region', { name: '项目工作项' })).toBeDefined();
     expect(screen.getByTestId('a2a-status-bar')).toBeDefined();
     expect(screen.queryByRole('button', { name: '创建工作' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '协作' }));
-    expect(screen.getByTestId('global-chat-room')).toBeDefined();
+    expect(screen.queryByTestId('global-chat-room')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '概览' }));
+    expect(screen.getByRole('main', { name: '项目概览' })).toBeDefined();
   });
 
   it('shows the deployed Agent Team and members in project context', async () => {

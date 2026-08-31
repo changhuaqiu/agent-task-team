@@ -233,7 +233,7 @@ Agent Runtime 内执行；daemon transport 只启动/停止该服务端 owner，
 
 ## 4. Locality 规则
 
-- 交付页面需要的派生数据集中在 `DeliveryWorkspaceProjection`，不散落于 `ProjectChatPanel`、`ProjectRightPanel`、
+- 交付页面需要的派生数据集中在 `DeliveryWorkspaceProjection` 与 `ProjectWorkItemProjection`，不散落于 `ProjectWorkItemsWorkspace`、`ProjectRightPanel`、
   `ProjectSidebar` 和各个卡片。
 - UI-only 状态（面板开合、当前视图、草稿）靠近所属组件；只有跨路由且必须保留的 UI 状态进入小型 UI Store。
 - 领域类型来自 `src/shared/` 或服务端只读契约；组件不定义第二套 Task/Delivery vocabulary。
@@ -316,7 +316,8 @@ Web 与桌面不得形成两套前端应用。`ClientHome` 是应用级 Renderer
 - `ProjectSidebar`：消费完整 `ProjectNavigationGroup[]`，提供跨项目交付总览入口，并按命名 Project 分组 Delivery；选择只回调页面 owner，删除交付必须继续通过 `WorkspaceCommandGateway`。
 - `ProjectsOverview`：只消费同一导航投影，提供组合指标、最近可继续 Delivery（进行中 + 已暂停）与命名 Project 进度，并从具体 Delivery 进入详情；顶部、继续工作与 Project 卡片必须使用同一可继续口径。`openBlockerCount` 明确表示所有开放阻塞，不冒充只属于用户的 Attention。不直接读取 Store，不建立第二套统计事实。
 - `ProjectWorkspace`：一次计算导航与 `DeliveryWorkspaceView`，持有 overview / delivery / evaluation 等局部页面状态，并把统一 View 下发给总览、详情与检查器。
-- `ProjectChatPanel`：未选 Delivery 时只渲染空态；已选时才挂载交付摘要、自主交付投影、团队活动和输入。
+- `ProjectOverviewSurface`：Project 默认只展示权威汇总，不挂载聊天输入。
+- `ProjectWorkItemsWorkspace`：选中工作项后才挂载该 workstream 的活动和输入；Project workspace 历史讨论不混入新工作项。
 - `ProjectRightPanel`：仅在已选 Delivery 时可用；关系图与调试继续按用户意图加载。
 
 本边界借鉴 Buzz 的不是 CommunityRail，而是它的三项深层约束：Project 一级总览和侧栏快捷列表共用同一 read model；Project 只组织长期上下文，不吞并成员对象的业务权威；Agent 上下文必须由明确选择形成，而不是靠页面猜测。对应到本系统，Project 由 `projectPath` 投影，Delivery 是拥有目标、验收和工作闭环的聚合；当前 Agent 请求已显式绑定 Project path 与 Delivery identity，Task 只在用户显式引用时进入请求，页面 surface / mode 尚未扩展为 Command 上下文字段。统一事件包络只统一 identity / scope / cause / reply / idempotency，不把这些领域对象合并为万能 Event 实体。
@@ -332,12 +333,13 @@ Web 与桌面不得形成两套前端应用。`ClientHome` 是应用级 Renderer
 
 ## 8.2 Delivery Activity Surface（2026-08-23）
 
-Delivery 详情中的 overview / activity / evaluation 是页面局部 surface，不新增领域对象。`ProjectWorkspace` 持有 surface selection；`ProjectChatPanel` 同时承载概览与活动实现，活动时间线只消费当前 Delivery 的 `ChatMessage` 投影，用户发送继续通过 `WorkspaceCommandGateway`。
+本节的 Delivery 局部 surface 已由 2026-08-31 的 Project/WorkItem 分层替代。`ProjectObjectWorkspace` 持有 Project surface，
+`ProjectWorkItemsWorkspace` 持有工作项详情 surface；活动时间线只消费当前 workstream 的 `ChatMessage` 投影，用户发送继续通过 `WorkspaceCommandGateway`。
 
 活动交互的 Module / Interface 固定为：
 
-- `GlobalChatRoom`：给定 Store 中的当前 Delivery selection，提供连续时间线、引用回复、常驻 Composer、历史加载和回到最新；不解释 Task/Delivery 生命周期。
-- `useDeliveryRequirementDraft`：以 `deliveryId` 为唯一 Interface，隐藏本地持久化格式和读写异常；返回当前草稿、更新和清除能力，不成为消息事实源。
+- `GlobalChatRoom`：给定 Store 中的当前 WorkItem workstream selection，提供连续时间线、引用回复、常驻 Composer、历史加载和回到最新；不解释 Task/Delivery 生命周期。
+- `useDeliveryRequirementDraft`：以内部 workstream identity 为唯一 Interface，隐藏本地持久化格式和读写异常；返回当前草稿、更新和清除能力，不成为消息事实源。
 - `useAutoScroll`：隐藏 ResizeObserver / MutationObserver 与底部阈值，返回 `isAtBottom` 和显式 `scrollToBottom`；只有用户仍在底部时自动跟随内容增长。
 
 引用回复在当前阶段只生成明确可见的引用文本；Command、Message repository 和 Agent Context 尚无 reply relation，因此 UI 不得展示线程计数、跳转锚点或“已建立回复关系”等语义。未读/已读也尚无服务端 Projection，本轮只提供当前已打开时间线内的瞬时“新增活动”提示，不写入 Store 或数据库。

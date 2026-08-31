@@ -152,6 +152,7 @@ export interface Conversation {
   updatedAt: string;
   projectId?: string;
   workspaceKind?: 'project_workspace' | 'historical_workstream' | 'workstream';
+  rootTaskId?: string;
 }
 
 export interface WorkspaceProject {
@@ -1130,6 +1131,7 @@ export const useTaskHubStore = create<TaskHubState>()(
               updatedAt: c.updated_at,
               projectId: c.project_id || undefined,
               workspaceKind: c.workspace_kind || 'workstream',
+              rootTaskId: typeof c.root_task_id === 'string' ? c.root_task_id : undefined,
             }));
 
             const projects: WorkspaceProject[] = (data.projects || []).map((row: any) => ({

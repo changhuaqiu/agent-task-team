@@ -110,9 +110,10 @@ const OPERATION_LABEL = {
   register: '登记证据',
 } as const;
 
-export function ProjectArtifactSurface({ project, agents = [] }: {
+export function ProjectArtifactSurface({ project, agents = [], workId }: {
   project: WorkspaceProject;
   agents?: Array<{ id: string; name: string; emoji?: string }>;
+  workId?: string;
 }) {
   const [artifacts, setArtifacts] = useState<ProjectArtifactLedgerItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -147,9 +148,13 @@ export function ProjectArtifactSurface({ project, agents = [] }: {
     return () => window.clearTimeout(controller);
   }, [refresh]);
 
+  const scopedArtifacts = useMemo(
+    () => workId ? artifacts.filter((artifact) => artifact.workId === workId) : artifacts,
+    [artifacts, workId],
+  );
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    return artifacts.filter((artifact) => {
+    return scopedArtifacts.filter((artifact) => {
       if (filter !== 'all' && artifact.status !== filter) return false;
       if (!normalizedQuery) return true;
       const identity = agentIdentity(artifact.updatedBy, agents);
@@ -165,12 +170,12 @@ export function ProjectArtifactSurface({ project, agents = [] }: {
         .filter(Boolean)
         .some((value) => value!.toLocaleLowerCase().includes(normalizedQuery));
     });
-  }, [agents, artifacts, filter, query]);
+  }, [agents, filter, query, scopedArtifacts]);
   const contributors = useMemo(() => groupByContributor(filtered, agents), [agents, filtered]);
   const selected = filtered.find((artifact) => artifact.id === selectedId)
     ?? contributors[0]?.artifacts[0]
     ?? null;
-  const registeredCount = artifacts.filter((artifact) => artifact.status === 'registered').length;
+  const registeredCount = scopedArtifacts.filter((artifact) => artifact.status === 'registered').length;
 
   async function copyReference() {
     if (!selected) return;
@@ -183,12 +188,12 @@ export function ProjectArtifactSurface({ project, agents = [] }: {
     }
   }
 
-  return <main className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-app))] p-4 sm:p-6" aria-label="项目产物">
+  return <section className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-app))] p-4 sm:p-6" aria-label={workId ? '工作项交付件' : '项目产物'}>
     <section className="mx-auto flex min-h-[520px] max-w-7xl flex-col overflow-hidden rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-card))]">
       <header className="border-b border-[hsl(var(--border-subtle))] px-4 py-4 sm:px-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-medium">角色交付</h3>{artifacts.length > 0 && <><span className="rounded-full bg-[hsl(var(--bg-muted))] px-2 py-0.5 text-xs text-[hsl(var(--text-secondary))]">{artifacts.length} 项</span><span className="text-xs text-[hsl(var(--text-tertiary))]">{registeredCount} 项已登记</span></>}</div>
+            <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-medium">{workId ? '本工作项的角色交付' : '角色交付'}</h3>{scopedArtifacts.length > 0 && <><span className="rounded-full bg-[hsl(var(--bg-muted))] px-2 py-0.5 text-xs text-[hsl(var(--text-secondary))]">{scopedArtifacts.length} 项</span><span className="text-xs text-[hsl(var(--text-tertiary))]">{registeredCount} 项已登记</span></>}</div>
             <p className="mt-1 max-w-2xl text-xs leading-5 text-[hsl(var(--text-tertiary))]">先看每个角色交付了什么，再按实现、文档与验证分类；无需另外创建产物。</p>
           </div>
           <button type="button" onClick={() => void refresh(true)} disabled={refreshing} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-2.5 text-xs hover:bg-[hsl(var(--bg-muted))] disabled:opacity-50"><RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />刷新</button>
@@ -203,7 +208,7 @@ export function ProjectArtifactSurface({ project, agents = [] }: {
 
       {loading ? <div className="flex flex-1 items-center justify-center gap-2 px-6 py-16 text-xs text-[hsl(var(--text-tertiary))]"><RefreshCw className="size-3.5 animate-spin" />正在发现项目产物</div>
         : error ? <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center"><div role="alert" className="text-sm font-medium">产物暂时无法加载</div><p className="mt-1.5 text-xs text-[hsl(var(--text-tertiary))]">{error}</p><button type="button" onClick={() => void refresh()} className="mt-4 h-8 rounded-md border border-[hsl(var(--border))] px-3 text-xs">重试</button></div>
-          : artifacts.length === 0 ? <EmptyLedger />
+          : scopedArtifacts.length === 0 ? <EmptyLedger />
             : filtered.length === 0 ? <div className="px-5 py-14 text-center"><div className="text-sm font-medium">没有匹配的产物</div><p className="mt-1.5 text-xs text-[hsl(var(--text-tertiary))]">换一个关键词或状态。</p></div>
               : <div className="min-h-0 flex-1">
                 <div className="border-b border-[hsl(var(--border-subtle))] px-4 py-4 sm:px-5">
@@ -215,7 +220,7 @@ export function ProjectArtifactSurface({ project, agents = [] }: {
                 <div className="min-h-[280px] bg-[hsl(var(--bg-card))]">{selected ? <ArtifactDetail artifact={selected} actorLabel={agentIdentity(selected.updatedBy, agents).label} copied={copied} onCopy={() => void copyReference()} /> : <div className="flex h-full items-center justify-center p-8 text-xs text-[hsl(var(--text-tertiary))]">选择一个产物查看详情</div>}</div>
               </div>}
     </section>
-  </main>;
+  </section>;
 }
 
 function ContributorArtifacts({ contributor, selectedId, onSelect }: {

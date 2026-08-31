@@ -94,16 +94,19 @@ Project 活动输入、任务创建/编辑/流转/图操作、阶段写入与拆
   - Workspace Inbox repository 按 `chat_message.content_type` 排除 `thinking` / `tool_use` / `tool_result`，并在每次对账时清理旧版本已写入的 Runtime 观察条目；原始消息与对应 Invocation Trace 仍保留在 Project 协作流
   - 与 `ProjectWorkspace` 的 header、filter 和 context rail 共用同一个最大宽度框架
 
-### Project 主视图与连续协作
+### Project 主视图与工作项协作
 
-- [`ProjectChatPanel.tsx`](../../src/components/project/ProjectChatPanel.tsx)
-  - 在 Project workspace 内承载连续协作；内嵌 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx) 在对象镜头切换时保持挂载
-  - 活动时间线独占剩余高度，底部 composer 始终留在视口内；上翻阅读历史时不自动抢回滚动位置
-  - 草稿由 [`useDeliveryRequirementDraft.ts`](../../src/hooks/useDeliveryRequirementDraft.ts) 按 Project workspace identity 隔离并持久化；引用回复使用持久化 `replyToMessageId + threadRootId`，预览只是展示
-  - “回到最新/新活动”只表示当前打开时间线的瞬态阅读位置，不作为服务端未读事实
-  - 未选 Project 时不挂载活动和输入；已选后必须显式带当前 Project identity，不能由 Store 自动创建工作空间
+- [`ProjectOverviewSurface.tsx`](../../src/components/project/ProjectOverviewSurface.tsx)
+  - 是 Project 默认入口，只汇总工作项进度、需要处理、待评审和正式交付件；不挂载聊天输入器
+  - 近期工作项可直接进入对象详情，空态只提供一个“创建工作项”动作
+- [`ProjectWorkItemsWorkspace.tsx`](../../src/components/project/ProjectWorkItemsWorkspace.tsx)
+  - 左侧按生命周期展示工作项，右侧展示目标、Task、活动和角色交付件
+  - 工作项活动才挂载 [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)，并在挂载前把 selection 切到该工作项的内部 workstream
+  - 新式工作项拥有独立 workstream；Project workspace 上的历史 Task 仍作为 legacy 工作项可见，不要求用户重建 Project
+- [`ProjectActivitySurface.tsx`](../../src/components/project/ProjectActivitySurface.tsx)
+  - 只读聚合 Project 与各工作项的重要消息，始终显示来源工作项，不提供会混淆归属的全局 composer
 - [`GlobalChatRoom.tsx`](../../src/components/task-hub/GlobalChatRoom.tsx)
-  - 输入器只承担向当前 Project 发消息：正文、`@`、表情、引用预览与单一发送动作位于同一表面
+  - 输入器只承担向当前工作项发消息：正文、`@`、表情、引用预览与单一发送动作位于同一表面
   - Agent 候选通过按需 `@` 弹层选择；已触达 Agent 在提及控件内紧凑显示，输入器周围不常驻 Agent 管理、任务语法、路由或 Runtime 提示
   - `dispatch.receipt:acknowledged` 通过原始 message identity 投影为用户消息下的确认反应；requested/sent 不伪装为已收到
   - 筛选状态按 Project 隔离；短时间线不渲染且不应用旧筛选，长时间线才提供按需搜索与类型过滤
@@ -119,16 +122,17 @@ Project 活动输入、任务创建/编辑/流转/图操作、阶段写入与拆
   - 只使用用户可理解的“正在处理 / 已接纳 / 交接失败”语义，内部 reason code 必须经过转译或安全兜底，不暴露 runtime、worklist、chain 等内部概念
   - 由 socket 事件 `a2a:pass-offer`、`a2a:possession-changed`、`a2a:pass-blocked` 驱动
 
-### Project 工作对象列表
+### Project 工作项投影
 
-- [`ProjectWorkSurface.tsx`](../../src/components/project/ProjectWorkSurface.tsx)
-  - 从当前 Project 的 workspace conversation 与关联 conversation 生成唯一 WorkItem 列表，不建立第二套任务状态
+- [`project-work-items.ts`](../../src/lib/project-work-items.ts)
+  - 从当前 Project 的 workspace conversation 与关联 workstream 生成唯一 WorkItem 列表，不建立第二套任务状态
+  - 每个新 workstream 使用根 Task 作为工作项；同一 scope 的其余 Task 作为执行拆解
+  - Project workspace 的旧 Task 单独投影为 legacy 工作项，明确标识兼容边界
   - 按 blocked / in progress / review / ready / proposed / done / cancelled 生命周期顺序分组；空分组不渲染
   - 行首状态图形、标题和类别承担首要扫描；描述、负责人、正式产物数与更新时间按宽度渐进隐藏，内部 Task/Conversation/Runtime 标识不进入列表
-  - 整行调用会话定域的 `openTask({ conversationId, taskId })`，一次性切换当前会话与工作；当前会话内只更新工作选择，不重置运行投影
-  - 行 key、选中态、`TaskDetailPanel` 解析和 Task Store 的编辑/状态/进度/删除 mutation 都使用 `conversationId + taskId`；mutation epoch、进度请求中/错误状态与重试 idempotency key 也由复合 key 隔离，允许不同会话存在相同任务 ID，列表没有第二份 Task identity 或局部详情状态
+  - 整行切换 `conversationId + workItemId` 复合 identity；项目内详情不再通过全局 `TaskDetailPanel` 绕过工作项层级
   - Project 顶栏与工作镜头共享单一创建路径：工作镜头激活时由列表提供入口，空态只保留一个就地动作；工作镜头使用命名区域而非嵌套页面主地标
-  - Project 页不再渲染四张统计卡、独立产物统计或重复完成口径说明；跨 Project 统计仍由 Workspace 监督面负责
+  - Project 概览只使用少量可行动指标；跨 Project 统计仍由 Workspace 监督面负责
 
 ### 右侧辅助面板
 

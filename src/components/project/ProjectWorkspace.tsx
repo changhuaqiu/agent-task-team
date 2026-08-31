@@ -36,6 +36,7 @@ export function ProjectWorkspace({ onAddProject }: { onAddProject: () => void })
   const [lens, setLens] = useState<WorkspaceLens>('activity');
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>('all');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [requestedWorkItem, setRequestedWorkItem] = useState<{ conversationId: string; taskId: string } | null>(null);
   const selectedProject = useMemo(() => projects.find((project) => project.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
 
   useEffect(() => {
@@ -53,6 +54,7 @@ export function ProjectWorkspace({ onAddProject }: { onAddProject: () => void })
 
   function openProject(project: WorkspaceProject) {
     setSelectedProjectId(project.id);
+    setRequestedWorkItem(null);
     setSelectedConversationId(project.workspaceConversationId);
     setSurface('project');
   }
@@ -65,9 +67,16 @@ export function ProjectWorkspace({ onAddProject }: { onAddProject: () => void })
   const openTask = useCallback((taskId: string) => {
     const task = tasks.find((item) => item.id === taskId);
     if (!task) return;
+    const project = projects.find((item) => item.workspaceConversationId === task.conversationId)
+      ?? projects.find((item) => conversations.some((conversation) => (
+        conversation.id === task.conversationId && conversation.projectId === item.id
+      )));
+    if (project) setSelectedProjectId(project.id);
+    setRequestedWorkItem({ conversationId: task.conversationId, taskId: task.id });
     setSelectedConversationId(task.conversationId);
-    setSelectedTaskId(task.id);
-  }, [setSelectedConversationId, setSelectedTaskId, tasks]);
+    setSelectedTaskId(null);
+    setSurface('project');
+  }, [conversations, projects, setSelectedConversationId, setSelectedTaskId, tasks]);
 
   const openWorkCount = tasks.filter((task) => !['done', 'cancelled'].includes(task.status)).length;
   const [reviewCount, setReviewCount] = useState<number | null>(null);
@@ -112,7 +121,14 @@ export function ProjectWorkspace({ onAddProject }: { onAddProject: () => void })
           </div>
         </div>
       </>}
-      {surface === 'project' && selectedProject && <ProjectObjectWorkspace project={selectedProject} conversations={conversations} tasks={tasks} blockers={blockers} />}
+      {surface === 'project' && selectedProject && <ProjectObjectWorkspace
+        key={`${selectedProject.id}:${selectedConversationId === selectedProject.workspaceConversationId ? 'project' : 'work'}`}
+        project={selectedProject}
+        conversations={conversations}
+        tasks={tasks}
+        blockers={blockers}
+        requestedWorkItem={requestedWorkItem}
+      />}
       {surface === 'project' && !selectedProject && <div className="flex flex-1 items-center justify-center text-sm text-[hsl(var(--text-tertiary))]">请选择项目</div>}
     </div>
     <AgentObservabilityDrawerHost />

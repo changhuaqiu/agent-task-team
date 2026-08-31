@@ -1,6 +1,7 @@
 import { getDb } from '../db';
 import type { AutonomousDeliveryRuntimePort } from '../autonomous-delivery/control-runtime';
 import { conversationRepo } from '../repositories/conversation-repo';
+import { projectRepo } from '../repositories/project-repo';
 import { generateSortableId } from '../repositories/sortable-id';
 import { compileGitHubIssueGoalContract, issueLabelNames, parseGitHubIssuePayload } from './compiler';
 import {
@@ -97,7 +98,13 @@ export class GitHubIssueAgentIngress {
       if (existingIssue) {
         return { disposition: 'duplicate', mapping: existingIssue } as const;
       }
-      const conversationId = generateSortableId('conversation');
+      const projectName = payload.repository.full_name.split('/').filter(Boolean).at(-1)
+        ?? payload.repository.full_name;
+      const project = projectRepo.create({
+        name: projectName,
+        rootPath: input.config.projectPath,
+      });
+      const conversationId = generateSortableId('workstream');
       const title = `#${payload.issue.number} ${payload.issue.title.trim()}`;
       conversationRepo.create({
         id: conversationId,
@@ -107,6 +114,8 @@ export class GitHubIssueAgentIngress {
         git_repo_root: input.config.projectPath,
         use_worktree: true,
         team_pack_id: input.config.teamPackId,
+        project_id: project.id,
+        workspace_kind: 'workstream',
       });
       const contract = compileGitHubIssueGoalContract(payload, input.config, conversationId);
       const snapshot = runtime.start(contract);

@@ -9,12 +9,13 @@ import type { ProjectReview } from '@/shared/project-review';
 
 export type ProjectCreateKind = 'work' | 'review';
 
-export function ProjectObjectCreateDialog({ kind, project, onClose, onReviewCreated }: {
+export function ProjectObjectCreateDialog({ kind, project, onClose, onReviewCreated, onWorkCreated }: {
   kind: ProjectCreateKind;
   project: WorkspaceProject;
   tasks: Task[];
   onClose: () => void;
   onReviewCreated?: (review: ProjectReview) => void;
+  onWorkCreated?: (identity: { conversationId: string; taskId: string }) => void;
 }) {
   const loadFromServer = useTaskHubStore((state) => state.loadFromServer);
   const [title, setTitle] = useState('');
@@ -64,7 +65,11 @@ export function ProjectObjectCreateDialog({ kind, project, onClose, onReviewCrea
             input: { title: title.trim(), category, description: description.trim() },
           }),
         });
-        const receipt = await response.json() as { status?: string; reasonCode?: string };
+        const receipt = await response.json() as {
+          status?: string;
+          reasonCode?: string;
+          result?: { conversation?: { id?: string }; task?: { id?: string } };
+        };
         if (!response.ok || !['applied', 'duplicate'].includes(receipt.status ?? '')) {
           const messages: Record<string, string> = {
             work_project_not_found: '创建工作失败：当前项目不存在或已失效。',
@@ -74,6 +79,12 @@ export function ProjectObjectCreateDialog({ kind, project, onClose, onReviewCrea
           throw new Error(messages[receipt.reasonCode ?? ''] ?? '创建工作失败，请检查项目状态后重试。');
         }
         await loadFromServer();
+        if (receipt.result?.conversation?.id) {
+          useTaskHubStore.getState().setSelectedConversationId(receipt.result.conversation.id);
+        }
+        if (receipt.result?.conversation?.id && receipt.result.task?.id) {
+          onWorkCreated?.({ conversationId: receipt.result.conversation.id, taskId: receipt.result.task.id });
+        }
       } else {
         reviewCommandId.current ??= `webui:review.create:${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
         const response = await fetch('/api/commands', {

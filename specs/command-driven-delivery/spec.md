@@ -188,7 +188,7 @@ WorkContract 必须保存准入决定、Agent revision、Task owner/revision 快
 
 ## 7. 页面行为
 
-- Workspace 默认打开跨 Project 的 Inbox/Activity；Project 默认进入绑定该 Project identity 的 Telegram 式协作流。协作流中的消息、Agent 运行观察和正式事实共享作用域与因果身份，但仍是不同事件类别。
+- Workspace 默认打开跨 Project 的 Inbox/Activity；Project 默认进入概览。只有选中 WorkItem 后才进入绑定该 workstream identity 的协作流；消息、Agent 运行观察和正式事实共享工作项作用域与因果身份，但仍是不同事件类别。
 - Runtime observation 使用轻量、可折叠的活动表现，不与正式产物混排为同等事实。聊天主线只展示 thinking 摘要、最终答复和一个操作回执；逐条工具调用只属于 Invocation 观察详情。
 - Task 的 `blocked / in_progress / in_review / done` 变化必须从同一 DomainEvent 实时投影到桌面；页面不能等下一次全量刷新才修正状态，也不能把数据库已阻塞的 WorkItem 继续显示为“进行中”。
 - 回复使用持久 `replyToMessageId` 和由服务端校验/派生的 `threadRootId`；客户端不得靠引用文本解析 Thread。Inbox 与消息流必须按同一 root 聚合。
@@ -197,8 +197,8 @@ WorkContract 必须保存准入决定、Agent revision、Task owner/revision 快
 - Project 是可创建的长期目录与协作边界；Delivery 不是创建对象。右侧详情由选中对象决定，展示 WorkItem、Artifact、Review 或 Agent，而不是常驻“创建交付”表单。
 - 全局唯一主创建动作是“添加项目”；进入 Project 后，创建 WorkItem、Review 或可选 Release 的动作就近出现，不重复询问已经确定的 Project。
 - `project.create` 的单次事务与回执必须同时返回 `Project` 和它唯一的 `project_workspace`。Human Adapter 只有在两个权威对象都已投影到客户端后才能进入 Project；禁止只显示 Project 卡片、再等待后台刷新补齐 workspace 的“半创建”状态。
-- 主输入框面向协作；结构化操作通过上下文 action 或命令面板触发，并调用同一 Human Command Adapter。Agent 也可在当前授权下通过 typed MCP 提议或创建同一种对象。
-- Project 页至少保留 `协作 / 工作 / 评审 / 产物` 四个事实镜头；评估、调试、关系图、设置和任务详情作为可到达的次级意图保留，重构不能通过隐藏入口来“简化”功能。
+- WorkItem 输入框面向协作；Project 聚合活动只读。结构化操作通过上下文 action 或命令面板触发，并调用同一 Human Command Adapter。Agent 也可在当前授权下通过 typed MCP 提议或创建同一种对象。
+- Project 页至少保留 `概览 / 工作项 / 交付件 / 评审 / 发布 / 活动` 事实镜头；评估、调试、设置和任务拆解作为可到达的次级意图保留。
 - 用户不需要接触 runtime、bridge、channel、fencing 等实现术语。
 - “创建工作”只询问 Category、标题和可选说明；在 Project 内不重复询问 Project，也不强制先选 Agent。
 - “发起评审”创建独立 Review，询问 Repository、Base、Compare、标题和可选说明，并在提交前校验分支不同、目标可定位和重复开放评审。

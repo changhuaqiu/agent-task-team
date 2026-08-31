@@ -409,14 +409,61 @@ describe('CommandService work outcome receipt', () => {
     const applied = service.execute(command);
     expect(applied).toMatchObject({
       status: 'applied', subject: { type: 'work' },
-      result: { task: { title: 'Unify creation', category: 'improvement', artifacts: '[]' } },
+      result: {
+        projectId,
+        conversation: {
+          project_id: projectId,
+          workspace_kind: 'workstream',
+          title: 'Unify creation',
+        },
+        task: { title: 'Unify creation', category: 'improvement', artifacts: '[]' },
+      },
     });
+    const result = applied.result as { conversation: { id: string }; task: { conversation_id: string } };
+    expect(result.task.conversation_id).toBe(result.conversation.id);
+    expect(result.conversation.id).not.toBe(
+      (projectReceipt.result as { project: { workspace_conversation_id: string } }).project.workspace_conversation_id,
+    );
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM conversation WHERE project_id=?').get(projectId))
+      .toEqual({ count: 2 });
     expect(applied.eventIds).toHaveLength(1);
     expect(service.execute(command)).toMatchObject({ status: 'duplicate', eventIds: applied.eventIds });
     expect(service.execute(asWorkCreateCommand({
       ...command.input, commandId: 'work-create-retry', idempotencyKey: command.idempotencyKey,
       projectId, title: 'Changed title',
     }))).toMatchObject({ status: 'conflict', reasonCode: 'command_idempotency_conflict' });
+  });
+
+  it('isolates two WorkItems in the same Project into different execution scopes', () => {
+    const service = new CommandService();
+    const projectReceipt = service.execute(asProjectCreateCommand({
+      commandId: 'isolated-work-project', idempotencyKey: 'isolated-work-project',
+      name: 'Isolated Work Project', rootPath: 'C:/projects/isolated-work',
+    }));
+    const project = (projectReceipt.result as {
+      project: { id: string; workspace_conversation_id: string };
+    }).project;
+    const first = service.execute(asWorkCreateCommand({
+      commandId: 'isolated-work-a', idempotencyKey: 'isolated-work-a', projectId: project.id,
+      title: 'Fix search', category: 'issue', description: 'Repair search.',
+    }));
+    const second = service.execute(asWorkCreateCommand({
+      commandId: 'isolated-work-b', idempotencyKey: 'isolated-work-b', projectId: project.id,
+      title: 'Improve export', category: 'improvement', description: 'Improve export.',
+    }));
+    const firstResult = first.result as { conversation: { id: string }; task: { conversation_id: string } };
+    const secondResult = second.result as { conversation: { id: string }; task: { conversation_id: string } };
+
+    expect(firstResult.conversation.id).not.toBe(secondResult.conversation.id);
+    expect(firstResult.task.conversation_id).toBe(firstResult.conversation.id);
+    expect(secondResult.task.conversation_id).toBe(secondResult.conversation.id);
+    expect(getDb().prepare('SELECT conversation_id, COUNT(*) AS count FROM task GROUP BY conversation_id ORDER BY conversation_id').all())
+      .toEqual(expect.arrayContaining([
+        { conversation_id: firstResult.conversation.id, count: 1 },
+        { conversation_id: secondResult.conversation.id, count: 1 },
+      ]));
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM task WHERE conversation_id=?').get(project.workspace_conversation_id))
+      .toEqual({ count: 0 });
   });
 
   it('records a review decision with revision fencing and idempotent replay', () => {

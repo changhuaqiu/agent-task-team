@@ -209,8 +209,12 @@ describe('AutomationRuntime', () => {
       { stepId: 'create-work', status: 'completed', output: { commandName: 'work.create', receiptStatus: 'applied' } },
       { stepId: 'confirm', status: 'waiting_decision' },
     ]);
-    const tasks = getDb().prepare('SELECT title FROM task WHERE conversation_id=?').all(project.workspace_conversation_id);
-    expect(tasks).toEqual([{ title: '处理 owner 的请求' }]);
+    const tasks = getDb().prepare(`
+      SELECT t.title, c.workspace_kind FROM task t
+      JOIN conversation c ON c.id=t.conversation_id
+      WHERE c.project_id=?
+    `).all(project.id);
+    expect(tasks).toEqual([{ title: '处理 owner 的请求', workspace_kind: 'workstream' }]);
     const decision = repository.listDecisionsForRun(run.id)[0];
     expect(decision).toMatchObject({ status: 'pending', prompt: '是否继续通知？', stepId: 'confirm' });
 
@@ -228,7 +232,7 @@ describe('AutomationRuntime', () => {
 
     expect(repository.getRun(run.id)).toMatchObject({ status: 'completed', currentStep: 3 });
     expect(getDb().prepare('SELECT COUNT(*) AS count FROM task WHERE conversation_id=?').get(project.workspace_conversation_id))
-      .toEqual({ count: 1 });
+      .toEqual({ count: 0 });
     expect(getDb().prepare('SELECT content FROM chat_message WHERE conversation_id=?').get(project.workspace_conversation_id))
       .toEqual({ content: '已批准' });
   });
