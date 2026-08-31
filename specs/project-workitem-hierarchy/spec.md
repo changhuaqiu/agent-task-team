@@ -1,6 +1,6 @@
 # Project 工作项分层规格
 
-> Status: active
+> Status: implemented
 > Date: 2026-08-31
 > Branch: `codex/project-workitem-hierarchy`
 
@@ -40,4 +40,3 @@
 - GitHub Issue 重复事件不重复创建 Project 或工作项；
 - 相关测试、typecheck、生产 build 与桌面 EXE 验证通过；
 - 长期产品/技术文档和 STORY 已同步。
-

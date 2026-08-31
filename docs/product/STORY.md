@@ -40,7 +40,7 @@ updated: 2026-08-31
 
 ### 已验证的效果
 
-确定性服务端用例证明同一 Project 中两个新 Work 获得两个不同执行作用域，Project workspace 中的新 Task 为 0。本地真实页面显示 2 个独立工作项，项目活动有 0 个输入器，所选工作项活动有 1 个输入器。全量回归 271 个文件、1977 项通过，2 项按既有配置跳过；TypeScript 和 production build 通过。
+确定性服务端用例证明同一 Project 中两个新 Work 获得两个不同执行作用域，Project workspace 中的新 Task 为 0。本地真实页面显示 3 个独立工作项，项目活动有 0 个输入器，所选工作项活动有 1 个输入器；从 A 的活动页真实创建 B 后，标题、详情、聊天和 A2A 作用域同步切换。全量回归 271 个文件、1980 项通过，2 项按既有配置跳过；TypeScript、production build 和 Rust release build 通过，独立复审最终为 0 Critical / 0 Important。最终桌面 build 为 `desktop-build-677cc39950678d53a4cf2561cd91f04f`。
 
 ### 仍然保留的边界
 
