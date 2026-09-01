@@ -46,7 +46,7 @@ interface ExecutionProfile {
 
 - task-bound work：由 WorkContract 自身声明 `task_receipt` capability；不激活遗留的 `task-status-receipt`，也不暴露 `task_update_status`。
 - planning：通过 `propose_task_graph` Outcome 提交任务图；不激活会引导直接写 Task 的遗留 `task-management`。
-- coordinator planning：若存在未分配的 `proposed/ready` Task，权限信封写入 `coordination.mode=task_graph_first` 和 `requiredTaskIds`；允许继续工作、提交 Task Graph、报告阻塞或请求必要人工决策，不允许用直接 handoff 绕过 Task Graph。proposal 必须覆盖并分配全部冻结 Task；提交被接受后由平台原子提交任务图并自动派发依赖已满足的已分配 Task，Coordinator 不得虚报已启动或重复手工派发。
+- coordinator planning：若存在未分配的 `proposed/ready` Task，权限信封写入 `coordination.mode=task_graph_first` 和 `requiredTaskIds`；允许继续工作、提交 Task Graph、报告阻塞或请求必要人工决策，不允许用直接 handoff 绕过 Task Graph。proposal 必须覆盖并分配全部冻结 Task；提交被接受后由平台在同一事务中把冻结的 assigned `proposed` Task 晋升为 `ready`，再自动派发依赖已满足的 Task。Coordinator 不得虚报已启动或重复手工派发。若首次 Invocation 缺少结构化退出而进入 outcome recovery，只要仍有未分配 Task，恢复契约必须重新冻结同一类协调义务，不能恢复 direct handoff 出口。
 - review gate / code review：激活 `code-review`；存在 Git 合并策略时激活 `git-collaboration`。
 - Delivery policy 要求 Web E2E，或 Task/指令明确包含浏览器、Playwright、Web E2E 强信号：激活并要求 `browser-verification`，声明 `browser_verification` capability。普通 verification/test gate 可以使用自动测试或人工审查，不被误升格为浏览器验证。
 - prompt 中 `$skill-name`：精确激活并要求同名已绑定 Skill；未知或未绑定时 fail closed。

@@ -353,15 +353,20 @@ export function applyAcceptedTaskGraphOutcome(input: {
         `Task Graph proposal revision ${proposal.expectedRevision} does not match frozen authority ${frozenRevision}`,
       );
     }
-    assertCoordinationObligation(input.contract, proposal);
-    return commitTaskGraphProposal(input.contract, input.outcome, proposal);
+    const coordinationTaskIds = coordinationObligationTaskIds(input.contract);
+    assertCoordinationObligation(proposal, coordinationTaskIds);
+    return commitTaskGraphProposal(
+      input.contract,
+      input.outcome,
+      proposal,
+      coordinationTaskIds,
+    );
   }).immediate();
 }
 
-function assertCoordinationObligation(
+function coordinationObligationTaskIds(
   contract: WorkContractRow,
-  proposal: ParsedTaskGraphOutcome,
-): void {
+): string[] {
   let permissions: unknown;
   try {
     permissions = JSON.parse(contract.permissions_json);
@@ -371,11 +376,11 @@ function assertCoordinationObligation(
       'WorkContract permissions are invalid',
     );
   }
-  if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) return;
+  if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) return [];
   const coordination = (permissions as Record<string, unknown>).coordination;
-  if (!coordination || typeof coordination !== 'object' || Array.isArray(coordination)) return;
+  if (!coordination || typeof coordination !== 'object' || Array.isArray(coordination)) return [];
   const record = coordination as Record<string, unknown>;
-  if (record.mode !== 'task_graph_first') return;
+  if (record.mode !== 'task_graph_first') return [];
   if (
     !Array.isArray(record.requiredTaskIds)
     || record.requiredTaskIds.length === 0
@@ -386,10 +391,15 @@ function assertCoordinationObligation(
       'Task Graph-first coordination requires frozen Task IDs',
     );
   }
+  return [...new Set((record.requiredTaskIds as string[]).map((taskId) => taskId.trim()))].sort();
+}
+
+function assertCoordinationObligation(
+  proposal: ParsedTaskGraphOutcome,
+  requiredTaskIds: string[],
+): void {
   const proposalTaskIds = new Set(proposal.tasks.map((task) => task.id));
-  const missingTaskIds = (record.requiredTaskIds as string[])
-    .map((taskId) => taskId.trim())
-    .filter((taskId) => !proposalTaskIds.has(taskId));
+  const missingTaskIds = requiredTaskIds.filter((taskId) => !proposalTaskIds.has(taskId));
   if (missingTaskIds.length > 0) {
     throw new TaskGraphOutcomeInvariantError(
       'task_graph_coordination_tasks_missing',
@@ -402,6 +412,7 @@ function commitTaskGraphProposal(
   contract: WorkContractRow,
   outcome: AgentOutcomeRow,
   proposal: ParsedTaskGraphOutcome,
+  coordinationTaskIds: string[] = [],
 ): TaskGraphCommitResult {
   const projectAgents = new Set(
     projectAgentMembershipRepo.listAgentIdsByConversation(contract.project_id),
@@ -423,6 +434,7 @@ function commitTaskGraphProposal(
     correlationId: outcome.correlation_id,
     causationId: outcome.id,
     tasks: proposal.tasks,
+    activateTaskIds: coordinationTaskIds,
     now: new Date(outcome.occurred_at),
   });
   enqueueStandaloneTasks(contract, outcome, committed);

@@ -16,6 +16,7 @@
 - 该契约移除直接 handoff 出口，保留 bounded continuation、Task Graph proposal、结构化 blocker 和必要人工决策。
 - Task Graph Outcome owner 在任何持久化前验证 proposal 覆盖全部冻结 Task；遗漏时原子拒绝。
 - accepted proposal 继续复用现有 Task Graph owner 与 Collaboration Kernel，原子提交后自动派发依赖已满足的 owner。
+- 冻结的 assigned `proposed` Task 在同一提交事务中晋升为 `ready`；Coordinator outcome recovery 继续冻结剩余未分配 Task，不恢复 direct handoff。
 - 默认 Agent/TeamPack 文案明确拆解、分配、追踪和收口职责；migration 112 只升级空值或旧默认值，保留用户自定义 instructions。
 
 回退该提交即可恢复旧行为。migration 的 instructions 更新可由用户编辑覆盖，不涉及 Task 或 Artifact 数据迁移。
@@ -37,6 +38,8 @@
 | 遗漏冻结根 Task 的 proposal 被接受 | 1 | 0 |
 | 正确 proposal 后根 Task 获得 owner | 不保证 | 1/1 |
 | 正确 proposal 后 ready owner 获得 durable inbox dispatch | 不保证 | 1/1 |
+| 冻结的 proposed 根/依赖 Task 晋升 ready | 不保证 | 2/2 |
+| Coordinator outcome recovery 暴露 direct handoff | 1 | 0 |
 | 旧默认 Mario instructions 自动升级 | 0 | 1 |
 | 自定义 Mario instructions 被覆盖 | 0 | 0 |
 
@@ -49,9 +52,9 @@ pnpm exec tsc --noEmit
 
 ## Baseline vs candidate
 
-候选固定契约用例证明：冻结列表为 `['task-unassigned-root']`，allowed outcomes 不含 `handoff_to_agent`，每轮不可裁剪的 WorkContract instruction 明确 Task Graph、平台自动派发与 Coordinator 非实现边界。Outcome 集成用例先提交遗漏根 Task 的 proposal，得到 `task_graph_coordination_tasks_missing` 且 graph revision/inbox 均未变化；同一有效 authority 随后提交覆盖根 Task 的修正版，根 Task 分配给 Builder，并产生唯一 durable inbox dispatch。迁移用例证明旧默认值升级为新契约，自定义值二次运行后保持不变。
+候选固定契约用例证明：冻结列表为 `['task-unassigned-root']`，allowed outcomes 不含 `handoff_to_agent`，每轮不可裁剪的 WorkContract instruction 明确 Task Graph、平台自动派发与 Coordinator 非实现边界。Outcome 集成用例先提交遗漏根 Task 的 proposal，得到 `task_graph_coordination_tasks_missing` 且 graph revision/inbox 均未变化；同一有效 authority 随后提交覆盖 proposed 根 Task 与 proposed 依赖 Task 的修正版，两者原子晋升为 `ready`，只有依赖已满足的根 Task 产生唯一 durable inbox dispatch。恢复用例证明 Coordinator outcome recovery 仍只暴露协调出口，不重新获得 `work_handoff`。迁移用例证明旧默认值升级为新契约，自定义值二次运行后保持不变。
 
-目标测试为 5 files / 84 tests 全通过；全量回归为 271 files 通过、2 skipped，1985 tests 通过、2 skipped；TypeScript 全量检查和 Next.js production build 通过。受影响路径 lint 除 `src/store/agentStore.ts` 三处既有 `no-explicit-any` 历史问题外通过，本次修改行未新增 lint 错误。桌面 release 结果在 main 重建后补入。
+初版目标测试为 5 files / 84 tests 全通过；独立审查随后发现 proposed Task 未晋升和 outcome recovery 重新暴露 handoff 两个 Important 问题，候选已修正。修正后相关路径 3 files / 39 tests 通过；全量回归为 271 files 通过、2 skipped，1986 tests 通过、2 skipped；TypeScript 全量检查、相关路径 lint 和 Next.js production build 通过。全路径 lint 仍只命中 `src/store/agentStore.ts` 三处既有 `no-explicit-any` 历史问题，本次修改行未新增 lint 错误。桌面 release 结果在 main 重建后补入。
 
 ## Decision
 

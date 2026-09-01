@@ -372,6 +372,7 @@ export const taskGraphRepo = {
     correlationId?: string;
     causationId?: string;
     tasks: TaskGraphCommitTask[];
+    activateTaskIds?: string[];
     now?: Date;
   }): TaskGraphCommitResult {
     if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) {
@@ -388,6 +389,10 @@ export const taskGraphRepo = {
     if (ids.some((id) => !id) || new Set(ids).size !== ids.length) {
       throw new InvalidTaskGraphError('Task Graph task ids must be non-empty and unique');
     }
+    const activateTaskIds = [...new Set(input.activateTaskIds ?? [])].sort();
+    if (activateTaskIds.some((taskId) => !ids.includes(taskId))) {
+      throw new InvalidTaskGraphError('Task Graph activation ids must belong to the proposal');
+    }
     const digest = requestDigest({
       conversationId: input.conversationId,
       expectedRevision: input.expectedRevision,
@@ -396,6 +401,7 @@ export const taskGraphRepo = {
       correlationId: input.correlationId,
       causationId: input.causationId,
       tasks: input.tasks,
+      ...(activateTaskIds.length > 0 ? { activateTaskIds } : {}),
     });
     const db = getDb();
     return db.transaction(() => {
@@ -481,7 +487,7 @@ export const taskGraphRepo = {
       }
       assertAcyclicDependencies(dependencyMap);
 
-      const tasks = input.tasks.map((task) => {
+      const plannedTasks = input.tasks.map((task) => {
         const current = existingById.get(task.id);
         const dependencies = [...new Set(task.dependencies ?? [])];
         if (!current) {
@@ -512,6 +518,19 @@ export const taskGraphRepo = {
         });
         if (!updated) throw new InvalidTaskGraphError(`Task ${task.id} update failed`);
         return updated;
+      });
+      const activateTaskIdSet = new Set(activateTaskIds);
+      const tasks = plannedTasks.map((task) => {
+        if (!activateTaskIdSet.has(task.id) || task.status !== 'proposed') return task;
+        const ready = taskRepo.transition(task.id, {
+          to: 'ready',
+          expectedFrom: 'proposed',
+          expectedRevision: task.revision,
+          correlationId: input.correlationId,
+          causationId: input.causationId,
+        });
+        if (!ready) throw new InvalidTaskGraphError(`Task ${task.id} activation failed`);
+        return ready;
       });
       const action = taskGraphRepo.appendAction({
         conversationId: input.conversationId,

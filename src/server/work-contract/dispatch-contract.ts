@@ -276,8 +276,8 @@ export function issueDispatchWorkContract(input: {
       : undefined;
     const currentEpoch = workContractRepo.getAuthority(workId)?.current_epoch ?? 0;
     const gateWork = input.trigger.source === 'review_gate' || input.trigger.source === 'test_gate';
-    const coordinationRequiredTaskIds = input.admission.kind === 'planning'
-      && input.admission.role.responsibility === 'coordinator'
+    const coordinationRequiredTaskIds = input.admission.role.responsibility === 'coordinator'
+      && (input.admission.kind === 'planning' || input.admission.kind === 'recovery')
       ? (db.prepare(`
           SELECT id FROM task
           WHERE conversation_id=?

@@ -175,6 +175,54 @@ describe('issueDispatchWorkContract', () => {
     expect(instruction).toContain('direct handoff cannot substitute');
   });
 
+  it('preserves Task Graph-first coordination during coordinator outcome recovery', () => {
+    taskRepo.create({
+      id: 'task-recovery-unassigned', conversation_id: 'project-1',
+      title: 'Recover coordination', agent_id: '', initialStatus: 'proposed',
+    }, now);
+    const snapshot: ContextSnapshot = {
+      id: 'context-coordination-recovery',
+      query: {
+        scenario: 'recovery', trigger: 'resume', conversationId: 'project-1',
+        agentId: 'mario', archetype: 'planner', budgetTokens: 1_000,
+        requiredContributorIds: [], now: now.toISOString(), requestDigest: 'recover-coordination',
+      },
+      fragmentRefs: [], capabilities: [], constraints: [], missingRequired: [], omissions: [],
+      compiledPrompt: 'Recover the structured coordination outcome.', createdAt: now.toISOString(),
+    };
+    const admission = dispatchGrant('recovery');
+    admission.role.responsibility = 'coordinator';
+    admission.archetype = 'planner';
+    const contract = issueDispatchWorkContract({
+      trigger: {
+        id: 'trigger-coordination-recovery', source: 'system', conversationId: 'project-1',
+        agentId: 'mario', executionMode: 'outcome_recovery', contextScenario: 'recovery',
+        prompt: 'Submit the coordination result only.',
+      },
+      traceId: 'trace-coordination-recovery', contextSnapshot: snapshot,
+      role: { responsibility: 'coordinator' }, admission,
+      executionProfile: { ...executionProfile, stage: 'recover', exitPolicy: 'outcome_recovery' },
+      runtime: { engine: 'codex', runtimeId: 'runtime-1', toolNames: ['shell'] },
+    });
+
+    expect(contract.allowedOutcomeTypes).toEqual([
+      'continue_work',
+      'propose_task_graph',
+      'report_blocked',
+      'request_human_decision',
+    ]);
+    expect(workContractToolNames(contract)).not.toContain('work_handoff');
+    expect(contract.permissions).toMatchObject({
+      coordination: {
+        mode: 'task_graph_first',
+        requiredTaskIds: ['task-recovery-unassigned'],
+      },
+    });
+    expect(renderWorkContractInstruction(contract)).toContain(
+      'Task Graph-first coordination is mandatory',
+    );
+  });
+
   it('never exposes Task Graph proposal without frozen graph authority', () => {
     const task = taskRepo.create({
       id: 'task-execution-authority', conversation_id: 'project-1',

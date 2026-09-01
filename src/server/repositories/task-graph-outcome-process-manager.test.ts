@@ -142,6 +142,15 @@ describe('TaskGraphOutcomeProcessManager', () => {
       conversation_id: 'project-task-graph',
       title: 'Coordinate this goal',
       agent_id: '',
+      initialStatus: 'proposed',
+    }, NOW);
+    taskRepo.create({
+      id: 'task-coordination-dependent',
+      conversation_id: 'project-task-graph',
+      title: 'Integrate after the root',
+      agent_id: '',
+      dependencies: ['task-coordination-root'],
+      initialStatus: 'proposed',
     }, NOW);
     const revision = taskGraphRepo.revision('project-task-graph');
     const contracts = new WorkContractRepository();
@@ -156,7 +165,7 @@ describe('TaskGraphOutcomeProcessManager', () => {
       permissions: {
         coordination: {
           mode: 'task_graph_first',
-          requiredTaskIds: ['task-coordination-root'],
+          requiredTaskIds: ['task-coordination-root', 'task-coordination-dependent'],
         },
       },
       authoritativeRefs: ['task_graph:project-task-graph'],
@@ -204,13 +213,17 @@ describe('TaskGraphOutcomeProcessManager', () => {
       tasks: [
         { id: 'task-coordination-root', title: 'Coordinate this goal', agentId: 'builder' },
         {
-          id: 'task-coordination-review', title: 'Review the result', agentId: 'reviewer',
+          id: 'task-coordination-dependent', title: 'Integrate after the root', agentId: 'reviewer',
           dependencies: ['task-coordination-root'],
         },
       ],
     }))).toMatchObject({ status: 'accepted' });
     expect(taskRepo.getById('task-coordination-root')).toMatchObject({
       agent_id: 'builder',
+      status: 'ready',
+    });
+    expect(taskRepo.getById('task-coordination-dependent')).toMatchObject({
+      agent_id: 'reviewer',
       status: 'ready',
     });
     expect(getDb().prepare(`
