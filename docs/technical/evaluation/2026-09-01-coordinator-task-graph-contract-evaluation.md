@@ -58,6 +58,8 @@ pnpm exec tsc --noEmit
 
 main 推送后完成 Tauri release 重建，Renderer/Service build identity 唯一为 `desktop-build-00f16f4d2c5c1947e84cb635d14b0c15`；EXE 中该标识只出现 1 次，SHA-256 为 `17BF481FADACCC8D109CDD29E365009C160C3FD0A6D919AE096B1E39DF8D956E`。
 
+新 EXE 启动后，桌面真实数据库只读核验显示 schema version 为 112，既有 Mario 行的 responsibility 为 `coordinator`，instructions 已升级为 Task Graph-first 契约；桌面 Host PID 38720、release service PID 11832，服务从 `src-tauri/target/release/service/server.js` 启动并在随机 loopback 端口返回 HTTP 200。
+
 ## Decision
 
 接受该候选进入全量回归和桌面验证。它关闭了可确定复现的“Coordinator 可以不落 Task Graph 就完成规划”路径，并把提示词要求落实为 owner authority 校验。
