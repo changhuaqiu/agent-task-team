@@ -54,7 +54,9 @@ pnpm exec tsc --noEmit
 
 候选固定契约用例证明：冻结列表为 `['task-unassigned-root']`，allowed outcomes 不含 `handoff_to_agent`，每轮不可裁剪的 WorkContract instruction 明确 Task Graph、平台自动派发与 Coordinator 非实现边界。Outcome 集成用例先提交遗漏根 Task 的 proposal，得到 `task_graph_coordination_tasks_missing` 且 graph revision/inbox 均未变化；同一有效 authority 随后提交覆盖 proposed 根 Task 与 proposed 依赖 Task 的修正版，两者原子晋升为 `ready`，只有依赖已满足的根 Task 产生唯一 durable inbox dispatch。恢复用例证明 Coordinator outcome recovery 仍只暴露协调出口，不重新获得 `work_handoff`。迁移用例证明旧默认值升级为新契约，自定义值二次运行后保持不变。
 
-初版目标测试为 5 files / 84 tests 全通过；独立审查随后发现 proposed Task 未晋升和 outcome recovery 重新暴露 handoff 两个 Important 问题，候选已修正。修正后相关路径 3 files / 39 tests 通过；全量回归为 271 files 通过、2 skipped，1986 tests 通过、2 skipped；TypeScript 全量检查、相关路径 lint 和 Next.js production build 通过。全路径 lint 仍只命中 `src/store/agentStore.ts` 三处既有 `no-explicit-any` 历史问题，本次修改行未新增 lint 错误。桌面 release 结果在 main 重建后补入。
+初版目标测试为 5 files / 84 tests 全通过；独立审查随后发现 proposed Task 未晋升和 outcome recovery 重新暴露 handoff 两个 Important 问题，候选已修正。修正后相关路径 3 files / 39 tests 通过；全量回归为 271 files 通过、2 skipped，1986 tests 通过、2 skipped；TypeScript 全量检查、相关路径 lint 和 Next.js production build 通过。全路径 lint 仍只命中 `src/store/agentStore.ts` 三处既有 `no-explicit-any` 历史问题，本次修改行未新增 lint 错误。独立复审最终为 0 Critical / 0 Important，Ready to merge。
+
+main 推送后完成 Tauri release 重建，Renderer/Service build identity 唯一为 `desktop-build-00f16f4d2c5c1947e84cb635d14b0c15`；EXE 中该标识只出现 1 次，SHA-256 为 `17BF481FADACCC8D109CDD29E365009C160C3FD0A6D919AE096B1E39DF8D956E`。
 
 ## Decision
 
