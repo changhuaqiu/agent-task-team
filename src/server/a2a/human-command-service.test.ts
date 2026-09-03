@@ -117,4 +117,32 @@ describe('HumanA2ACommandService', () => {
       SELECT status FROM a2a_possession_chain
     `).get()).toEqual({ status: 'aborted' });
   });
+
+  it('reissues a terminal human handoff without duplicating the original message', () => {
+    service.submit({
+      conversationId: 'project-human-a2a', messageId: 'message-retry',
+      prompt: 'Retry this request', targetAgentIds: ['builder'],
+    });
+    new A2ACollaborationRepository({ db: getDb() })
+      .abortActiveChain('project-human-a2a', 'runtime_start_failed');
+
+    const retried = service.retry({
+      conversationId: 'project-human-a2a', messageId: 'message-retry', retryId: 'inbox-failed',
+      prompt: 'Retry this request', targetAgentIds: ['builder'],
+    });
+
+    expect(retried).toMatchObject({
+      status: 'offered',
+      handoff: { passes: [{ toAgentId: 'builder', status: 'offered' }] },
+    });
+    expect(getDb().prepare(`
+      SELECT root_trigger_id,status FROM a2a_possession_chain ORDER BY created_at,id
+    `).all()).toEqual([
+      { root_trigger_id: 'message-retry', status: 'aborted' },
+      { root_trigger_id: 'manual-retry:inbox-failed', status: 'active' },
+    ]);
+    expect(getDb().prepare(`
+      SELECT source_message_ids FROM a2a_handoff_packet ORDER BY created_at,id DESC LIMIT 1
+    `).get()).toEqual({ source_message_ids: '["message-retry"]' });
+  });
 });

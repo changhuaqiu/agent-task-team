@@ -2,7 +2,7 @@
 
 - Change ID: `non-git-workitem-runtime-2026-09-03`
 - Evaluation level: C (Comparison)
-- Status: measured, candidate component gate accepted
+- Status: measured, candidate path and one live completion accepted
 - Code/spec revision: `codex/non-git-workitem-runtime`, baseline `main@3b4bd6c`
 - Evaluator/benchmark revision: Vitest 4.1.5; live desktop SQLite baseline 2026-09-03
 
@@ -24,6 +24,7 @@ Project workspace 的持久配置允许普通目录以 `use_worktree=0` 直接�
 - Runtime 不再把明确关闭 worktree 的 Git 目录自动升级；只有配置或 Evaluation 明确要求时才解析 Git baseline。
 - Project、WorkItem、Task、消息、Artifact 和证据身份均不重建；历史失败 Invocation 继续保留为审计事实。
 - Evaluation 的冻结 Git worktree 行为与严格失败不变量保持不变；其基线解析实现与普通 Runtime 一并收敛到 `WorktreeManager`。
+- 人类发起的终态 A2A 失败项不再原地释放已经关闭权限的旧 Inbox；手工重试签发新的 chain/pass/authority/inbox，并把旧项标为已替代。已有 active chain 时返回冲突，Agent 发起的 A2A 仍由原负责人或控制面恢复。
 
 回退代码提交可恢复旧创建行为；migration 是确定性配置校正，不删除业务对象。若需要恢复单个自定义值，可在 Project workspace
 修改权威配置后重新同步其 WorkItem。
@@ -49,6 +50,7 @@ Git 官方文档将 linked worktree 定义为附属于某个 repository、并带
 3. 固定内存数据库显式配置 Git worktree Project workspace，再执行 `work.create`；
 4. 构造旧版错误 workstream，删除 migration 113 记录后重跑迁移；
 5. 执行全量 Vitest、TypeScript 和 Next.js production build。
+6. 在升级后的真实桌面和原 Project 中发送恢复指令，跟踪 Inbox、Invocation、任务图 outcome 与最终聊天回复。
 
 成功阈值：普通目录派生错误数为 0；既有错误行修复率 1/1；Git 配置保留率 1/1；损坏配置降级率 1/1；
 GitHub Issue 与 UI 创建路径一致；业务对象删除数为 0；相关与全量测试无失败。
@@ -78,15 +80,15 @@ pnpm build
 | `true + 空 Git 根` 损坏配置归一化 | 0/1 | 1/1 |
 | 修复需要重建 Project/WorkItem | 1（原路径无法启动） | 0 |
 | 迁移删除 Project/WorkItem/Task/消息/证据 | 0 | 0 |
-| 真实基线 Invocation 进入 Agent started 状态 | 0/2 | 待新版桌面运行复核 |
+| 真实 Invocation 进入 Agent started 状态 | 0/2 | 1/1 |
+| 真实 Invocation 完成任务图接纳并回复 | 0/2 | 1/1 |
+| 终态 Human A2A 原地释放旧权限链 | 1/1 | 0/1（新链重发） |
 
-审查修正后的定向回归为 5 files / 95 tests 全通过，TypeScript 检查通过；最终全量回归为 271 files 通过、2 skipped，1992 tests 通过、
-2 skipped；Next.js 16.2.4 production build 通过。首次全量回归仅发现 evaluation recovery 中的 schema max-version 期望仍为
-112，随 migration 113 更新为 113 后对应恢复测试和全量测试均通过。
+首轮审查修正后的定向回归为 5 files / 95 tests 全通过；终态 A2A 重试复审修正后的 API/聚合/Inbox 定向回归为 4 files / 29 tests 全通过。最终 TypeScript 检查通过，
+全量回归为 273 files 通过、2 skipped，2003 tests 通过、2 skipped；Next.js 16.2.4 production build 通过。首次全量回归仅发现 evaluation recovery 中的 schema max-version 期望仍为 112，随 migration 113 更新为 113 后对应恢复测试和全量测试均通过。production build 仍有既有的 NFT 动态文件追踪范围警告，未阻断产物。
 
 ## Decision
 
-接受候选进入桌面重建与真实恢复验证。确定性证据证明配置 owner、创建链和旧数据迁移闭合，并且没有放宽 Evaluation 的 Git 门。
+接受候选。确定性证据证明配置 owner、创建链、旧数据迁移和终态重试闭合，并且没有放宽 Evaluation 的 Git 门。真实旧 Project 中的新 Invocation 从 started 运行 10 分 15 秒，第一次任务图因 `invalid_task_graph` 被拒后自行修正，第二次被平台接纳，最终产出 7 项角色分工并正常回复、无错误终止。
 
-这是 C 级组件/路径结论，只能说明“普通目录 WorkItem 不再因伪造的 Git 配置必然启动失败”。它不证明 Agent 的任务完成率、回答质量
-或平均路径长度提高；这些结论仍需固定 TestSuiteRevision、baseline/candidate ApplicationSnapshot 和逐例 paired experiment。
+这是 C 级组件/单路径结论，说明“普通目录 WorkItem 不再因伪造的 Git 配置必然启动失败”，并证明一个真实旧 Project 完成了从启动到拆解回复的闭环。它仍不能从单例推出 Agent 总体任务完成率、回答质量或平均路径长度提高；这些结论需要固定 TestSuiteRevision、baseline/candidate ApplicationSnapshot 和逐例 paired experiment。

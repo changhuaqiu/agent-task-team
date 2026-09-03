@@ -15,6 +15,10 @@ interface HumanHandoffCommand {
   taskId?: string;
 }
 
+interface HumanHandoffRetryCommand extends HumanHandoffCommand {
+  retryId: string;
+}
+
 type HumanHandoffResult =
   | { status: 'aborted'; previous?: AbortedA2ACollaboration }
   | { status: 'offered'; handoff: OfferedPassGroup };
@@ -109,5 +113,63 @@ export class HumanA2ACommandService {
       };
     });
     return execute.immediate();
+  }
+
+  retry(command: HumanHandoffRetryCommand): HumanHandoffResult {
+    const conversationId = command.conversationId.trim();
+    const messageId = command.messageId.trim();
+    const retryId = command.retryId.trim();
+    const prompt = command.prompt.trim();
+    const targets = [...new Set(command.targetAgentIds.map((id) => id.trim()).filter(Boolean))];
+    if (!conversationId) throw new Error('a2a_human_conversation_required');
+    if (!messageId) throw new Error('a2a_human_message_required');
+    if (!retryId) throw new Error('a2a_human_retry_id_required');
+    if (!prompt) throw new Error('a2a_human_prompt_required');
+    if (targets.length === 0) throw new Error('a2a_human_retry_target_required');
+    this.commandGuard.assert({
+      conversationId,
+      fromHolderId: 'human',
+      fromHolderType: 'user',
+      branches: targets.map((toAgentId) => ({ toAgentId })),
+    });
+    const db = this.database ?? getDb();
+    return db.transaction((): HumanHandoffResult => {
+      const rootTriggerId = `manual-retry:${retryId}`;
+      const created = this.collaboration.createChain({
+        conversationId,
+        rootTriggerType: 'user_turn',
+        rootTriggerId,
+        correlationId: messageId,
+        holderId: 'human',
+        holderType: 'user',
+      });
+      return {
+        status: 'offered',
+        handoff: this.collaboration.offerPassGroup({
+          chainId: created.chain.id,
+          sourcePossessionId: created.rootPossession.id,
+          expectedSourceRevision: created.rootPossession.revision,
+          idempotencyKey: `human-retry:${retryId}`,
+          branches: targets.map((toAgentId) => ({
+            toAgentId,
+            intent: 'delegate',
+            taskId: command.taskId,
+            packet: {
+              title: `Retry human request for @${toAgentId}`,
+              requestedAction: prompt,
+              possessionSummary: prompt,
+              relevantDecisions: [`Manual retry of failed Inbox ${retryId}`],
+              evidenceRefs: command.taskId
+                ? [{ label: command.taskId, taskId: command.taskId }]
+                : [],
+              constraints: [],
+              openQuestions: [],
+              forbiddenBehaviors: [],
+              sourceMessageIds: [messageId],
+            },
+          })),
+        }),
+      };
+    }).immediate();
   }
 }

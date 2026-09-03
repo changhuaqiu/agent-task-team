@@ -48,6 +48,12 @@ Inbox 的 `admitted` 表示该 durable request 已等到目标 Runtime 的真实
 ExecutionEnvelope ACK 是这个判断的权威事实。Invocation Pipeline 仅同步接受、但 Runtime 尚未 ACK 时，
 Inbox 仍保持 `claimed` 并续租。Runtime 正常结束仍不表示 Task、Gate 或 Delivery 已完成。
 
+失败队列的“重新入队”不能复活一个已经终结的 A2A Pass 或关闭的 WorkAuthority。Human A2A 失败项重试时，以失败 Inbox id
+创建幂等的新 user-turn Chain/Pass/Inbox，handoff packet 继续引用原消息；旧 Inbox 经 `expired -> released -> cancelled` 的合法
+状态迁移在同一事务中标记为 `manual_retry_reissued`。如果当前 Conversation 已有 active chain，则拒绝重试，避免覆盖正在运行的新请求。
+不可变 Platform Event 同时保存旧 Inbox 到 replacement Inbox 的映射；相同请求重放从该映射返回同一替代项。成员或运行配置变化返回
+422，active chain/幂等冲突返回 409，lane 容量耗尽返回 429。Agent 发起的 A2A 失败必须交回原 source owner/控制面恢复，失败队列不得把它伪造成 Human turn。
+
 评测也不是特殊旁路：Evaluation Case 使用同一个 `WorkRequest`，以 `evaluation_case` 作为 reply address；
 启动失败由 durable `agent.work.expired` Process Manager 投影回 Case owner；真实接纳则由 durable
 `agent.work.admitted` 携带 Invocation/trace binding，并幂等投影 `planning -> running`。daemon 的同步投影只是

@@ -2,7 +2,7 @@
 topics: [product-story, user-outcomes, optimization, evidence]
 doc_kind: product-story
 created: 2026-08-02
-updated: 2026-09-03
+updated: 2026-09-04
 ---
 
 # Agent Task Hub 产品故事
@@ -36,19 +36,18 @@ updated: 2026-09-03
 
 - WorkItem 使用 Project workspace 已配置的执行模式，普通目录直接以项目根目录运行，不再被强制要求 Git 基线；
 - 旧 Project 和旧 WorkItem 在桌面升级时自动修正配置，原有 Task、消息、交付件和失败记录都保留，用户无需新建项目；
+- 终态的人类 A2A 失败项手工重试时创建新的协作链、Pass、权限和 Inbox 工作，不再把已关闭权限的旧 Inbox 原地释放；若已有新工作运行则明确拒绝重复重试；
 - 明确启用 worktree 的 Git Project 仍保留隔离执行和严格基线门，Evaluation 的冻结 Git 约束没有放宽。
 
 ### 已验证的效果
 
 真实桌面基线中，同一普通目录的 Project workspace 配置为非 worktree，但 WorkItem 被错误写成 worktree；最近两次 Invocation 分别在
-56 ms 和 64 ms 内以 `runtime_start_failed` 结束，均未进入 Agent started 状态。候选迁移 fixture 将该错误配置修正为 `(0,NULL)`，
-默认普通目录与显式 Git 模式的创建回归均通过。定向测试 64/64、全量测试 1988/1988 通过，2 项按既有配置跳过；TypeScript 和
-production build 通过。
+56 ms 和 64 ms 内以 `runtime_start_failed` 结束，均未进入 Agent started 状态。升级后的真实桌面把该 WorkItem 修正为 `(0,NULL)`；
+同一旧 Project 中重新发送恢复指令后，Mario 的 Invocation 正常进入 started，读取项目、首次任务图校验失败后自行修正，最终提交的平台任务图被接纳，按 Luigi、DK、Peach、Mario 拆成 7 项并返回用户可见回复，Invocation 无错误终止。默认普通目录、显式 Git 模式、A2A 终态重发和 active-chain 冲突均有回归覆盖；TypeScript 和 production build 通过。
 
 ### 仍然保留的边界
 
-历史失败 Invocation 作为审计事实保留，不改写成成功。这次 C 级验证证明启动路径恢复，不代表 Agent 的任务完成率或回答质量已经提升；
-升级桌面后的真实回复仍作为发布验收单独记录。
+历史失败 Invocation 作为审计事实保留，不改写成成功；被新链替代的旧失败 Inbox 标记为 cancelled 并关联替代项。单个真实案例证明这条“启动—分析—自纠正—拆解—分派—回复”路径恢复，仍不足以外推整套系统的总体任务完成率或回答质量；总体结论需要固定任务集的 paired experiment。
 
 ### 设计与实现依据
 

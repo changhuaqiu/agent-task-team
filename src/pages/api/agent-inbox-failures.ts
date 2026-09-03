@@ -1,5 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { AgentInbox } from '@/server/platform-events/agent-inbox';
+import {
+  AgentInboxManualRetryError,
+  AgentInboxManualRetryService,
+} from '@/server/platform-events/agent-inbox-manual-retry';
 
 function publicFailure(item: ReturnType<AgentInbox['listExpired']>[number]) {
   return {
@@ -26,9 +30,19 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST' && req.body?.action === 'retry') {
     const itemId = typeof req.body?.itemId === 'string' ? req.body.itemId.trim() : '';
     if (!itemId) return res.status(400).json({ error: 'inbox_item_id_required' });
-    const item = inbox.retryExpired(itemId);
-    if (!item) return res.status(404).json({ error: 'inbox_failure_not_found' });
-    return res.status(200).json({ item: { id: item.id, status: item.status } });
+    try {
+      const result = new AgentInboxManualRetryService().retry(itemId);
+      if (!result) return res.status(404).json({ error: 'inbox_failure_not_found' });
+      return res.status(200).json({
+        item: { id: result.item.id, status: result.item.status },
+        reissued: result.reissued,
+      });
+    } catch (error) {
+      if (error instanceof AgentInboxManualRetryError) {
+        return res.status(error.httpStatus).json({ error: error.message, reasonCode: error.reasonCode });
+      }
+      throw error;
+    }
   }
   res.setHeader('Allow', ['GET', 'POST']);
   return res.status(405).json({ error: 'method_not_allowed' });

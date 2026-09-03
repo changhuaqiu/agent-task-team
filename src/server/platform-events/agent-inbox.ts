@@ -561,6 +561,62 @@ export class AgentInbox {
     }).immediate();
   }
 
+  getReissuedReplacement(itemId: string): AgentInboxItem | undefined {
+    const db = this.database ?? getDb();
+    const row = db.prepare(`
+      SELECT replacement.*
+      FROM platform_event AS event
+      JOIN agent_inbox_item AS replacement
+        ON replacement.id=json_extract(event.payload,'$.replacementInboxItemId')
+      WHERE event.type='agent.work.cancelled'
+        AND event.aggregate_type='agent_inbox_item'
+        AND event.aggregate_id=?
+        AND json_extract(event.payload,'$.reasonCode')='manual_retry_reissued'
+      ORDER BY event.stream_sequence DESC,event.id DESC
+      LIMIT 1
+    `).get(itemId) as AgentInboxRow | undefined;
+    return row ? fromRow(row) : undefined;
+  }
+
+  markExpiredReissued(itemId: string, replacementInboxItemId: string): boolean {
+    const db = this.database ?? getDb();
+    return db.transaction(() => {
+      const row = db.prepare(`SELECT * FROM agent_inbox_item WHERE id=? AND status='expired'`)
+        .get(itemId) as AgentInboxRow | undefined;
+      if (!row) return false;
+      const replacementId = replacementInboxItemId.trim();
+      if (!replacementId) throw new Error('replacement_inbox_item_required');
+      const now = this.now().toISOString();
+      const released = db.prepare(`
+        UPDATE agent_inbox_item
+        SET status='released',attempt_count=0,runtime_start_failure_count=0,
+            available_at=?,lease_token=NULL,lease_expires_at=NULL,last_error=NULL,
+            settled_at=NULL,updated_at=?
+        WHERE id=? AND status='expired'
+      `).run(now, now, itemId);
+      if (released.changes !== 1) return false;
+      const cancelled = db.prepare(`
+        UPDATE agent_inbox_item
+        SET status='cancelled',last_error='manual_retry_reissued',settled_at=?,updated_at=?
+        WHERE id=? AND status='released'
+      `).run(now, now, itemId);
+      if (cancelled.changes !== 1) throw new Error('expired_inbox_reissue_settlement_failed');
+      this.appendCoordination('agent.work.cancelled', {
+        id: row.id,
+        projectId: row.project_id,
+        projectAgentId: row.project_agent_id,
+        correlationId: rowCorrelationId(row),
+        causationId: rowCausationId(row),
+        payload: {
+          ...rowCoordinationRefs(row),
+          reasonCode: 'manual_retry_reissued',
+          replacementInboxItemId: replacementId,
+        },
+      });
+      return true;
+    }).immediate();
+  }
+
   cancelPending(projectId: string, projectAgentId: string, idempotencyKey?: string): number {
     const db = this.database ?? getDb();
     return db.transaction(() => {

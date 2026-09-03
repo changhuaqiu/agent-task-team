@@ -31,6 +31,7 @@ Result success 不能由 Runtime 成功替代；Path convergence 也不能把失
 - 过期的非终态 Invocation 以 CAS 语义终止，并记录稳定原因 `orphaned_runtime_owner_lease_expired`。
 - 当前 Attempt 已失败、A2A Pass 已终态或 Task 已终态时，关闭对应 WorkAuthority 并取消残留 Inbox Work。
 - 关闭 Authority 后由现有 Task Wakeup / Delivery Control 决定是否重试；本 Module 不盲目执行外部副作用。
+- 失败队列人工重试必须重建已经终结的 Human A2A Pass/WorkAuthority，不得只释放旧 Inbox；非 Human A2A 由原 source owner 恢复，不能伪造成用户请求。
 - Task 进入 `done|cancelled` 时写入 `completed_at`；migration 对历史终态 Task 用 `updated_at` 回填。
 - EvalSnapshot 冻结相关 WorkAuthority 与 AgentOutcome，Deterministic Evaluator 输出完成率、路径收敛率和 Outcome 接纳率。
 - 正式交付件不再把 `cmd/test/trace/proof/live-db/disk/e2e` 引用渲染为独立产物卡。
@@ -45,6 +46,8 @@ Result success 不能由 Runtime 成功替代；Path convergence 也不能把失
 5. 启动恢复可重复执行，重复运行不增加 epoch、不重复创建 Task、不把失败改成成功。
 6. Evaluation cutoff 后变化不能改写旧快照；无法冻结的 Authority 状态标为 late fact。
 7. 完成率、路径收敛率、Outcome 接纳率分别呈现，不用单一平均分掩盖失败。
+8. 终态 A2A Pass 的旧 Inbox 不可再次执行；人工重试创建可追溯到原消息的新 Chain/Pass/Inbox，并将旧失败项标记为已替代。相同失败 Inbox 的重复或并发重试返回同一替代 Inbox，不增加第二套协作聚合。
+9. active chain、成员/运行配置变化、Inbox 幂等冲突与容量耗尽必须返回稳定的 409/422/429 领域响应，不得退化为无法行动的通用 500。
 
 ## Non-goals
 
