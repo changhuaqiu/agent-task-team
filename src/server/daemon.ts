@@ -1099,37 +1099,22 @@ export default function registerDaemon(io: IOServer) {
           (evaluation.applicationManifest as { codeRevision?: unknown }).codeRevision ?? '',
         ).trim() || undefined;
       }
-      const requiresGitWorktree = effectiveUseWorktree
-        || Boolean(conversationRepo.getById(sessionConvId)?.git_repo_root)
-        || Boolean(evaluation);
-
-      if (effectiveRepoRoot) {
-        try {
-          const { WorktreeManager } = await import('./worktree-manager');
-          const isGit = await WorktreeManager.isGitRepo(effectiveRepoRoot);
-          if (!isGit && requiresGitWorktree) {
-            throw new Error('configured project path is not a Git worktree');
-          }
-          if (isGit) {
-            const detectedRepoRoot = await WorktreeManager.getRepoRoot(effectiveRepoRoot) ?? undefined;
-            const detectedHead = await WorktreeManager.getHead(effectiveRepoRoot) ?? undefined;
-            if (!detectedRepoRoot || !detectedHead) {
-              throw new Error('git repo root or HEAD could not be resolved');
-            }
-            effectiveSlug ??= conversationId || projectId || 'default';
-            effectiveUseWorktree = true;
-            worktreeRepoRoot = detectedRepoRoot;
-            worktreeStartPoint ??= detectedHead;
-            console.log(`[daemon] git repo detected at ${worktreeRepoRoot}, using worktree slug=${effectiveSlug}`);
-          }
-        } catch (e) {
-          if (requiresGitWorktree) {
-            throw new Error(`worktree_baseline_unavailable: ${(e as Error).message}`);
-          }
-          console.warn(`[daemon] git detection failed for ${effectiveRepoRoot}, using configured non-Git directory:`, (e as Error).message);
+      try {
+        const { WorktreeManager } = await import('./worktree-manager');
+        const baseline = await WorktreeManager.resolveDispatchBaseline({
+          projectPath: effectiveRepoRoot,
+          useWorktree: effectiveUseWorktree,
+          startPoint: worktreeStartPoint,
+        });
+        effectiveUseWorktree = baseline.useWorktree;
+        if (baseline.useWorktree) {
+          effectiveSlug ??= conversationId || projectId || 'default';
+          worktreeRepoRoot = baseline.repoRoot;
+          worktreeStartPoint = baseline.startPoint;
+          console.log(`[daemon] using Git worktree repo=${worktreeRepoRoot}, slug=${effectiveSlug}`);
         }
-      } else if (requiresGitWorktree) {
-        throw new Error('worktree_baseline_unavailable: Git-backed dispatch requires projectPath');
+      } catch (e) {
+        throw new Error(`worktree_baseline_unavailable: ${(e as Error).message}`);
       }
 
       const wd = await workdirManager.resolveWorkdir(

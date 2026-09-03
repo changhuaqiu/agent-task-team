@@ -2,6 +2,7 @@ import { getDb } from '../db';
 import type { AutonomousDeliveryRuntimePort } from '../autonomous-delivery/control-runtime';
 import { conversationRepo } from '../repositories/conversation-repo';
 import { projectRepo } from '../repositories/project-repo';
+import { resolveProjectExecutionConfig } from '../project-execution-config';
 import { generateSortableId } from '../repositories/sortable-id';
 import { compileGitHubIssueGoalContract, issueLabelNames, parseGitHubIssuePayload } from './compiler';
 import {
@@ -104,6 +105,9 @@ export class GitHubIssueAgentIngress {
         name: projectName,
         rootPath: input.config.projectPath,
       });
+      const workspace = conversationRepo.getById(project.workspace_conversation_id);
+      if (!workspace) throw new Error('project_workspace_not_found');
+      const executionConfig = resolveProjectExecutionConfig(workspace);
       const conversationId = generateSortableId('workstream');
       const title = `#${payload.issue.number} ${payload.issue.title.trim()}`;
       const contract = compileGitHubIssueGoalContract(payload, input.config, conversationId);
@@ -118,8 +122,8 @@ export class GitHubIssueAgentIngress {
         title,
         goal: issueContext,
         project_path: input.config.projectPath,
-        git_repo_root: input.config.projectPath,
-        use_worktree: true,
+        git_repo_root: executionConfig.gitRepoRoot,
+        use_worktree: executionConfig.useWorktree,
         team_pack_id: input.config.teamPackId,
         project_id: project.id,
         workspace_kind: 'workstream',

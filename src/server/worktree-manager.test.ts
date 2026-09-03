@@ -251,4 +251,35 @@ describe('WorktreeManager', { timeout: 15_000 }, () => {
       }
     });
   });
+
+  describe('resolveDispatchBaseline', () => {
+    it('keeps an explicitly direct Git directory out of worktree mode', async () => {
+      expect(await WorktreeManager.resolveDispatchBaseline({
+        projectPath: testRepo,
+        useWorktree: false,
+      })).toEqual({ useWorktree: false });
+    });
+
+    it('resolves repo root and HEAD only when worktree mode is enabled', async () => {
+      const result = await WorktreeManager.resolveDispatchBaseline({
+        projectPath: testRepo,
+        useWorktree: true,
+      });
+      expect(result.useWorktree).toBe(true);
+      expect(path.resolve(result.repoRoot!)).toBe(path.resolve(fs.realpathSync(testRepo)));
+      expect(result.startPoint).toMatch(/^[0-9a-f]{40}$/);
+    });
+
+    it('rejects a non-Git directory when worktree mode is enabled', async () => {
+      const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), 'non-git-baseline-'));
+      try {
+        await expect(WorktreeManager.resolveDispatchBaseline({
+          projectPath: nonGit,
+          useWorktree: true,
+        })).rejects.toThrow('configured project path is not a Git worktree');
+      } finally {
+        fs.rmSync(nonGit, { recursive: true, force: true });
+      }
+    });
+  });
 });

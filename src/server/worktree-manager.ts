@@ -19,6 +19,12 @@ interface RegisteredWorktree {
   head: string;
 }
 
+export interface WorktreeDispatchBaseline {
+  useWorktree: boolean;
+  repoRoot?: string;
+  startPoint?: string;
+}
+
 export class WorktreeManager {
   private repoRoot: string;
   private worktreeBase: string;
@@ -58,6 +64,27 @@ export class WorktreeManager {
     } catch {
       return null;
     }
+  }
+
+  static async resolveDispatchBaseline(input: {
+    projectPath?: string;
+    useWorktree: boolean;
+    startPoint?: string;
+  }): Promise<WorktreeDispatchBaseline> {
+    if (!input.useWorktree) return { useWorktree: false };
+    const projectPath = input.projectPath?.trim();
+    if (!projectPath) throw new Error('Git-backed dispatch requires projectPath');
+    if (!await WorktreeManager.isGitRepo(projectPath)) {
+      throw new Error('configured project path is not a Git worktree');
+    }
+    const repoRoot = await WorktreeManager.getRepoRoot(projectPath) ?? undefined;
+    const head = await WorktreeManager.getHead(projectPath) ?? undefined;
+    if (!repoRoot || !head) throw new Error('git repo root or HEAD could not be resolved');
+    return {
+      useWorktree: true,
+      repoRoot,
+      startPoint: input.startPoint ?? head,
+    };
   }
 
   // ── Worktree CRUD ──────────────────────────────────

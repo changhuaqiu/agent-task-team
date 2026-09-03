@@ -494,6 +494,17 @@ describe('CommandService work outcome receipt', () => {
         },
       },
     });
+
+    getDb().prepare('UPDATE conversation SET use_worktree=1,git_repo_root=? WHERE id=?')
+      .run('   ', project.workspace_conversation_id);
+    const malformed = service.execute(asWorkCreateCommand({
+      commandId: 'malformed-work-create', idempotencyKey: 'malformed-work-create', projectId: project.id,
+      title: 'Normalize malformed mode', category: 'issue',
+    }));
+    expect(malformed).toMatchObject({
+      status: 'applied',
+      result: { conversation: { use_worktree: 0, git_repo_root: null } },
+    });
   });
 
   it('records a review decision with revision fencing and idempotent replay', () => {

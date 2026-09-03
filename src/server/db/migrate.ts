@@ -4778,20 +4778,27 @@ CREATE INDEX IF NOT EXISTS idx_workspace_command_journal_state
       db.exec(`
         UPDATE conversation AS workstream
         SET use_worktree=COALESCE((
-              SELECT workspace.use_worktree
+              SELECT CASE
+                WHEN COALESCE(workspace.use_worktree,0)=1
+                  AND trim(COALESCE(workspace.git_repo_root,''))<>'' THEN 1
+                ELSE 0
+              END
               FROM conversation AS workspace
               WHERE workspace.project_id=workstream.project_id
                 AND workspace.workspace_kind='project_workspace'
+              ORDER BY workspace.updated_at DESC,workspace.id DESC
               LIMIT 1
             ),0),
             git_repo_root=(
               SELECT CASE
-                WHEN COALESCE(workspace.use_worktree,0)=1 THEN workspace.git_repo_root
+                WHEN COALESCE(workspace.use_worktree,0)=1
+                  AND trim(COALESCE(workspace.git_repo_root,''))<>'' THEN trim(workspace.git_repo_root)
                 ELSE NULL
               END
               FROM conversation AS workspace
               WHERE workspace.project_id=workstream.project_id
                 AND workspace.workspace_kind='project_workspace'
+              ORDER BY workspace.updated_at DESC,workspace.id DESC
               LIMIT 1
             )
         WHERE workstream.workspace_kind='workstream'

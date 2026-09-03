@@ -71,8 +71,12 @@ Project workspace 是 Project 执行目录能力的唯一配置 owner。创建 W
 - `use_worktree=false`：派生 workstream 的 `git_repo_root` 必须为空，Runtime 直接使用 `project_path` 指向的目录；目录存在 `.git` 标记也不能自行改变配置语义；
 - Evaluation 仍由其冻结 manifest 强制使用 Git worktree，基线无效时失败关闭。
 
+`use_worktree=true` 但 `git_repo_root` 为空或只含空白属于旧数据损坏，创建链与迁移统一降级为直接目录模式。`work.create` 与
+GitHub Issue ingress 复用同一个配置解析器；Runtime 只执行已解析的模式，不再用目录探测反向改写“明确关闭 worktree”的配置。
+
 历史版本曾把所有新 WorkItem 强制写成 `use_worktree=true`，并把普通 `project.root_path` 错写为 `git_repo_root`。数据库迁移以
-同一 `project_id` 的 `project_workspace` 为权威，重写所有 `workstream` 的这两个派生字段。该修复只校正执行配置，不复制或重建
+同一 `project_id` 的 `project_workspace` 为权威，重写所有 `workstream` 的这两个派生字段。异常旧库存在多个 workspace owner 时，
+按 `updated_at DESC,id DESC` 确定性选择最近 owner，避免任意查询计划产生漂移。该修复只校正执行配置，不复制或重建
 Project、WorkItem、Task、消息和证据。
 
 ## 迁移与退出条件

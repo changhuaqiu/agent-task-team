@@ -94,3 +94,4 @@ Project Context 的 L5“知识与证据”层必须索引本目录：
 - `2026-08-23-collaboration-kernel-evaluation.md`：统一 WorkRequest/Lane/reply address、事件身份与真实 Runtime ACK 的 C 级确定性对比（组件已接受；真实任务成功率仍需 E 级复测）。
 - `2026-08-31-project-workitem-path-evaluation.md`：Project→WorkItem 分层、独立活动/Task Graph 与角色交付的 C 级前后对比（已接受；不代表真实 Agent 任务成功率结论）。
 - `2026-09-01-coordinator-task-graph-contract-evaluation.md`：Coordinator 对未分配工作执行 Task Graph-first 拆解、覆盖校验与自动派发的 C 级确定性对比（候选已通过组件门；真实 Agent 完成率仍需 E 级成对实验）。
+- `2026-09-03-non-git-workitem-runtime-evaluation.md`：普通目录 Project 的 WorkItem 执行配置继承、旧数据迁移与 Agent 启动路径 C 级对比（候选已通过组件门；不代表 Agent 任务成功率提升）。

@@ -54,8 +54,8 @@ describe('GitHubIssueAgentIngress', () => {
       title: '#42 Add automatic issue intake',
       goal: expect.stringMatching(/Create an automatic intake path\.[\s\S]*https:\/\/github\.com\/acme\/widgets\/issues\/42[\s\S]*Verify webhook signatures/),
       project_path: projectPath,
-      git_repo_root: projectPath,
-      use_worktree: 1,
+      git_repo_root: null,
+      use_worktree: 0,
       project_id: projectRepo.getByRootPath(projectPath)?.id,
       workspace_kind: 'workstream',
     });
@@ -63,6 +63,26 @@ describe('GitHubIssueAgentIngress', () => {
     expect(deliveryRepository.getSnapshot(result.mapping.delivery_run_id)?.contract.source)
       .toMatchObject({ issueNumber: 42, repository: 'acme/widgets' });
     expect(capturedContract?.acceptanceCriteria).toContain('Verify webhook signatures');
+  });
+
+  it('inherits explicit Git worktree settings from an existing Project workspace', () => {
+    const project = projectRepo.create({ name: 'widgets', rootPath: projectPath });
+    conversationRepo.update(project.workspace_conversation_id, {
+      use_worktree: 1,
+      git_repo_root: projectPath,
+    });
+
+    const result = ingress().handle({
+      eventName: 'issues', deliveryId: 'delivery-git', payload: githubIssuePayload(),
+      payloadDigest: 'digest-git', config: githubIssueHookConfig(projectPath),
+    });
+
+    expect(result.disposition).toBe('accepted');
+    if (result.disposition !== 'accepted') throw new Error('expected accepted result');
+    expect(conversationRepo.getById(result.mapping.conversation_id)).toMatchObject({
+      use_worktree: 1,
+      git_repo_root: projectPath,
+    });
   });
 
   it('deduplicates both GitHub delivery retries and a second delivery for the same issue', () => {

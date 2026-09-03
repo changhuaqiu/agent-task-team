@@ -222,7 +222,9 @@ describe('SQLite Foundation', () => {
 
   it('repairs WorkItem execution settings from its Project workspace', () => {
     const now = '2026-09-03T14:00:00.000Z';
+    const newer = '2026-09-03T15:00:00.000Z';
     db.prepare('DELETE FROM _schema_version WHERE version=113').run();
+    db.prepare('DROP INDEX uq_project_workspace_conversation').run();
     db.prepare('INSERT INTO project (id,name,root_path,created_at,updated_at) VALUES (?,?,?,?,?)')
       .run('project-directory', 'Directory project', 'C:/plain-directory', now, now);
     const insertConversation = db.prepare(`
@@ -239,6 +241,43 @@ describe('SQLite Foundation', () => {
       'workstream-directory', 'Broken WorkItem', 'C:/plain-directory', 1, 'C:/plain-directory', now, now,
       'project-directory', 'workstream',
     );
+    db.prepare('INSERT INTO project (id,name,root_path,created_at,updated_at) VALUES (?,?,?,?,?)')
+      .run('project-git', 'Git project', 'C:/git-project', now, now);
+    insertConversation.run(
+      'workspace-git', 'Git project', 'C:/git-project', 1, '  C:/git-project  ', now, now,
+      'project-git', 'project_workspace',
+    );
+    insertConversation.run(
+      'workstream-git', 'Git WorkItem', 'C:/git-project', 0, null, now, now,
+      'project-git', 'workstream',
+    );
+    db.prepare('INSERT INTO project (id,name,root_path,created_at,updated_at) VALUES (?,?,?,?,?)')
+      .run('project-malformed', 'Malformed project', 'C:/malformed', now, now);
+    insertConversation.run(
+      'workspace-malformed', 'Malformed project', 'C:/malformed', 1, '   ', now, now,
+      'project-malformed', 'project_workspace',
+    );
+    insertConversation.run(
+      'workstream-malformed', 'Malformed WorkItem', 'C:/malformed', 1, 'C:/malformed', now, now,
+      'project-malformed', 'workstream',
+    );
+    db.prepare('INSERT INTO project (id,name,root_path,created_at,updated_at) VALUES (?,?,?,?,?)')
+      .run('project-collided', 'Collided project', 'C:/collided', now, newer);
+    insertConversation.run(
+      'workspace-collided-old', 'Old owner', 'C:/collided', 0, null, now, now,
+      'project-collided', 'project_workspace',
+    );
+    insertConversation.run(
+      'workspace-collided-new', 'New owner', 'C:/collided', 1, 'C:/collided', now, newer,
+      'project-collided', 'project_workspace',
+    );
+    insertConversation.run(
+      'workstream-collided', 'Collided WorkItem', 'C:/collided', 0, null, now, now,
+      'project-collided', 'workstream',
+    );
+    const conversationIdsBefore = (db.prepare(`
+      SELECT id FROM conversation WHERE project_id LIKE 'project-%' ORDER BY id
+    `).all() as Array<{ id: string }>).map((row) => row.id);
 
     applyMigrations(db);
 
@@ -248,6 +287,18 @@ describe('SQLite Foundation', () => {
     expect(db.prepare(`
       SELECT use_worktree,git_repo_root FROM conversation WHERE id='workspace-directory'
     `).get()).toEqual({ use_worktree: 0, git_repo_root: null });
+    expect(db.prepare(`
+      SELECT use_worktree,git_repo_root FROM conversation WHERE id='workstream-git'
+    `).get()).toEqual({ use_worktree: 1, git_repo_root: 'C:/git-project' });
+    expect(db.prepare(`
+      SELECT use_worktree,git_repo_root FROM conversation WHERE id='workstream-malformed'
+    `).get()).toEqual({ use_worktree: 0, git_repo_root: null });
+    expect(db.prepare(`
+      SELECT use_worktree,git_repo_root FROM conversation WHERE id='workstream-collided'
+    `).get()).toEqual({ use_worktree: 1, git_repo_root: 'C:/collided' });
+    expect((db.prepare(`
+      SELECT id FROM conversation WHERE project_id LIKE 'project-%' ORDER BY id
+    `).all() as Array<{ id: string }>).map((row) => row.id)).toEqual(conversationIdsBefore);
   });
 
   it('removes retired HTTP bridge runtime nodes and their live bindings', () => {

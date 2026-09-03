@@ -2,7 +2,7 @@
 topics: [product-story, user-outcomes, optimization, evidence]
 doc_kind: product-story
 created: 2026-08-02
-updated: 2026-08-31
+updated: 2026-09-03
 ---
 
 # Agent Task Hub 产品故事
@@ -22,6 +22,39 @@ updated: 2026-08-31
 - 对应 spec、产品文档或技术设计的链接。
 
 只有直接覆盖所述用户效果的证据，才能支持“已经改善”：例如针对性自动化测试、真实界面观察或实际运行链验证。构建通过只能作为可交付性的辅助证据，不能单独证明用户体验已经改善。未验证目标不进入本故事文档，应留在 spec、计划或任务清单中。
+
+---
+
+## 2026-09-03：普通文件夹项目里的 Agent 不再无声消失
+
+### 原来的用户处境
+
+用户在一个普通文件夹 Project 中创建工作并 @Agent 后，消息能够进入团队活动，但 Agent 始终不回复。系统在真正启动 Agent 前
+把该文件夹误当作 Git worktree，连续执行都会立即失败；重新发消息也不会改变结果。
+
+### 优化后的变化
+
+- WorkItem 使用 Project workspace 已配置的执行模式，普通目录直接以项目根目录运行，不再被强制要求 Git 基线；
+- 旧 Project 和旧 WorkItem 在桌面升级时自动修正配置，原有 Task、消息、交付件和失败记录都保留，用户无需新建项目；
+- 明确启用 worktree 的 Git Project 仍保留隔离执行和严格基线门，Evaluation 的冻结 Git 约束没有放宽。
+
+### 已验证的效果
+
+真实桌面基线中，同一普通目录的 Project workspace 配置为非 worktree，但 WorkItem 被错误写成 worktree；最近两次 Invocation 分别在
+56 ms 和 64 ms 内以 `runtime_start_failed` 结束，均未进入 Agent started 状态。候选迁移 fixture 将该错误配置修正为 `(0,NULL)`，
+默认普通目录与显式 Git 模式的创建回归均通过。定向测试 64/64、全量测试 1988/1988 通过，2 项按既有配置跳过；TypeScript 和
+production build 通过。
+
+### 仍然保留的边界
+
+历史失败 Invocation 作为审计事实保留，不改写成成功。这次 C 级验证证明启动路径恢复，不代表 Agent 的任务完成率或回答质量已经提升；
+升级桌面后的真实回复仍作为发布验收单独记录。
+
+### 设计与实现依据
+
+- [Project 工作项分层规格](../../specs/project-workitem-hierarchy/spec.md)
+- [Project / WorkItem 作用域技术设计](../technical/execution/project-workitem-scope.md)
+- [C 级执行路径评测](../technical/evaluation/2026-09-03-non-git-workitem-runtime-evaluation.md)
 
 ---
 
