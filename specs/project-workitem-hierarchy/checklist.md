@@ -6,6 +6,8 @@
 - [x] Project workspace 不再接收新工作项 Task Graph。
 - [x] 旧 Project workspace Task 可作为 legacy 工作项打开。
 - [x] GitHub Issue 复用相同目录的 Project，重复 webhook 不产生重复工作项。
+- [x] WorkItem 继承 Project workspace 的 Git/worktree 配置，普通目录不会被强制升级为 Git worktree。
+- [x] 既有错误派生的 WorkItem 执行配置可由数据库迁移修复，无需重建 Project 或 WorkItem。
 
 ## UX
 
@@ -18,6 +20,7 @@
 ## Agent 完成路径
 
 - [x] Agent 上下文默认限制在当前工作项，只注入必要 Project 摘要。
+- [x] 普通目录 Project 使用真实项目根目录作为 Runtime cwd，并能正常启动 Agent。
 - [x] 工作项完成由根 Task、Artifact 和 Review/Gate 证据闭环决定。
 - [x] Project 进度只汇总工作项事实，不使用聊天文本或 Runtime 结束凑数。
 

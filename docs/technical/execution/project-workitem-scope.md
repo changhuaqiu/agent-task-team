@@ -62,6 +62,19 @@ Issue ingress 映射保存该 workstream Conversation 与 DeliveryRun；同一 I
 - 完成判断以工作项根 Task、当前 authority、正式 Artifact、Review/Gate 为闭环；Project 只汇总。工作项交付在 ledger 按文件引用合并前，先以 workstream Conversation 和根/子 Task `workId` 筛选；这同时保留无 Task 的 delivery-level 证据，并避免同一文件被另一 WorkItem 的更新抢占归属。
 - Project workspace 的运行摘要不得因选中子 workstream 漂移。
 
+## 执行目录能力继承
+
+Project workspace 是 Project 执行目录能力的唯一配置 owner。创建 WorkItem 时，workstream Conversation 必须继承它的
+`use_worktree` 模式及关联的 `git_repo_root`，不能根据 `project.root_path` 猜测 Git 能力，也不能无条件启用 worktree：
+
+- `use_worktree=true`：Runtime 对已配置的 Git 根执行严格基线校验并为 WorkItem 创建隔离 worktree；
+- `use_worktree=false`：派生 workstream 的 `git_repo_root` 必须为空，Runtime 直接使用 `project_path` 指向的目录；目录存在 `.git` 标记也不能自行改变配置语义；
+- Evaluation 仍由其冻结 manifest 强制使用 Git worktree，基线无效时失败关闭。
+
+历史版本曾把所有新 WorkItem 强制写成 `use_worktree=true`，并把普通 `project.root_path` 错写为 `git_repo_root`。数据库迁移以
+同一 `project_id` 的 `project_workspace` 为权威，重写所有 `workstream` 的这两个派生字段。该修复只校正执行配置，不复制或重建
+Project、WorkItem、Task、消息和证据。
+
 ## 迁移与退出条件
 
 数据库迁移为已有 Project workspace 顶层 Task 建立可投影兼容身份，不复制 Task 或消息。历史消息继续留在原 Conversation。

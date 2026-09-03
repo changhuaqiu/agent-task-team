@@ -415,6 +415,8 @@ describe('CommandService work outcome receipt', () => {
           project_id: projectId,
           workspace_kind: 'workstream',
           title: 'Unify creation',
+          use_worktree: 0,
+          git_repo_root: null,
         },
         task: { title: 'Unify creation', category: 'improvement', artifacts: '[]' },
       },
@@ -464,6 +466,34 @@ describe('CommandService work outcome receipt', () => {
       ]));
     expect(getDb().prepare('SELECT COUNT(*) AS count FROM task WHERE conversation_id=?').get(project.workspace_conversation_id))
       .toEqual({ count: 0 });
+  });
+
+  it('inherits Git worktree settings from the Project workspace', () => {
+    const service = new CommandService();
+    const projectReceipt = service.execute(asProjectCreateCommand({
+      commandId: 'git-work-project', idempotencyKey: 'git-work-project',
+      name: 'Git Work Project', rootPath: 'C:/projects/git-work',
+    }));
+    const project = (projectReceipt.result as {
+      project: { id: string; workspace_conversation_id: string };
+    }).project;
+    getDb().prepare('UPDATE conversation SET use_worktree=1,git_repo_root=? WHERE id=?')
+      .run('C:/projects/git-work', project.workspace_conversation_id);
+
+    const receipt = service.execute(asWorkCreateCommand({
+      commandId: 'git-work-create', idempotencyKey: 'git-work-create', projectId: project.id,
+      title: 'Use isolated worktree', category: 'improvement',
+    }));
+
+    expect(receipt).toMatchObject({
+      status: 'applied',
+      result: {
+        conversation: {
+          use_worktree: 1,
+          git_repo_root: 'C:/projects/git-work',
+        },
+      },
+    });
   });
 
   it('records a review decision with revision fencing and idempotent replay', () => {

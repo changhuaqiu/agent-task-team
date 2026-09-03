@@ -4765,6 +4765,46 @@ CREATE INDEX IF NOT EXISTS idx_workspace_command_journal_state
       `).run(coordinatorInstructions, new Date().toISOString());
     },
   },
+  {
+    version: 113,
+    run: (db) => {
+      const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .all() as Array<{ name: string }>).map((row) => row.name));
+      if (!tables.has('conversation') || !tables.has('project')) return;
+      const conversationColumns = new Set((db.prepare('PRAGMA table_info(conversation)')
+        .all() as Array<{ name: string }>).map((column) => column.name));
+      if (!['use_worktree', 'git_repo_root', 'project_id', 'workspace_kind']
+        .every((column) => conversationColumns.has(column))) return;
+      db.exec(`
+        UPDATE conversation AS workstream
+        SET use_worktree=COALESCE((
+              SELECT workspace.use_worktree
+              FROM conversation AS workspace
+              WHERE workspace.project_id=workstream.project_id
+                AND workspace.workspace_kind='project_workspace'
+              LIMIT 1
+            ),0),
+            git_repo_root=(
+              SELECT CASE
+                WHEN COALESCE(workspace.use_worktree,0)=1 THEN workspace.git_repo_root
+                ELSE NULL
+              END
+              FROM conversation AS workspace
+              WHERE workspace.project_id=workstream.project_id
+                AND workspace.workspace_kind='project_workspace'
+              LIMIT 1
+            )
+        WHERE workstream.workspace_kind='workstream'
+          AND workstream.project_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM conversation AS workspace
+            WHERE workspace.project_id=workstream.project_id
+              AND workspace.workspace_kind='project_workspace'
+          );
+      `);
+    },
+  },
 ];
 
 export function applyMigrations(db: Database.Database): void {

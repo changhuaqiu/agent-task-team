@@ -9,4 +9,5 @@
 - [x] 补充旧项目兼容、作用域隔离、完成状态和路径评测。
 - [x] 执行相关测试、全量测试、typecheck 和 production build。
 - [x] 构建并验证桌面 EXE。
+- [x] 修复 WorkItem 强制 worktree 的配置漂移，并迁移既有错误数据。
 - [x] 更新 wiki、STORY 与最终验证记录。

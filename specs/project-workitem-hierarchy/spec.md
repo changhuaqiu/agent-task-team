@@ -22,6 +22,7 @@
 6. 旧 Project workspace Task 投影为 legacy 工作项，用户无需重建；不得复制或丢弃历史消息、任务和证据。
 7. 交付件按贡献角色分列，每个角色列内按业务类别组织；工作项详情只展示 `workId` 匹配的交付件。
 8. 工作项完成与 Project 汇总继续遵守 authority、Artifact 与 Review/Gate 证据门。
+9. WorkItem 必须继承 Project workspace 的执行目录能力：Project workspace 明确启用且 Git 基线有效时才使用 worktree；默认和普通目录 Project 使用项目根目录直接执行。既有 WorkItem 的错误派生配置在迁移时按 Project workspace 修正，用户无需重建 Project 或 WorkItem。
 
 ## 范围
 
@@ -29,6 +30,7 @@
 - `work.create` 原子 workstream；
 - GitHub Issue Project 归属；
 - Project 概览、工作项列表/详情、独立活动与角色交付；
+- Git 与普通目录 Project 的 WorkItem 执行配置继承及旧数据修复；
 - 相关 API、store/selector、单元、集成、浏览器和桌面构建验证。
 
 不在本规格内重新设计 Runtime、Task Authority 或 Artifact Ledger owner。
@@ -37,6 +39,7 @@
 
 - `checklist.md` 全部通过；
 - 新旧项目均可进入工作项层级，两个工作项的消息和 Task Graph 作用域隔离；
+- 普通目录 Project 的新旧 WorkItem 均可在项目根目录启动 Agent，且不会被误判为缺少 Git worktree 基线；
 - GitHub Issue 重复事件不重复创建 Project 或工作项；
 - 相关测试、typecheck、生产 build 与桌面 EXE 验证通过；
 - 长期产品/技术文档和 STORY 已同步。

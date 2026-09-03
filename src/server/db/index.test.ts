@@ -121,7 +121,7 @@ describe('SQLite Foundation', () => {
         VALUES ('group-2','work-1',2,'outcome-1')
       `).run()).toThrow();
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 112 });
+        .toEqual({ version: 113 });
     } finally {
       legacyDb.close();
     }
@@ -152,7 +152,7 @@ describe('SQLite Foundation', () => {
         'source_outcome_id',
       ]));
       expect(collidedDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 112 });
+        .toEqual({ version: 113 });
     } finally {
       collidedDb.close();
     }
@@ -218,6 +218,36 @@ describe('SQLite Foundation', () => {
       { project_id: 'project-path-winner', workspace_kind: 'historical_workstream', count: 1 },
       { project_id: 'project-path-winner', workspace_kind: 'project_workspace', count: 1 },
     ]);
+  });
+
+  it('repairs WorkItem execution settings from its Project workspace', () => {
+    const now = '2026-09-03T14:00:00.000Z';
+    db.prepare('DELETE FROM _schema_version WHERE version=113').run();
+    db.prepare('INSERT INTO project (id,name,root_path,created_at,updated_at) VALUES (?,?,?,?,?)')
+      .run('project-directory', 'Directory project', 'C:/plain-directory', now, now);
+    const insertConversation = db.prepare(`
+      INSERT INTO conversation (
+        id,title,status,priority,project_path,use_worktree,git_repo_root,created_at,updated_at,
+        project_id,workspace_kind
+      ) VALUES (?,?,'active','p2',?,?,?,?,?,?,?)
+    `);
+    insertConversation.run(
+      'workspace-directory', 'Directory project', 'C:/plain-directory', 0, null, now, now,
+      'project-directory', 'project_workspace',
+    );
+    insertConversation.run(
+      'workstream-directory', 'Broken WorkItem', 'C:/plain-directory', 1, 'C:/plain-directory', now, now,
+      'project-directory', 'workstream',
+    );
+
+    applyMigrations(db);
+
+    expect(db.prepare(`
+      SELECT use_worktree,git_repo_root FROM conversation WHERE id='workstream-directory'
+    `).get()).toEqual({ use_worktree: 0, git_repo_root: null });
+    expect(db.prepare(`
+      SELECT use_worktree,git_repo_root FROM conversation WHERE id='workspace-directory'
+    `).get()).toEqual({ use_worktree: 0, git_repo_root: null });
   });
 
   it('removes retired HTTP bridge runtime nodes and their live bindings', () => {
@@ -736,7 +766,7 @@ describe('SQLite Foundation', () => {
         WHERE id='legacy-action'
       `).get()).toEqual({ type: 'activate', attempt_count: 0, max_attempts: 3 });
       expect(legacyDb.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-        .toEqual({ version: 112 });
+        .toEqual({ version: 113 });
       expect(() => legacyDb.prepare(`
         INSERT INTO delivery_control_action (
           id,decision_id,run_id,type,target_work_id,work_epoch,slot_id,reason_code,
@@ -910,7 +940,7 @@ describe('SQLite Foundation', () => {
     expect(db.prepare('SELECT version FROM _schema_version WHERE version = 40').get())
       .toEqual({ version: 40 });
     expect(db.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-      .toEqual({ version: 112 });
+      .toEqual({ version: 113 });
   });
 
   it('retires the parallel A2A worklist schema at migration 62', () => {
@@ -988,7 +1018,7 @@ describe('SQLite Foundation', () => {
           'autonomous_delivery_advancement_request',
         ]));
         expect(checkpoint.prepare('SELECT MAX(version) AS version FROM _schema_version').get())
-          .toEqual({ version: 112 });
+          .toEqual({ version: 113 });
         expect(checkpoint.pragma('foreign_key_check')).toEqual([]);
       } finally {
         checkpoint.close();

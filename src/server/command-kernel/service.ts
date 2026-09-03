@@ -365,14 +365,15 @@ export class CommandService {
         }
         const workspace = conversationRepo.getById(project.workspace_conversation_id);
         if (!workspace) throw new Error('project_workspace_not_found');
+        const useWorktree = Boolean(workspace.use_worktree);
         const conversation = existingConversation ?? conversationRepo.create({
           id: conversationId,
           title: command.input.title.trim(),
           goal: command.input.description?.trim() || command.input.title.trim(),
           priority: workspace.priority,
           project_path: project.root_path,
-          git_repo_root: workspace.git_repo_root ?? project.root_path,
-          use_worktree: true,
+          git_repo_root: useWorktree ? workspace.git_repo_root ?? undefined : undefined,
+          use_worktree: useWorktree,
           team_pack_id: workspace.team_pack_id ?? undefined,
           project_id: project.id,
           workspace_kind: 'workstream',
