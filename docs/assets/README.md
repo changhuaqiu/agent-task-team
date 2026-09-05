@@ -1,16 +1,15 @@
 # docs/assets
 
-存放 README 使用的图片资源。
+存放 README 使用的品牌与产品演示资源。
 
-## hero.png（待补）
+## 品牌主视觉
 
-README 顶部的主视觉，是 GitHub 访客的第一印象，直接决定 star 转化率。
+- `brand/agent-task-hub-harness-habitat-hero.png`：中英文 README 共用的 Harness Habitat 主视觉。
 
-**建议规格**
+## 端到端产品演示
 
-- 内容：真实的「团队协作首屏」——项目侧栏 + 多 Agent 对话 + 看板，一眼看出这是一支在协作的 AI 研发团队。
-- 尺寸：宽度 1280px 左右（README 中按 820px 显示）。
-- 格式：静态截图用 `hero.png`；若做 15 秒动图，命名 `hero.gif` 并同步更新 `README.md` / `README.en.md` 的图片引用。
-- 主题：亮色模式，与暖色像素风品牌基调一致。
+- `demo/agent-task-hub-e2e-walkthrough.mp4`：44 秒、1440 × 900 的高清桌面端演示。
+- `demo/agent-task-hub-e2e-preview.gif`：GitHub 首页自动播放预览，点击后进入 MP4。
+- `demo/agent-task-hub-e2e-poster.jpg`：交付件、分享链接或不支持 GIF 的场景使用的静态封面。
 
-补图后即可移除 README 中对应的占位说明注释。
+演示资产只能来自真实产品界面；公开版本必须脱敏本机用户名、绝对路径、凭证和隐私数据。README 中优先引用轻量 GIF，高清 MP4 作为点击目标，中英文版本保持同一叙事位置和相同素材。

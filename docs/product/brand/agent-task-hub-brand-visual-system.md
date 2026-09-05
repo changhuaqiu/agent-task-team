@@ -84,16 +84,22 @@ Harness 不是四个 Agent 经过的一台机器，而是他们共同进入、�
 → Harness Habitat 主海报
 → 为什么需要 Agent OS
 → 产品机制
+→ 端到端实机演示
 → 真实界面与交付证据
 → 快速开始
 ```
 
 海报负责让人理解品牌世界观；真实界面和运行结果负责证明产品能力。两者不能互相替代。
 
+端到端演示必须覆盖“项目接入 → 工作创建 → 统筹拆解 → Agent 执行 → 按角色组织交付件 → 证据化完成”，使用真实桌面端界面，并在公开前移除用户名、绝对路径、凭证和其他本机信息。GitHub 首页使用轻量 GIF 作为自动播放预览，点击后打开高清 MP4；中英文 README 共用同一组演示资产。
+
 ## 6. 资产规范与成功标准
 
 - 主文件：`docs/assets/brand/agent-task-hub-harness-habitat-hero.png`；
-- 原始尺寸：1828 × 860 PNG；
+- 演示视频：`docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4`；
+- 演示预览：`docs/assets/demo/agent-task-hub-e2e-preview.gif`；
+- 演示海报：`docs/assets/demo/agent-task-hub-e2e-poster.jpg`；
+- 主视觉原始尺寸：1828 × 860 PNG；
 - README 展示宽度：860px；
 - 中英文 README 使用同一主视觉和各自的 alt 文本；
 - 不看正文也能读出四个不同角色围绕同一目标共同交付；
