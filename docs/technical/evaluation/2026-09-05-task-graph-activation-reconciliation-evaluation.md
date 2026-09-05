@@ -2,9 +2,9 @@
 
 - Change ID: task-graph-activation-reconciliation-2026-09-05
 - Evaluation level: C
-- Status: planned
-- Code/spec revision: pending
-- Evaluator/benchmark revision: pending
+- Status: accepted
+- Code/spec revision: `aa20879` (final desktop build revision recorded at release)
+- Evaluator/benchmark revision: Vitest 4.1.5, live desktop DB observed 2026-09-05
 
 ## Why
 
@@ -35,13 +35,19 @@
 
 | Metric | Baseline | Candidate | Threshold |
 | --- | ---: | ---: | ---: |
-| accepted graph assigned Task ready ratio | pending | pending | 100% |
-| dispatch before dependency satisfaction | pending | pending | 0 |
-| duplicate dispatch after replay | pending | pending | 0 |
-| newer graph Tasks overwritten by old replay | pending | pending | 0 |
-| WorkItem rows with textual status | pending | pending | 100% |
-| duplicate `owner_ready` dispatch while Inbox pending | pending | pending | 0 |
+| accepted graph assigned Task ready ratio (deterministic fixture) | 2/3 | 3/3 | 100% |
+| dispatch before dependency satisfaction | 0 | 0 | 0 |
+| duplicate dispatch after identical handler replay | unknown | 0 | 0 |
+| newer graph Tasks overwritten by old replay | unknown | 0 | 0 |
+| WorkItem rows with textual status (UI fixture) | 0/4 | 4/4 | 100% |
+| duplicate `owner_ready` dispatch while Inbox pending | 1 live occurrence | 0 in candidate regression | 0 |
+
+真实 baseline 为一个 accepted graph：t1 已完成，而 t2–t6 共 5 个已分配节点仍为 `proposed`，没有下游 Inbox。候选 v3 handler 于 2026-09-05 07:01:49Z 将 5 个节点恢复为 `ready`；t2 与 t3 分别生成并接纳唯一 Outcome-owned Inbox，t4 在 DK lane 后排队，t5/t6 因依赖未完成未派发。t2 随后进入 `in_review` 并生成 reviewer Invocation，t3 的 DK Invocation 进入 running。
+
+首轮真实运行在 t4 的 Outcome-owned Inbox 尚为 `enqueued` 时产生 1 个 `owner_ready` 重复项，证明旧 Autonomy Guard 的 active-dispatch 集合缺少 Inbox gap。该项已精确取消并记录 `duplicate_dispatch_reconciled`；候选新增 pending Inbox fixture 后为 0 次 wakeup。最终定向集合 5 files / 52 tests 通过；全量套件首次运行仅有一个与本变更无关的 Project Context 15 秒超时，单独重跑该文件 22/22 通过。TypeScript、相关 ESLint、Next.js production build 通过。
 
 ## Decision
 
-Pending implementation, verification and live desktop recovery. This C-level result may establish workflow correctness, but it does not by itself claim a statistically significant improvement in real Agent task completion rate; that claim requires an E-level paired experiment.
+接受候选。组件证据与真实旧任务共同证明 accepted→ready→dependency dispatch 路径恢复，历史重放具备 owner/fencing 保护，Project UI 能区分 Task、依赖和 A2A 回执；真实发现的 Inbox gap 重复派发也已进入同一修复与回归。若未来改变 Task Graph commit identity、Inbox pending 状态或 Autonomy Guard active-dispatch 定义，必须重跑本记录。
+
+该 C 级结论不声称真实 Agent 任务完成率具有统计显著提升；这仍需要固定 TestSuiteRevision、baseline/candidate ApplicationSnapshot 与逐例 paired experiment。

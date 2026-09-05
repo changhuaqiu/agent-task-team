@@ -2,7 +2,7 @@
 topics: [product-story, user-outcomes, optimization, evidence]
 doc_kind: product-story
 created: 2026-08-02
-updated: 2026-09-04
+updated: 2026-09-05
 ---
 
 # Agent Task Hub 产品故事
@@ -22,6 +22,35 @@ updated: 2026-09-04
 - 对应 spec、产品文档或技术设计的链接。
 
 只有直接覆盖所述用户效果的证据，才能支持“已经改善”：例如针对性自动化测试、真实界面观察或实际运行链验证。构建通过只能作为可交付性的辅助证据，不能单独证明用户体验已经改善。未验证目标不进入本故事文档，应留在 spec、计划或任务清单中。
+
+---
+
+## 2026-09-05：已接纳的任务计划不再卡在“待确认”
+
+### 原来的用户处境
+
+“优化项目结构及UX”已经由 Mario 拆成 7 项并显示平台接纳，第一项也已完成；但其余 5 项长期停在“待确认”，没有 Agent 接手。界面上方仍显示“已确认接纳”，执行任务只有图标没有文字状态和依赖原因，用户无法判断接纳的是一张回执、一个计划，还是实际运行。
+
+### 优化后的变化
+
+- Coordinator 的任务图一旦被平台接纳，图内所有已分配 Task 都进入 `ready`；依赖只决定何时派发，不再借 `proposed` 表示等待上游。
+- 桌面升级会重放历史 accepted Outcome，只恢复仍由该 Outcome 最新拥有的错误滞留 Task；后续重规划和终态不会被旧事件覆盖。
+- WorkItem 详情为每项任务显示文字状态、负责人以及“等待：上游任务 / 依赖已满足”，并单独提示已有负责人但仍待计划确认的异常；A2A 回执不再代替 Task 进度。
+- 已进入 Agent Inbox 的 pending 工作也算活跃派发；同一 Agent lane 忙碌时，恢复扫描不会为排队 Task 再创建一个 `owner_ready` 请求。
+
+### 已验证的效果
+
+在真实旧 WorkItem 上，新 handler 将 t2–t6 共 5 项从 `proposed` 恢复为 `ready`：t2 被 Luigi 接纳并进入评审，t3 被 DK 接纳并开始运行，t4 保持唯一有效排队，t5/t6 正确等待 t2/t3/t4。真实恢复同时发现 t4 在 Envelope/Invocation 建立前被 Autonomy Guard 重复轻推 1 次；该重复项已以 `duplicate_dispatch_reconciled` 取消，候选逻辑把 pending Inbox 纳入活跃路径并新增回归。相关定向测试 52/52 通过，第一次独立审查的 2 个 Important 和真实恢复后的派发竞争均已修正，最终复审为 Ready to merge。
+
+### 仍然保留的边界
+
+这次证明了一个真实历史 Task Graph 可以恢复、依赖顺序正确且不会把回执冒充执行，但不能由单例推断总体 Agent 完成率提高。根 WorkItem 仍保留此前 `in_progress` 审计事实；所有子任务完成后的闭环质量还需由现有 review/verification/closure 路径判断。总体完成率结论仍需固定任务集和 ApplicationSnapshot 的 E 级成对实验。
+
+### 设计与实现依据
+
+- [Agent 完成可靠性规格](../../specs/agent-completion-reliability/spec.md)
+- [Task Graph 技术设计](../technical/execution/group-chat-task-graph.md)
+- [C 级激活与恢复评测](../technical/evaluation/2026-09-05-task-graph-activation-reconciliation-evaluation.md)
 
 ---
 

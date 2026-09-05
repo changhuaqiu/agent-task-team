@@ -13,9 +13,9 @@
 - [x] 已退役 handler 不保留永久 queued delivery。
 - [x] 固定场景、全量测试、类型检查与生产构建通过。
 - [x] C 级评测记录包含 baseline、candidate、局限和 E 级复测条件。
-- [ ] accepted `task_graph_first` 图内显式写成 `proposed` 的已分配新 Task 也会原子激活为 `ready`。
-- [ ] 未满足依赖的 `ready` Task 不提前派发；依赖完成后只派发一次。
-- [ ] 新 handler 版本重放旧 accepted Outcome 时，仅恢复该 Outcome 仍最新拥有的 proposed Task，重复恢复不重复 Inbox。
-- [ ] WorkItem 详情用文字展示 Task 状态与依赖，不把 A2A ACK 显示成任务已运行。
-- [ ] 真实旧任务恢复后，首批依赖已满足的子任务有 durable Inbox/Invocation 证据。
-- [ ] pending Inbox 被视为活跃派发，Autonomy Guard 不再为同一 ready Task 创建第二个 `owner_ready` Inbox。
+- [x] accepted `task_graph_first` 图内显式写成 `proposed` 的已分配新 Task 也会原子激活为 `ready`。
+- [x] 未满足依赖的 `ready` Task 不提前派发；依赖完成后只派发一次。
+- [x] 新 handler 版本重放旧 accepted Outcome 时，仅恢复该 Outcome 仍最新拥有的 proposed Task，重复恢复不重复 Inbox。
+- [x] WorkItem 详情用文字展示 Task 状态与依赖，不把 A2A ACK 显示成任务已运行。
+- [x] 真实旧任务恢复后，首批依赖已满足的子任务有 durable Inbox/Invocation 证据。
+- [x] pending Inbox 被视为活跃派发，Autonomy Guard 不再为同一 ready Task 创建第二个 `owner_ready` Inbox。
