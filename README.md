@@ -6,14 +6,28 @@
   </p>
   <img src="docs/assets/brand/agent-task-hub-harness-habitat-hero.png" alt="四个不同元素的 Agent 角色在 Team Harness 环境中规划、架构、实现和验证一项软件交付" width="860" />
   <p><sub>Team Harness 是 Agent 共同工作的环境：人定义目标，团队持续推进，系统用证据守住交付。</sub></p>
+  <p><a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4"><strong>▶ 观看 44 秒端到端实机演示</strong></a></p>
   <p>
+    <a href="#-端到端演示">演示</a> •
     <a href="#-为什么需要-agent-task-hub">为什么需要</a> •
     <a href="#-它是什么">它是什么</a> •
-    <a href="#-端到端演示">演示</a> •
     <a href="#-核心理念">核心理念</a> •
     <a href="#-快速开始">快速开始</a> •
     <a href="#-了解更多">了解更多</a>
   </p>
+</div>
+
+---
+
+## 🎬 端到端演示
+
+从连接本地项目、创建工作，到 Mario 拆解任务与统筹协作，再到 Luigi 实现、Mario 独立评审、浏览器验收和按角色归类的正式交付件，下面这段 44 秒实机演示展示了完整闭环。
+
+<div align="center">
+  <a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4">
+    <img src="docs/assets/demo/agent-task-hub-e2e-preview.gif" alt="Agent Task Hub 端到端演示：项目接入、工作创建、任务拆解、Agent 协作、角色交付和完成闭环" width="860" />
+  </a>
+  <p><sub>点击动态预览播放高清 MP4 · 真实桌面端界面 · 本地路径已脱敏</sub></p>
 </div>
 
 ---
@@ -62,19 +76,6 @@ Agent Task Hub 不是另一个 AI 聊天工具。
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## 🎬 端到端演示
-
-从连接本地项目、创建工作，到 Mario 拆解任务与统筹协作，再到 Luigi 实现、Mario 独立评审、浏览器验收和按角色归类的正式交付件，下面这段 44 秒实机演示展示了完整闭环。
-
-<div align="center">
-  <a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4">
-    <img src="docs/assets/demo/agent-task-hub-e2e-preview.gif" alt="Agent Task Hub 端到端演示：项目接入、工作创建、任务拆解、Agent 协作、角色交付和完成闭环" width="860" />
-  </a>
-  <p><sub>点击预览播放高清 MP4 · 真实桌面端界面 · 本地路径已脱敏</sub></p>
-</div>
 
 ---
 

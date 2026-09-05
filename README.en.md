@@ -7,14 +7,28 @@
   </p>
   <img src="docs/assets/brand/agent-task-hub-harness-habitat-hero.png" alt="Four elemental Agent roles plan, architect, build, and verify a software delivery inside the Team Harness environment" width="860" />
   <p><sub>Team Harness is the environment where Agents work together: you define the goal, the team keeps moving, and the system protects delivery with evidence.</sub></p>
+  <p><a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4"><strong>▶ Watch the 44-second end-to-end desktop demo</strong></a></p>
   <p>
+    <a href="#-end-to-end-demo">Demo</a> •
     <a href="#-why-agent-task-hub">Why</a> •
     <a href="#-what-it-is">What it is</a> •
-    <a href="#-end-to-end-demo">Demo</a> •
     <a href="#-core-philosophy">Philosophy</a> •
     <a href="#-quick-start">Quick start</a> •
     <a href="#-docs">Docs</a>
   </p>
+</div>
+
+---
+
+## 🎬 End-to-end demo
+
+This 44-second desktop walkthrough follows the full path: connect a local project, create a work item, let Mario orchestrate the task graph, have Luigi implement, Mario perform an independent review, run browser acceptance, organize formal deliverables by contributor, and close the project with traceable evidence.
+
+<div align="center">
+  <a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4">
+    <img src="docs/assets/demo/agent-task-hub-e2e-preview.gif" alt="Agent Task Hub end-to-end walkthrough covering project setup, work creation, task orchestration, agent collaboration, role-based deliverables, and completion" width="860" />
+  </a>
+  <p><sub>Click the animated preview for the full-resolution MP4 · Real desktop UI · Local paths redacted</sub></p>
 </div>
 
 ---
@@ -63,19 +77,6 @@ You do not create a collection of chat windows. You create **a delivery**: defin
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## 🎬 End-to-end demo
-
-This 44-second desktop walkthrough follows the full path: connect a local project, create a work item, let Mario orchestrate the task graph, have Luigi implement, Mario perform an independent review, run browser acceptance, organize formal deliverables by contributor, and close the project with traceable evidence.
-
-<div align="center">
-  <a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4">
-    <img src="docs/assets/demo/agent-task-hub-e2e-preview.gif" alt="Agent Task Hub end-to-end walkthrough covering project setup, work creation, task orchestration, agent collaboration, role-based deliverables, and completion" width="860" />
-  </a>
-  <p><sub>Click the preview for the full-resolution MP4 · Real desktop UI · Local paths redacted</sub></p>
-</div>
 
 ---
 
