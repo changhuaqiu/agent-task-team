@@ -83,13 +83,18 @@ describe('ProjectWorkItemsWorkspace', () => {
     });
     render(<ProjectWorkItemsWorkspace project={project} conversations={conversations} tasks={[
       { ...task('legacy-a', project.workspaceConversationId, '2026-08-31T00:01:00.000Z'), title: 'Legacy A' },
-      { ...task('legacy-b', project.workspaceConversationId, '2026-08-31T00:02:00.000Z'), title: 'Legacy B' },
+      {
+        ...task('legacy-b', project.workspaceConversationId, '2026-08-31T00:02:00.000Z'),
+        title: 'Legacy B',
+        dependencies: ['legacy-a'],
+      },
     ]} onCreate={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: /Legacy A/ }));
     expect(screen.getByRole('region', { name: 'Legacy A 工作项详情' })).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: /Legacy B/ }));
     expect(screen.getByRole('region', { name: 'Legacy B 工作项详情' })).toBeDefined();
+    expect(screen.getByText('等待：Legacy A')).toBeDefined();
     expect(useTaskHubStore.getState().selectedConversationId).toBe(project.workspaceConversationId);
   });
 

@@ -97,6 +97,7 @@ describe('PlatformEventRuntimeWorker', () => {
     }), expect.objectContaining({
       id: 'task-graph-outcome-process-manager:v3',
       pattern: 'agent.outcome.accepted',
+      supersedes: ['task-graph-outcome-process-manager:v1', 'task-graph-outcome-process-manager:v2'],
     }), expect.objectContaining({
       id: 'task-graph-scheduler-process-manager:v1',
       pattern: 'task.done',

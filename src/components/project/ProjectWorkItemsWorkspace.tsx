@@ -69,7 +69,7 @@ export function ProjectWorkItemsWorkspace({ project, conversations, tasks, prefe
     {selected && <section className="flex min-w-0 flex-1 flex-col bg-[hsl(var(--bg-card))]" aria-label={`${selected.title} 工作项详情`}>
       <header className="shrink-0 border-b border-[hsl(var(--border-subtle))] px-5 pt-4"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex items-center gap-2"><WorkStatusIcon status={selected.status} /><h3 className="truncate text-base font-semibold">{selected.title}</h3>{selected.legacy && <span className="rounded bg-[hsl(var(--bg-muted))] px-1.5 py-0.5 text-[9px] text-[hsl(var(--text-tertiary))]">旧项目数据</span>}</div><p className="mt-1.5 line-clamp-2 text-xs leading-5 text-[hsl(var(--text-tertiary))]">{selected.description || '暂无补充说明'}</p></div><span className="shrink-0 rounded-full bg-[hsl(var(--bg-muted))] px-2 py-1 text-[10px]">{CATEGORY[selected.category]}</span></div><nav className="mt-4 flex items-center gap-5 overflow-x-auto" aria-label="工作项视图">{([['summary', '详情'], ['activity', '活动'], ['artifacts', '交付件']] as Array<[DetailTab, string]>).map(([id, label]) => <button key={id} type="button" onClick={() => select(selected, id)} className={cn('shrink-0 border-b-2 pb-3 text-xs', detailTab === id ? 'border-[hsl(var(--text-primary))] font-medium' : 'border-transparent text-[hsl(var(--text-tertiary))]')}>{label}</button>)}</nav></header>
       <A2APossessionStrip conversationId={selected.conversationId} />
-      {detailTab === 'summary' && <WorkItemSummary item={selected} agents={agentById} />}
+      {detailTab === 'summary' && <WorkItemSummary item={selected} allTasks={tasks} agents={agentById} />}
       {detailTab === 'activity' && <div className="min-h-0 flex-1"><GlobalChatRoom variant="embedded" /></div>}
       {detailTab === 'artifacts' && <ProjectArtifactSurface
         project={project}
@@ -85,8 +85,12 @@ function workItemKey(item: Pick<ProjectWorkItem, 'conversationId' | 'id'>): stri
   return `${item.conversationId}\u0000${item.id}`;
 }
 
-function WorkItemSummary({ item, agents }: { item: ProjectWorkItem; agents: Map<string, { name: string; emoji: string }> }) {
-  const taskById = new Map(item.tasks.map((task) => [task.id, task]));
+function WorkItemSummary({ item, allTasks, agents }: {
+  item: ProjectWorkItem;
+  allTasks: Task[];
+  agents: Map<string, { name: string; emoji: string }>;
+}) {
+  const taskById = new Map(allTasks.map((task) => [task.id, task]));
   const strandedAssignedTasks = item.tasks.filter((task) => task.status === 'proposed' && Boolean(task.agentId));
   return <div className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-app))] p-5">
     <div className="mx-auto max-w-4xl space-y-4">
@@ -111,10 +115,13 @@ function WorkItemSummary({ item, agents }: { item: ProjectWorkItem; agents: Map<
           ? <p className="px-5 py-6 text-xs text-[hsl(var(--text-tertiary))]">工作项已接收，Agent 正在生成执行计划。</p>
            : <div className="divide-y divide-[hsl(var(--border-subtle))]">{item.tasks.map((task) => {
                const agent = agents.get(task.agentId);
-               const dependencies = task.dependencies
-                 .map((dependencyId) => taskById.get(dependencyId))
-                 .filter((dependency): dependency is Task => Boolean(dependency));
-               const unresolvedDependencies = dependencies.filter((dependency) => dependency.status !== 'done');
+               const dependencies = task.dependencies.map((dependencyId) => ({
+                 id: dependencyId,
+                 task: taskById.get(dependencyId),
+               }));
+               const unresolvedDependencies = dependencies.filter(({ task: dependency }) => (
+                 !dependency || dependency.status !== 'done'
+               ));
                return <div key={task.id} className="flex items-center gap-3 px-5 py-3">
                  <WorkStatusIcon status={task.status} />
                  <span className="min-w-0 flex-1">
@@ -122,7 +129,7 @@ function WorkItemSummary({ item, agents }: { item: ProjectWorkItem; agents: Map<
                    <span className="mt-1 block truncate text-[10px] text-[hsl(var(--text-tertiary))]">{task.description || (task.id === item.rootTask?.id ? '工作项目标' : '执行拆解')}</span>
                    {dependencies.length > 0 && <span className="mt-1 block truncate text-[10px] text-[hsl(var(--text-secondary))]">
                      {unresolvedDependencies.length > 0
-                       ? `等待：${unresolvedDependencies.map((dependency) => dependency.title).join('、')}`
+                       ? `等待：${unresolvedDependencies.map(({ id, task: dependency }) => dependency?.title ?? id).join('、')}`
                        : '依赖已满足'}
                    </span>}
                  </span>

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, getDb, resetDb, setTestDb } from '../db';
 import { PlatformEventLog } from '../platform-events/event-log';
+import { PlatformEventDispatcher } from '../platform-events/dispatcher';
 import { AutonomousDeliveryRepository } from '../autonomous-delivery/repository';
 import { WorkContractRepository } from '../work-contract/repository';
 import type { AgentOutcome } from '../work-contract/types';
@@ -282,10 +283,29 @@ describe('TaskGraphOutcomeProcessManager', () => {
       occurredAt: NOW.toISOString(),
     };
     expect(contracts.admitOutcome(outcome)).toMatchObject({ status: 'accepted' });
-    const acceptedEvent = new PlatformEventLog({ db: getDb() })
+    const eventLog = new PlatformEventLog({ db: getDb() });
+    const acceptedEvent = eventLog
       .listStream(`work:${contract.workId}`)
       .find((candidate) => candidate.type === 'agent.outcome.accepted')!;
     const manager = new TaskGraphOutcomeProcessManager();
+
+    const previousDispatcher = new PlatformEventDispatcher({ db: getDb(), eventLog });
+    previousDispatcher.register({
+      id: 'task-graph-outcome-process-manager:v2',
+      pattern: 'agent.outcome.accepted',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      handle: () => undefined,
+    });
+    expect(previousDispatcher.recover().enqueued).toBe(1);
+    expect(await previousDispatcher.drain()).toMatchObject({ succeeded: 1 });
+    const orphanEvent = eventLog.append({
+      type: 'agent.outcome.accepted', category: 'domain', projectId: 'project-task-graph',
+      streamKey: 'work:orphan-historical-outcome',
+      aggregate: { type: 'agent_outcome', id: 'missing-historical-outcome' },
+      actor: { type: 'system', id: 'test' }, correlationId: 'trace-orphan', payload: {},
+    });
+    expect(previousDispatcher.discover()).toBe(1);
 
     // Recreate the valid persisted shape produced by the pre-fix owner: the
     // child was created as proposed and never activated. Current DB guards do
@@ -293,9 +313,28 @@ describe('TaskGraphOutcomeProcessManager', () => {
     // that transition trigger.
     getDb().exec('DROP TRIGGER trg_task_transition_update');
     getDb().prepare("UPDATE task SET status='proposed' WHERE id='task-reconcile-child'").run();
-    await manager.handle(acceptedEvent, { signal: new AbortController().signal });
-    await manager.handle(acceptedEvent, { signal: new AbortController().signal });
+    const replacementDispatcher = new PlatformEventDispatcher({ db: getDb(), eventLog });
+    replacementDispatcher.register({
+      id: 'task-graph-outcome-process-manager:v3',
+      supersedes: ['task-graph-outcome-process-manager:v1', 'task-graph-outcome-process-manager:v2'],
+      pattern: 'agent.outcome.accepted',
+      stereotype: 'process_manager',
+      reliability: 'durable',
+      handle: manager.handle,
+    });
+    expect(replacementDispatcher.recover()).toMatchObject({ enqueued: 2 });
+    expect(await replacementDispatcher.drain()).toMatchObject({ succeeded: 2, failed: 0 });
     expect(taskRepo.getById('task-reconcile-child')).toMatchObject({ status: 'ready' });
+    expect(getDb().prepare('SELECT COUNT(*) count FROM agent_inbox_item').get()).toEqual({ count: 1 });
+    expect(getDb().prepare(`
+      SELECT status,last_error FROM platform_event_delivery
+      WHERE handler_id='task-graph-outcome-process-manager:v2' AND event_id=?
+    `).get(orphanEvent.eventId)).toEqual({
+      status: 'dead_letter',
+      last_error: 'handler_superseded_by:task-graph-outcome-process-manager:v3',
+    });
+    expect(replacementDispatcher.recover()).toMatchObject({ enqueued: 0 });
+    expect(await replacementDispatcher.drain()).toMatchObject({ succeeded: 0, failed: 0 });
     expect(getDb().prepare('SELECT COUNT(*) count FROM agent_inbox_item').get()).toEqual({ count: 1 });
 
     taskGraphRepo.commit({
