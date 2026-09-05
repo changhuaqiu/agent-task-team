@@ -1,19 +1,22 @@
 <div align="center">
+  <sub><a href="./README.en.md">English</a> · <b>简体中文</b></sub>
   <h1>Agent Task Hub</h1>
   <h3>面向软件交付的 Agent OS</h3>
+  <p><strong>把 Claude、Codex、OpenCode 组织成一支能持续工作的 Agent 团队。</strong></p>
+  <p>一次说清目标和验收，团队持续推进，直到有证据地交付。</p>
+  <p><sub>Developer Preview · Desktop + Web · Local-first</sub></p>
+  <img src="docs/assets/brand/agent-task-hub-harness-habitat-hero.png" alt="四个不同职责的 Agent 在 Team Harness 中规划、架构、实现和验证一项软件交付" width="860" />
   <p>
-    <strong>让 AI 从会写代码，进化到能负责交付。</strong>
+    <a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4"><strong>▶ 观看 44 秒实机演示</strong></a>
+    · <a href="#-快速开始"><strong>快速开始</strong></a>
   </p>
-  <img src="docs/assets/brand/agent-task-hub-harness-habitat-hero.png" alt="四个不同元素的 Agent 角色在 Team Harness 环境中规划、架构、实现和验证一项软件交付" width="860" />
-  <p><sub>Team Harness 是 Agent 共同工作的环境：人定义目标，团队持续推进，系统用证据守住交付。</sub></p>
-  <p><a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4"><strong>▶ 观看 44 秒端到端实机演示</strong></a></p>
   <p>
-    <a href="#-端到端演示">演示</a> •
-    <a href="#-为什么需要-agent-task-hub">为什么需要</a> •
-    <a href="#-它是什么">它是什么</a> •
-    <a href="#-核心理念">核心理念</a> •
-    <a href="#-快速开始">快速开始</a> •
-    <a href="#-了解更多">了解更多</a>
+    <a href="#-它解决什么">为什么做</a> ·
+    <a href="#-从目标到证据">工作方式</a> ·
+    <a href="#-产品对象与层级">产品模型</a> ·
+    <a href="#-技术架构">架构</a> ·
+    <a href="#-项目状态">项目状态</a> ·
+    <a href="#-文档导航">文档</a>
   </p>
 </div>
 
@@ -21,265 +24,247 @@
 
 ## 🎬 端到端演示
 
-从连接本地项目、创建工作，到 Mario 拆解任务与统筹协作，再到 Luigi 实现、Mario 独立评审、浏览器验收和按角色归类的正式交付件，下面这段 44 秒实机演示展示了完整闭环。
+这段桌面端实机演示覆盖完整路径：接入本地项目 → 创建工作项 → Mario 统筹拆解 → Agent 按依赖执行 → 独立评审与浏览器验收 → 按角色归类交付件 → 证据化完成。
 
 <div align="center">
   <a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4">
-    <img src="docs/assets/demo/agent-task-hub-e2e-preview.gif" alt="Agent Task Hub 端到端演示：项目接入、工作创建、任务拆解、Agent 协作、角色交付和完成闭环" width="860" />
+    <img src="docs/assets/demo/agent-task-hub-e2e-preview.gif" alt="Agent Task Hub 从项目接入、任务拆解、Agent 协作到交付完成的端到端演示" width="860" />
   </a>
-  <p><sub>点击动态预览播放高清 MP4 · 真实桌面端界面 · 本地路径已脱敏</sub></p>
+  <p><sub>点击动态预览播放高清 MP4 · 真实产品界面 · 本地路径已脱敏</sub></p>
 </div>
 
 ---
 
-## 🎯 为什么需要 Agent Task Hub
+## 🎯 它解决什么
 
-今天的 Coding Agent 已经能写出很多代码，但“能写”不等于“能交付”。
+Coding Agent 已经很会写代码，真正困难的是让一项工作跨越多个步骤、多个角色和多次失败后，仍然沿着同一目标走到可验收结果。
 
-当任务跨越几十个步骤、多个角色、不同工具和数小时甚至数天时，真正的难点变成了：
+| 常见断点 | Agent Task Hub 的处理方式 |
+| --- | --- |
+| 长对话让目标和上下文逐渐漂移 | 项目知识、任务上下文和 Skill 按需装配 |
+| 多个 Agent 同时运行，但没人真正负责下一步 | 带负责人和依赖的任务图明确当前持有者 |
+| 会话、进程或工具失败后只能重新开始 | 关键事实持久化，按现场恢复、重试和对账 |
+| Agent 说“完成了”，却没有可验证结果 | 按任务与风险选择评审、测试、浏览器验收或外部回执来判定完成 |
+| 所有 Issue 和讨论混在一条聊天里 | Project 下按工作项分层，每项工作独立持有活动和交付件 |
 
-- 上下文能否始终围绕目标，而不是越跑越乱；
-- 任务和责任能否在 Agent 之间准确交接；
-- 进程、会话或工具失败后能否从原现场继续；
-- 评审、测试和验收是否真的发生，而不是由 Agent 自述完成；
-- 团队学到的知识和 Skill 能否留下，并通过评估证明下一版更好。
-
-**问题不只是缺一个更强的模型，而是缺一套让 Agent 团队可靠工作的操作系统。**
-
-模型和执行引擎像高性能 CPU，擅长理解、推理和生成，却不天然拥有内存管理、进程调度、持久状态、通信、安全边界和故障恢复。Agent Task Hub 补齐这层 Agent OS，让人不再充当多个 AI 窗口之间的人工调度器。
+**它不是多开几个聊天窗口，而是为 Agent 团队补上调度、上下文、通信、恢复和质量门。**
 
 ---
 
-## 🤖 它是什么
+## 🔁 从目标到证据
 
-Agent Task Hub 不是另一个 AI 聊天工具。
-
-它是一个**面向软件交付的 Agent OS**：把 Claude、Codex、OpenCode 等执行能力组织成一支持续工作的团队，让一次目标可以跨规划、实现、评审、验证、修复和交付不断推进。
-
-其中，**Team Harness 是 Agent OS 的执行内核**，负责驱动团队围绕目标持续循环；Agent OS 进一步管理上下文、任务、通信、能力、权限、状态、恢复、证据和团队演进。
-
-用户创建的不是“一组聊天窗口”，而是**一次交付**：说清楚目标、验收标准、工作范围和授权，系统持续推进，直到带着证据交付，或只提出一个真正需要你决定的问题。
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                                                             │
-│  你：目标 + 验收标准 + 工作范围 + 授权                         │
-│                         ↓                                   │
-│  Agent Task Hub · Software Delivery Agent OS                │
-│  ├── 内存管理：按需上下文、预算与 Skill                       │
-│  ├── 进程调度：任务图、责任持有与自主推进                      │
-│  ├── 进程通信：A2A 交接、交接包与团队日志                     │
-│  ├── 安全恢复：授权、门禁、持久状态与故障恢复                  │
-│  └── 监控演进：证据、可观测、评估与版本化能力                  │
-│                         ↓                                   │
-│  交付结果：变更 + 逐项验收证据 + 已知限制                      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  A["目标 · 验收 · 范围 · 授权"] --> B["项目中的工作项"]
+  B --> C["任务拆解与依赖"]
+  C --> D["Agent 执行与交接"]
+  D --> E["评审 · 测试 · 浏览器验收"]
+  E -->|通过| F["交付件 · 证据 · 已知限制"]
+  E -->|不通过| C
 ```
 
----
-
-## 💡 核心理念
-
-### 1. Agent 需要的不是更多容器，而是一套操作系统
-
-> 多个 Agent 同时运行，不等于一支可靠的团队。
-
-Task Graph 和 Dispatch 对应进程调度，分层上下文对应内存管理，项目工作区和持久事实对应文件系统，A2A 对应进程间通信，授权、门禁与恢复对应操作系统的安全和容错。Agent Task Hub 管理的不是几个聊天角色，而是 Agent 团队的完整运行环境。
-
-### 2. 从对话完成，转向目标交付
-
-> 聊天是入口，交付才是终点。
-
-目标、验收、任务、交接、评审、测试和外部结果共同组成一次交付。Agent 的一轮回复结束，不代表事情已经完成。
-
-### 3. 系统工程比更长的 Prompt 更重要
-
-> 不要求模型一直记住规则，而是让系统创造不容易走错的环境。
-
-需要的信息按需出现，合法行动清晰可见，精确数据由系统传递，重要状态可恢复，危险动作受授权约束。正确路径应该是 Agent 最自然、最短的路径。
-
-### 4. 让模型做判断，让系统守住确定性
-
-> Agent 负责理解、设计和实现；系统负责状态、边界和证据。
-
-团队成员可以自由做开放式技术判断，但任务责任、数据传递、权限、幂等、恢复和完成门禁不依赖模型“自觉”。系统不设置一个拥有全部真相的 Boss Agent，而是让团队在共同事实上协作。
-
-### 5. 人做决策，不做人工调度器
-
-人拥有目标、品味、边界和最终责任；团队承担规划、实现、评审、验证和恢复。正常路径只需一次说清目标，系统只在缺少必要知识、授权不足或风险无法安全判断时请求介入。
-
-### 6. 证据高于自述，成长必须可验证
-
-没有真实评审、测试、验收和外部回执，就不能展示“交付完成”。项目规则、失败经验和 Skill 会被保存，但团队是否真的变强，要由可重复的评估和版本对比证明。
+人负责目标、品味、边界和高风险决策；系统负责让正确工作被正确角色接住，让失败能够恢复，让“完成”必须有证据。
 
 ---
 
-## ✨ 能做什么
+## 🧭 产品对象与层级
 
-| 场景 | 怎么用 |
-|------|--------|
-| **交付一个产品目标** | 写下目标与验收标准，团队持续推进到可验证结果 |
-| **改造现有代码库** | 在真实项目中分析、实现、评审、测试并收口变更 |
-| **处理长周期任务** | 跨会话、进程重启和失败修复继续工作，不依赖一段超长聊天 |
-| **优化 Agent 团队** | 比较 RoleCard、Skill、模型和上下文策略，定位提升或退化 |
-| **接入外部任务来源** | 将 GitHub Issue 等结构化目标接入同一自主交付闭环 |
+```text
+Workspace
+└── Project                         长期代码边界、团队、知识与权限
+    ├── Work Item / 工作项           一次 Issue、变更或改进
+    │   ├── Task / Subtask           可执行任务、负责人、依赖与状态
+    │   ├── Activity                 只属于这项工作的讨论和运行事实
+    │   ├── Deliverables             按贡献角色分列，再按类型归类
+    │   └── Review & Evidence        评审、测试、验收与完成证明
+    └── Project Overview             跨工作项只读汇总，不是公共群聊
+```
+
+这个层级让项目负责长期上下文，让工作项负责单次目标，让任务负责执行；Issue、Agent 回复和交付件不会再挤进同一个聊天区。
+
+---
+
+## 👥 默认团队如何协作
+
+| 角色 | 默认 Agent | 主要责任 |
+| --- | --- | --- |
+| Navigator | Mario | 理解目标、拆解任务、安排依赖、统筹收口 |
+| Architect | DK | 校验架构、数据、安全与性能边界 |
+| Builder | Luigi | 实现、调试、测试并登记变更证据 |
+| Verifier | Peach | 独立评审、端到端验收和质量结论 |
+
+团队不是靠“自觉配合”：任务责任、结构化交接、独立会话、工作目录边界、质量门和恢复策略都由系统保存和约束；显式 Git 模式还可启用 worktree 隔离。角色、模型、账号和 Skill 可以按项目配置。
+
+---
+
+## ✨ 当前能力
+
+| 能力面 | 当前仓库中的实现 |
+| --- | --- |
+| 项目与工作项 | Project / Work Item / Task 分层，项目概览与单工作活动分离 |
+| 协作与调度 | 带负责人和依赖的任务图、Agent 间结构化交接和持久工作请求 |
+| Agent 执行 | 统一 ACP 接入 OpenCode、Claude 和 Codex，本地执行链可替换 |
+| 上下文与能力 | 项目知识、角色配置、Skill、账号和任务上下文按角色装配 |
+| 交付与质量 | 交付件按角色组织；按任务与风险装配评审、测试、浏览器验收或回执门禁 |
+| 状态与恢复 | SQLite 持久事实、幂等命令、租约、重试、恢复和对账基础 |
+| 可观测与评估 | Invocation、事件、证据和评估记录可追踪，支持回归比较 |
+| 桌面开发版 | Tauri Host + 本地 Node Service，已验证 Windows release 冷启动和单实例 |
+
+### 仍在强化
+
+- Windows 安装包、签名、自动更新和跨平台发布矩阵；
+- 固定任务集上的整体完成率、路径收敛和效率基线；
+- 远端执行节点及更多外部任务来源；
+- 长周期异常恢复与端到端发布门禁。
+
+当前是**开发者预览版**，适合本地试用、研究和共同开发；尚未发布可直接下载的正式安装版本。
+
+---
+
+## ⚖️ 与常见 Coding Agent 的区别
+
+| | 常见 Coding Agent | Agent Task Hub |
+| --- | --- | --- |
+| 一等对象 | 一次对话或调用 | 一次带目标、验收和授权的交付 |
+| 协作 | 人工复制上下文或临时子 Agent | 稳定角色、带负责人和依赖的任务图、结构化交接 |
+| 状态 | 主要依赖当前会话 | 持久事实、版本、租约和恢复 |
+| 完成判断 | Agent 自述或进程结束 | 与任务风险匹配的评审、测试、验收或外部结果 |
+| 人的角色 | 持续提醒和人工调度 | 定义目标，只处理必要决策 |
+| 团队成长 | 更换 Prompt 或模型 | Skill、知识、角色配置与评估的版本闭环 |
 
 ---
 
 ## 🚀 快速开始
 
-### 从 GitHub 克隆并启动
-
-准备：
+### 环境要求
 
 - Git
-- Node.js 20.9 或更高版本
-- 至少一种可用的 Agent 执行引擎：OpenCode、Claude 或 Codex
+- Node.js 20.19+（建议使用当前 LTS）
+- pnpm 10.33.2
+- 至少一个可用的 Agent 执行端：OpenCode、Claude 或 Codex
 
-macOS、Linux 或 Git Bash：
+### 启动 Web 开发版
 
 ```bash
 git clone https://github.com/changhuaqiu/agent-task-team.git
 cd agent-task-team
-./setup.sh    # 自动安装依赖 + 构建
-pnpm start
+corepack enable
+pnpm install
+pnpm dev
 ```
 
-Windows PowerShell：
+打开 [http://localhost:3000](http://localhost:3000)。如果本机没有 Corepack，可运行 `npm install -g pnpm@10.33.2`。
 
-```powershell
-git clone https://github.com/changhuaqiu/agent-task-team.git
-cd agent-task-team
-npm install -g pnpm@10.33.2   # 已安装 pnpm 可跳过
-pnpm install
+生产构建：
+
+```bash
 pnpm build
 pnpm start
 ```
 
-本地开发可将最后两步替换为 `pnpm dev`。
+### 构建桌面开发版
 
-启动后打开 [http://localhost:3000](http://localhost:3000)，按真实使用顺序完成：
+桌面构建还需要 Rust stable、Tauri 2 对应平台依赖，以及 Windows 上的 WebView2：
+
+```bash
+pnpm desktop:build
+```
+
+Windows release 可执行文件位于 `src-tauri/target/release/agent-task-hub-desktop.exe`。当前桌面构建用于开发验收，不等同于已签名、可自动更新的正式发行版。
+
+### 第一次使用
 
 1. 在设置中连接并验证一个 OpenCode、Claude 或 Codex 账号；
-2. 创建项目，选择本地代码目录和 Agent 团队；
-3. 选择“由 Agent 团队自主交付”，填写目标、逐条验收标准和授权范围；
-4. 启动交付，查看当前阶段，只处理真正需要你决策的异常。
+2. 创建 Project，选择本地代码目录和 Agent 团队；
+3. 创建工作项，在说明中写清目标、约束和验收重点；
+4. 观察任务拆解与执行，只处理真正需要你判断的异常；
+5. 从交付件和完成证据核对最终结果。
 
 ---
 
 ## 🏗️ 技术架构
 
-如果你是开发者，可能关心这些：
-
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| 前端 | Next.js 16 + React 19 | 现代化 Web 应用 |
-| 状态 | Zustand 5 | 前端状态管理 |
-| 数据库 | SQLite | 本地持久化，零配置 |
-| 实时通信 | Socket.io | 双向 WebSocket |
-| Agent 执行 | ACP（Agent Client Protocol） | 单一 `AcpBackend` 经 stdio JSON-RPC 驱动 OpenCode（原生）/ Claude / Codex（适配器） |
-
-**统一 Agent 运行时（ACP）**：daemon 只通过一个 `AcpBackend`、用 Agent Client Protocol（stdio JSON-RPC）驱动三类运行时——OpenCode 原生 ACP、Claude / Codex 经 `@agentclientprotocol` 适配器接入。声明式 Catalog（`agentCatalog.seed.json`）是启动事实源，适配器版本锁定；daemon 不再为每个引擎写死分支或解析私有 CLI 输出。
-
-**会话级隔离**：每个项目中每个 Agent 维护独立会话，上下文不串。
-
-**队列隔离**：跨项目的任务排队互不干扰。
-
-**Skill 系统**：可复用的能力模块，从 Git 仓库导入。
-
-→ [完整架构文档](./docs/wiki/01-architecture.md)
-
----
-
-## 📸 界面预览
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Agent Task Hub                                    [+新项目] [⚙]│
-├──────────┬──────────────────────────────────────┬───────────────┤
-│          │                                      │               │
-│  📁 项目  │   🎯 目标：做一个 Todo 应用          │   📋 看板     │
-│          │   ─────────────────────────────      │               │
-│  My App  │                                      │   □ 设计 UI   │
-│  Demo    │   ⭐ Mario: 我来拆解任务...           │   □ 写代码    │
-│  学习    │   ⚡ Luigi: 已完成登录模块...          │   ■ 测试     │
-│          │   🌸 Peach: 代码审查通过...            │               │
-│          │                                      │   ⚠ 风险     │
-│          │   ─────────────────────────────      │   无          │
-│          │   [输入消息...]                       │               │
-│          │                                      │               │
-└──────────┴──────────────────────────────────────┴───────────────┘
+```mermaid
+flowchart TB
+  UI["Tauri / Web Renderer"] --> CMD["Human Command API"]
+  CMD --> CP["Platform Harness · Control Plane"]
+  CP --> DB[(SQLite · Durable Facts)]
+  CP --> CTX["Context · Task · Policy · Gate"]
+  CP --> RT["Agent Runtime · ACP"]
+  RT --> ENGINES["OpenCode · Claude · Codex"]
+  RT --> PROOF["Events · Artifacts · Evidence"]
+  PROOF --> CP
+  CP --> UI
 ```
 
----
+| 层 | 主要技术 | 职责 |
+| --- | --- | --- |
+| 体验层 | Next.js 16、React 19、Tauri 2 | 项目工作台、桌面 Host、只读运行投影 |
+| 控制层 | Next.js API、Platform Harness | 命令、任务权威、分派、策略、质量门和恢复 |
+| 执行层 | ACP、Socket.io、CLI 进程 | 启动 Agent、流式事件、工具调用和生命周期 |
+| 数据层 | SQLite、Repository、Event/Proof | 持久状态、幂等、审计、交付件和评估证据 |
 
-## 🌟 为什么选择 Agent Task Hub
+### 仓库地图
 
-| 对比 | 传统 AI 工具 | Agent Task Hub |
-|------|-------------|----------------|
-| **一等对象** | 一次对话或调用 | 一次有目标和验收的交付 |
-| **上下文** | 依赖长聊天记忆 | 分层、按需、受预算约束的项目上下文 |
-| **协作** | 人工复制信息或临时子 Agent | 任务图、责任持有、结构化交接 |
-| **失败处理** | 重新提示、重新运行 | 持久状态、有限重试、从原现场恢复 |
-| **完成判断** | Agent 自述完成 | 评审、测试、验收和外部回执共同证明 |
-| **能力演进** | 更换 Prompt 或模型 | Skill、RoleCard、知识和评估的版本闭环 |
+| 路径 | 内容 |
+| --- | --- |
+| `src/app/`、`src/components/` | Web / Desktop 共用 Renderer |
+| `src/server/` | 控制面、执行编排、持久化和领域服务 |
+| `src/lib/team-runtime/` | 团队、角色、模型、账号和 Skill 解析 |
+| `src-tauri/` | 桌面 Host 与本地 Service 打包 |
+| `e2e/` | Playwright 端到端验证 |
+| `specs/` | 当前仍有效的实现契约 |
+| `docs/` | 产品、技术、评估、知识与历史文档 |
 
----
-
-## 🗺️ 路线图
-
-- ✅ 项目工作台 UI
-- ✅ Task Graph 与多 Agent 协作
-- ✅ 会话级隔离
-- ✅ SQLite 持久化
-- ✅ Skill 系统
-- ✅ 智能任务分发
-- 🚧 A2A 责任持有与交接 — 责任连续、交接包与控制面接线
-- 🚧 Agent 可观测 — 调用、上下文、工具与协作链追踪和下钻
-- 🚧 统一 ACP 运行时 — OpenCode / Claude / Codex 收敛到同一执行端口
-- 🚧 上下文管理 — 分层注入、项目隔离、渐进加载与预算门禁
-- 🚧 系统控制面 — dispatch、policy、proof、health 与跨实例恢复
-- 🚧 自主交付闭环 — 一次 GoalContract 推进到 DeliveryBundle
-- 🚧 Agent 评估系统 — 可执行回归集、版本实验与证据下钻
-- 🚧 GitHub Issue 接入 — 外部目标复用同一交付闭环
+→ [阅读完整架构](./docs/wiki/01-architecture.md)
 
 ---
 
-## 📚 文档
+## ✅ 验证
 
-| 文档 | 说明 |
-|------|------|
-| [产品愿景](./docs/product/vision.md) | 为什么做这个项目 |
-| [产品故事](./docs/product/STORY.md) | 优化给用户带来的真实变化与验证证据 |
-| [架构设计](./docs/wiki/01-architecture.md) | 技术架构详解 |
-| [开发规范](./docs/sop.md) | 如何参与贡献 |
-| [Agent 指南](./AGENTS.md) | Agent 工作约束 |
-| [路线图](./docs/roadmap.md) | 阶段目标 |
-| [完整文档](./docs/README.md) | 文档导航 |
+```bash
+pnpm lint
+pnpm test
+pnpm build
+pnpm e2e
+```
+
+仓库将测试、真实浏览器验收、评审回执和运行证据区分开，并按任务与风险选用：构建通过只证明可构建，不等于用户目标已经完成。
+
+---
+
+## 🗺️ 项目状态
+
+Agent Task Hub 正在从本地多 Agent 工作台收敛为完整的软件交付 Agent OS。当前开发重点以活动规格为准，README 只保留稳定定位和已验证能力，避免把目标状态写成已经完成。
+
+- [当前路线图](./docs/roadmap.md)
+- [活动规格](./specs/README.md)
+- [真实产品变化与证据](./docs/product/STORY.md)
+
+---
+
+## 📚 文档导航
+
+| 文档 | 适合了解什么 |
+| --- | --- |
+| [产品愿景](./docs/product/vision.md) | 为什么需要软件交付 Agent OS |
+| [产品故事](./docs/product/STORY.md) | 用户问题、可感知变化与验证证据 |
+| [整体架构](./docs/wiki/01-architecture.md) | 当前系统分层、数据流与执行链 |
+| [Platform Harness](./docs/technical/execution/platform-harness-state-machine-design.md) | 自主推进、状态机和控制边界 |
+| [桌面 Host](./docs/technical/execution/desktop-host-target-architecture.md) | Tauri、Service、生命周期与发布边界 |
+| [Agent 评估](./docs/technical/evaluation/README.md) | 完成率、路径和效率如何评测 |
+| [开发规范](./docs/sop.md) | 开发与贡献流程 |
+| [完整文档索引](./docs/README.md) | 全部产品、技术、规格和知识资料 |
 
 ---
 
 ## 🤝 参与贡献
 
-我们欢迎任何形式的贡献：
-
-- 🐛 报告 Bug
-- 💡 提出新功能
-- 📖 完善文档
-- 🔧 提交代码
-
----
-
-## 📄 开源协议
-
-MIT License
+欢迎提交 Bug、产品建议、文档和代码。开始前请阅读 [Agent / Contributor 约束](./AGENTS.md)，并为变更附上可复核的验证证据。
 
 ---
 
 <div align="center">
-  <h3>「一次说清目标，直到有证据地交付。」</h3>
-  <p>
-    <sub>让 AI 从会写代码，进化到能负责交付。</sub>
-  </p>
+  <h3>一次说清目标，直到有证据地交付。</h3>
+  <p><sub>From goal to evidence.</sub></p>
 </div>

@@ -1,20 +1,22 @@
 <div align="center">
-  <sub><b>English</b> | <a href="./README.md">简体中文</a></sub>
+  <sub><b>English</b> · <a href="./README.md">简体中文</a></sub>
   <h1>Agent Task Hub</h1>
   <h3>An Agent OS for software delivery</h3>
+  <p><strong>Organize Claude, Codex, and OpenCode into an agent team that keeps working.</strong></p>
+  <p>Define the goal and acceptance once. Let the team continue until it delivers evidence.</p>
+  <p><sub>Developer Preview · Desktop + Web · Local-first</sub></p>
+  <img src="docs/assets/brand/agent-task-hub-harness-habitat-hero.png" alt="Four specialized agents plan, architect, build, and verify a software delivery inside Team Harness" width="860" />
   <p>
-    <strong>Move AI from writing code to taking responsibility for delivery.</strong>
+    <a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4"><strong>▶ Watch the 44-second desktop demo</strong></a>
+    · <a href="#-quick-start"><strong>Quick start</strong></a>
   </p>
-  <img src="docs/assets/brand/agent-task-hub-harness-habitat-hero.png" alt="Four elemental Agent roles plan, architect, build, and verify a software delivery inside the Team Harness environment" width="860" />
-  <p><sub>Team Harness is the environment where Agents work together: you define the goal, the team keeps moving, and the system protects delivery with evidence.</sub></p>
-  <p><a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4"><strong>▶ Watch the 44-second end-to-end desktop demo</strong></a></p>
   <p>
-    <a href="#-end-to-end-demo">Demo</a> •
-    <a href="#-why-agent-task-hub">Why</a> •
-    <a href="#-what-it-is">What it is</a> •
-    <a href="#-core-philosophy">Philosophy</a> •
-    <a href="#-quick-start">Quick start</a> •
-    <a href="#-docs">Docs</a>
+    <a href="#-the-problem">Why</a> ·
+    <a href="#-from-goal-to-evidence">How it works</a> ·
+    <a href="#-product-model">Product model</a> ·
+    <a href="#-architecture">Architecture</a> ·
+    <a href="#-project-status">Status</a> ·
+    <a href="#-documentation">Docs</a>
   </p>
 </div>
 
@@ -22,248 +24,247 @@
 
 ## 🎬 End-to-end demo
 
-This 44-second desktop walkthrough follows the full path: connect a local project, create a work item, let Mario orchestrate the task graph, have Luigi implement, Mario perform an independent review, run browser acceptance, organize formal deliverables by contributor, and close the project with traceable evidence.
+This desktop walkthrough covers the full path: connect a local project → create a work item → let Mario orchestrate the breakdown → execute along task dependencies → run independent review and browser acceptance → organize deliverables by contributor → close with evidence.
 
 <div align="center">
   <a href="./docs/assets/demo/agent-task-hub-e2e-walkthrough.mp4">
-    <img src="docs/assets/demo/agent-task-hub-e2e-preview.gif" alt="Agent Task Hub end-to-end walkthrough covering project setup, work creation, task orchestration, agent collaboration, role-based deliverables, and completion" width="860" />
+    <img src="docs/assets/demo/agent-task-hub-e2e-preview.gif" alt="Agent Task Hub end-to-end demo from project setup and task orchestration to evidence-backed completion" width="860" />
   </a>
-  <p><sub>Click the animated preview for the full-resolution MP4 · Real desktop UI · Local paths redacted</sub></p>
+  <p><sub>Click the animated preview for the full-resolution MP4 · Real product UI · Local paths redacted</sub></p>
 </div>
 
 ---
 
-## 🎯 Why Agent Task Hub
+## 🎯 The problem
 
-Today's coding agents can produce a lot of code. But writing code is not the same as delivering a result.
+Coding agents are already good at producing code. The harder problem is keeping multi-step, multi-role work aligned with one goal across failures until the result is actually verifiable.
 
-Once work spans dozens of steps, multiple roles, several tools, and hours or days, the hard questions change:
+| Common failure | Agent Task Hub's response |
+| --- | --- |
+| Goals and context drift inside long chats | Assemble project knowledge, task context, and Skills on demand |
+| Several agents run, but nobody owns the next step | Use a task graph with owners and dependencies to make possession explicit |
+| A session, process, or tool fails and work starts over | Persist critical facts, recover from the original workspace, retry, and reconcile |
+| An agent says “done” without a verifiable result | Apply review, tests, browser acceptance, or external receipts according to task risk |
+| Every issue and discussion lands in one chat | Layer work items under a Project, each with its own activity and deliverables |
 
-- Does context stay focused on the goal instead of degrading over time?
-- Can responsibility and critical facts move cleanly between agents?
-- Can work resume after a process, session, or tool failure?
-- Did review, testing, and acceptance actually happen, or did an agent merely say they did?
-- Can the team retain skills and lessons, then prove the next version is better?
-
-**The missing piece is not only a stronger model. It is an operating system in which an agent team can work reliably.**
-
-Models and execution engines resemble high-performance CPUs: strong at reasoning and generation, but without native memory management, scheduling, durable state, communication, security boundaries, or recovery. Agent Task Hub supplies that Agent OS layer.
+**This is not a UI with more chat windows. It is scheduling, context, communication, recovery, and quality control for an agent team.**
 
 ---
 
-## 🤖 What it is
+## 🔁 From goal to evidence
 
-Agent Task Hub is not another AI chat tool.
-
-It is an **Agent OS for software delivery**. It organizes Claude, Codex, OpenCode, and other execution capabilities into a team that can keep moving through planning, implementation, review, verification, repair, and delivery.
-
-The **Team Harness is the execution kernel** of this Agent OS. It drives the team's continuous loop, while the wider OS manages context, tasks, communication, capabilities, authorization, durable state, recovery, evidence, and evolution.
-
-You do not create a collection of chat windows. You create **a delivery**: define the goal, acceptance criteria, scope, and authorization; the system keeps going until it returns evidence-backed results or asks one question that truly requires your judgment.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                                                             │
-│  You: goal + acceptance criteria + scope + authorization    │
-│                         ↓                                   │
-│  Agent Task Hub · Software Delivery Agent OS                │
-│  ├── Memory: relevant context, budgets, and Skills          │
-│  ├── Scheduling: task graph, ownership, autonomous progress │
-│  ├── IPC: A2A handoffs, packets, and team logs              │
-│  ├── Safety: authorization, gates, durable state, recovery  │
-│  └── Evolution: evidence, observability, evals, versions    │
-│                         ↓                                   │
-│  Delivery: changes + criterion-level evidence + limitations │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  A["Goal · Acceptance · Scope · Authorization"] --> B["Work item inside a project"]
+  B --> C["Task breakdown and dependencies"]
+  C --> D["Agent execution and handoff"]
+  D --> E["Review · Tests · Browser acceptance"]
+  E -->|Pass| F["Deliverables · Evidence · Limitations"]
+  E -->|Fail| C
 ```
 
----
-
-## 💡 Core philosophy
-
-### 1. Agents need an operating system, not more containers
-
-> Multiple agents running at once do not automatically form a reliable team.
-
-Task Graph and Dispatch provide scheduling; layered context provides memory management; project workspaces and durable facts provide a filesystem; A2A provides inter-process communication; authorization, gates, and recovery provide safety and fault tolerance.
-
-### 2. Move from completed chats to completed goals
-
-> Chat is the entry point. Delivery is the outcome.
-
-Goals, acceptance criteria, tasks, handoffs, reviews, tests, and external outcomes form a delivery. One finished agent turn does not mean the work is finished.
-
-### 3. Systems engineering matters more than a longer prompt
-
-> Do not rely on the model to remember every rule. Build an environment where mistakes are harder to make.
-
-Relevant information appears on demand, legal actions are clear, exact data moves through the system, important state survives failures, and risky actions respect authorization.
-
-### 4. Let models judge; let the system preserve certainty
-
-> Agents handle understanding, design, and implementation. The system handles state, boundaries, and proof.
-
-Agents remain free to make open-ended technical decisions. Ownership, exact data transfer, authorization, idempotency, recovery, and completion gates do not depend on model compliance or a single boss agent.
-
-### 5. Humans make decisions, not scheduling glue
-
-Humans own goals, taste, boundaries, and final responsibility. The team handles planning, implementation, review, verification, and recovery. The system asks for help only when knowledge, authorization, or safe judgment is genuinely missing.
-
-### 6. Evidence outranks self-report; improvement must be measurable
-
-Without real review, testing, acceptance, and external receipts, the product cannot claim delivery is complete. Rules, lessons, and Skills can persist, but evaluation and version comparison must prove whether the team actually improved.
+Humans own the goal, taste, boundaries, and high-risk decisions. The system makes sure the right role receives the right work, failures can recover, and completion requires evidence.
 
 ---
 
-## ✨ What you can do
+## 🧭 Product model
 
-| Scenario | How |
-|----------|-----|
-| **Deliver a product goal** | Define the goal and acceptance criteria; the team advances to a verifiable result |
-| **Change an existing codebase** | Analyze, implement, review, test, and close out changes in a real project |
-| **Run long-lived work** | Continue across sessions, restarts, and repair cycles instead of relying on one long chat |
-| **Improve an agent team** | Compare RoleCards, Skills, models, and context policies to find gains or regressions |
-| **Connect external task sources** | Feed structured goals such as GitHub Issues into the same delivery loop |
+```text
+Workspace
+└── Project                         Long-lived code boundary, team, knowledge, permissions
+    ├── Work Item                   One issue, change, or improvement
+    │   ├── Task / Subtask          Executable work, owner, dependencies, status
+    │   ├── Activity                Discussion and runtime facts for this work only
+    │   ├── Deliverables            Columns by contributor, then grouped by type
+    │   └── Review & Evidence       Review, tests, acceptance, completion proof
+    └── Project Overview            Read-only cross-work summary, not a global chat
+```
+
+The Project owns durable context, a Work Item owns one outcome, and Tasks own execution. Issues, agent replies, and artifacts do not collapse into one shared conversation.
+
+---
+
+## 👥 How the default team collaborates
+
+| Role | Default agent | Primary responsibility |
+| --- | --- | --- |
+| Navigator | Mario | Understand the goal, break down work, order dependencies, close the loop |
+| Architect | DK | Check architecture, data, security, and performance boundaries |
+| Builder | Luigi | Implement, debug, test, and register change evidence |
+| Verifier | Peach | Perform independent review, end-to-end acceptance, and quality decisions |
+
+Collaboration does not depend on agents remembering to cooperate. The system persists and constrains ownership, structured handoffs, isolated sessions, work-directory boundaries, quality gates, and recovery policy; explicit Git mode can additionally enable worktree isolation. Roles, models, accounts, and Skills are configurable per project.
+
+---
+
+## ✨ Current capabilities
+
+| Capability area | What exists in this repository |
+| --- | --- |
+| Projects and work | Project / Work Item / Task hierarchy with separate overview and per-work activity |
+| Collaboration and scheduling | Task graphs with owners and dependencies, structured agent handoffs, and durable work requests |
+| Agent execution | One ACP path for OpenCode, Claude, and Codex with replaceable local execution |
+| Context and capabilities | Project knowledge, role configuration, Skills, accounts, and task context assembled per role |
+| Delivery and quality | Contributor-first artifacts; review, tests, browser acceptance, or receipt gates selected by task risk |
+| State and recovery | SQLite durable facts, idempotent commands, leases, and foundations for retries, recovery, and reconciliation |
+| Observability and evaluation | Traceable invocations, events, evidence, and evaluation records for regression comparison |
+| Desktop development host | Tauri Host + local Node Service with verified Windows release cold start and single instance |
+
+### Still being hardened
+
+- Windows installers, signing, automatic updates, and the cross-platform release matrix;
+- overall completion-rate, path-convergence, and efficiency baselines on a fixed task suite;
+- remote execution nodes and more external work sources;
+- long-running failure recovery and end-to-end release gates.
+
+Agent Task Hub is currently a **developer preview** for local trials, research, and collaboration. There is no downloadable production release yet.
+
+---
+
+## ⚖️ How it differs from a typical coding agent
+
+| | Typical coding agent | Agent Task Hub |
+| --- | --- | --- |
+| Primary object | A chat or invocation | A delivery with a goal, acceptance, and authorization |
+| Collaboration | Manual context copy or temporary subagents | Stable roles, task graphs with owners and dependencies, structured handoffs |
+| State | Mostly the current session | Durable facts, revisions, leases, and recovery |
+| Completion | Agent self-report or process exit | Review, tests, acceptance, or external outcomes matched to task risk |
+| Human role | Continuous reminders and manual scheduling | Define the goal; handle only necessary decisions |
+| Improvement | Change the prompt or model | Versioned Skills, knowledge, role configuration, and evaluations |
 
 ---
 
 ## 🚀 Quick start
 
-### Prerequisites
+### Requirements
 
-- **Git**
-- **Node.js 20.9+**
-- **At least one agent runtime**: OpenCode, Claude, or Codex
+- Git
+- Node.js 20.19+ (use a current LTS release)
+- pnpm 10.33.2
+- At least one available agent engine: OpenCode, Claude, or Codex
 
-### Clone from GitHub and start
-
-macOS, Linux, or Git Bash:
+### Run the web development build
 
 ```bash
 git clone https://github.com/changhuaqiu/agent-task-team.git
 cd agent-task-team
-./setup.sh    # install dependencies + build
-pnpm start
+corepack enable
+pnpm install
+pnpm dev
 ```
 
-Windows PowerShell:
+Open [http://localhost:3000](http://localhost:3000). If Corepack is unavailable, run `npm install -g pnpm@10.33.2`.
 
-```powershell
-git clone https://github.com/changhuaqiu/agent-task-team.git
-cd agent-task-team
-npm install -g pnpm@10.33.2   # skip if pnpm is already installed
-pnpm install
+Production build:
+
+```bash
 pnpm build
 pnpm start
 ```
 
-For local development, replace the final two commands with `pnpm dev`.
+### Build the desktop development app
 
-Open [http://localhost:3000](http://localhost:3000), then follow the actual first-use flow:
+Desktop builds additionally require Rust stable, the Tauri 2 platform dependencies, and WebView2 on Windows:
+
+```bash
+pnpm desktop:build
+```
+
+On Windows, the release executable is written to `src-tauri/target/release/agent-task-hub-desktop.exe`. This is a development acceptance build, not a signed production distribution with automatic updates.
+
+### First run
 
 1. Connect and verify an OpenCode, Claude, or Codex account in Settings.
-2. Create a project and select the local code directory and agent team.
-3. Choose autonomous team delivery and enter the goal, criterion-level acceptance checks, and authorization.
-4. Start the delivery, follow its stage, and handle only exceptions that require your decision.
+2. Create a Project and select the local code directory and agent team.
+3. Create a Work Item and describe the goal, constraints, and acceptance focus in its description.
+4. Follow task orchestration and execution; handle only exceptions that require your judgment.
+5. Verify the final result through deliverables and completion evidence.
+
 ---
 
 ## 🏗️ Architecture
 
-If you're a developer, you may care about these:
+```mermaid
+flowchart TB
+  UI["Tauri / Web Renderer"] --> CMD["Human Command API"]
+  CMD --> CP["Platform Harness · Control Plane"]
+  CP --> DB[(SQLite · Durable Facts)]
+  CP --> CTX["Context · Task · Policy · Gate"]
+  CP --> RT["Agent Runtime · ACP"]
+  RT --> ENGINES["OpenCode · Claude · Codex"]
+  RT --> PROOF["Events · Artifacts · Evidence"]
+  PROOF --> CP
+  CP --> UI
+```
 
-| Layer | Tech | Notes |
-|-------|------|-------|
-| Frontend | Next.js 16 + React 19 | Modern web app |
-| State | Zustand 5 | Frontend state management |
-| Database | SQLite | Local persistence, zero config |
-| Realtime | Socket.io | Bidirectional WebSocket |
-| Agent runtime | ACP (Agent Client Protocol) | A single `AcpBackend` drives OpenCode (native) / Claude / Codex (adapters) over stdio JSON-RPC |
+| Layer | Main technology | Responsibility |
+| --- | --- | --- |
+| Experience | Next.js 16, React 19, Tauri 2 | Project workspace, desktop host, read-only runtime projections |
+| Control | Next.js API, Platform Harness | Commands, Task authority, dispatch, policy, gates, recovery |
+| Execution | ACP, Socket.io, CLI processes | Start agents, stream events, run tools, report lifecycle |
+| Data | SQLite, repositories, event/proof records | Durable state, idempotency, audit, artifacts, evaluation evidence |
 
-**Unified agent runtime (ACP)**: the daemon drives three runtime classes through one `AcpBackend` over the Agent Client Protocol (stdio JSON-RPC) — OpenCode native ACP, Claude / Codex via `@agentclientprotocol` adapters. A declarative catalog (`agentCatalog.seed.json`) is the startup source of truth with adapter versions pinned; the daemon no longer hardcodes per-engine branches or parses private CLI output.
+### Repository map
 
-**Session-level isolation**: each agent keeps an independent session per project — contexts never bleed.
+| Path | Contents |
+| --- | --- |
+| `src/app/`, `src/components/` | Renderer shared by web and desktop |
+| `src/server/` | Control plane, execution orchestration, persistence, domain services |
+| `src/lib/team-runtime/` | Team, role, model, account, and Skill resolution |
+| `src-tauri/` | Desktop Host and local Service packaging |
+| `e2e/` | Playwright end-to-end verification |
+| `specs/` | Active implementation contracts |
+| `docs/` | Product, technical, evaluation, knowledge, and historical documentation |
 
-**Queue isolation**: task queues across projects don't interfere with each other.
-
-**Skill system**: reusable capability modules imported from Git repositories.
-
-→ [Full architecture docs](./docs/wiki/01-architecture.md)
-
----
-
-## 🌟 Why Agent Task Hub
-
-| Aspect | Traditional AI tools | Agent Task Hub |
-|--------|----------------------|----------------|
-| **Primary object** | A chat or invocation | A delivery with goals and acceptance criteria |
-| **Context** | Long-chat memory | Layered, relevant, budgeted project context |
-| **Collaboration** | Manual copy/paste or temporary subagents | Task graph, ownership, structured handoffs |
-| **Failure handling** | Prompt again and rerun | Durable state, bounded retries, resume from the original workspace |
-| **Completion** | Agent self-report | Review, tests, acceptance evidence, and external receipts |
-| **Evolution** | Change the prompt or model | Versioned Skills, RoleCards, knowledge, and evaluations |
-
----
-
-## 🗺️ Roadmap
-
-**Delivered**
-
-- ✅ Project workspace UI
-- ✅ Task Graph and multi-agent collaboration
-- ✅ Session-level isolation
-- ✅ SQLite persistence
-- ✅ Skill system
-- ✅ Smart task dispatch
-
-**In progress**
-
-- 🚧 A2A ownership, handoff packets, and control-plane integration
-- 🚧 Agent, context, tool, and collaboration observability
-- 🚧 Unified ACP runtime for OpenCode, Claude, and Codex
-- 🚧 Layered context management, progressive loading, and budget gates
-- 🚧 System control plane for dispatch, policy, proof, health, and recovery
-- 🚧 Persistent autonomous delivery from GoalContract to DeliveryBundle
-- 🚧 Agent evaluation with executable regression suites and version experiments
-- 🚧 GitHub Issue intake through the same delivery loop
-
-> See the [roadmap doc](./docs/roadmap.md) for full stage goals.
+→ [Read the full architecture](./docs/wiki/01-architecture.md)
 
 ---
 
-## 📚 Docs
+## ✅ Verification
 
-| Doc | About |
-|-----|-------|
-| [Product vision](./docs/product/vision.md) | Why we build this |
-| [Architecture](./docs/wiki/01-architecture.md) | Technical deep dive |
-| [Dev standards](./docs/sop.md) | How to contribute |
-| [Agent guide](./AGENTS.md) | Agent working constraints |
-| [Roadmap](./docs/roadmap.md) | Stage goals |
-| [All docs](./docs/README.md) | Documentation index |
+```bash
+pnpm lint
+pnpm test
+pnpm build
+pnpm e2e
+```
+
+The project distinguishes tests, real browser acceptance, review receipts, and runtime evidence, then applies them according to task risk. A successful build proves buildability; it does not prove that the user's goal is complete.
+
+---
+
+## 🗺️ Project status
+
+Agent Task Hub is converging from a local multi-agent workspace into a complete Agent OS for software delivery. Active specs are the source of truth for current engineering work; this README keeps only stable positioning and verified capabilities instead of presenting target-state design as complete.
+
+- [Current roadmap](./docs/roadmap.md)
+- [Active specs](./specs/README.md)
+- [Verified product changes and evidence](./docs/product/STORY.md)
+
+---
+
+## 📚 Documentation
+
+| Document | Best for |
+| --- | --- |
+| [Product vision](./docs/product/vision.md) | Why software delivery needs an Agent OS |
+| [Product stories](./docs/product/STORY.md) | User problems, visible changes, verification evidence |
+| [System architecture](./docs/wiki/01-architecture.md) | Current layers, data flow, execution path |
+| [Platform Harness](./docs/technical/execution/platform-harness-state-machine-design.md) | Autonomous progress, state machine, control boundaries |
+| [Desktop Host](./docs/technical/execution/desktop-host-target-architecture.md) | Tauri, Service, lifecycle, release boundaries |
+| [Agent evaluation](./docs/technical/evaluation/README.md) | How completion, path, and efficiency are measured |
+| [Development guide](./docs/sop.md) | Development and contribution workflow |
+| [Full documentation index](./docs/README.md) | All product, technical, spec, and knowledge documents |
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions of any kind:
-
-- 🐛 Report bugs
-- 💡 Suggest features
-- 📖 Improve docs
-- 🔧 Submit code
-
----
-
-## 📄 License
-
-MIT License
+Bug reports, product proposals, documentation, and code contributions are welcome. Read the [Agent / contributor constraints](./AGENTS.md) first, and attach reproducible verification evidence to every change.
 
 ---
 
 <div align="center">
-  <h3>"Define the goal once. Deliver it with evidence."</h3>
-  <p>
-    <sub>Move AI from writing code to taking responsibility for delivery.</sub>
-  </p>
+  <h3>Define the goal once. Deliver it with evidence.</h3>
+  <p><sub>From goal to evidence.</sub></p>
 </div>
