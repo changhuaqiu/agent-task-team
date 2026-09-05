@@ -18,3 +18,4 @@
 - [ ] 新 handler 版本重放旧 accepted Outcome 时，仅恢复该 Outcome 仍最新拥有的 proposed Task，重复恢复不重复 Inbox。
 - [ ] WorkItem 详情用文字展示 Task 状态与依赖，不把 A2A ACK 显示成任务已运行。
 - [ ] 真实旧任务恢复后，首批依赖已满足的子任务有 durable Inbox/Invocation 证据。
+- [ ] pending Inbox 被视为活跃派发，Autonomy Guard 不再为同一 ready Task 创建第二个 `owner_ready` Inbox。

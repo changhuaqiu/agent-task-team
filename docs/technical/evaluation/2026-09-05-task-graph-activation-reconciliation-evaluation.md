@@ -29,6 +29,7 @@
 1. 显式提交 children `initialStatus=proposed` 的 accepted coordinator graph；测量 accepted 后 ready 比例、依赖前误派发数、依赖完成后的唯一派发数。
 2. 构造已有旧 commit 的历史 accepted Outcome；测量版本化重放后的安全激活数、重复重放新增 Inbox 数、后续重规划被误改数。
 3. 在真实“优化项目结构及UX”WorkItem 上记录升级前后 Task 状态、Inbox/Invocation 和界面状态/依赖可见性。
+4. 真实恢复若在 Agent lane 排队阶段触发 Autonomy Guard，记录同一 Task 的 pending Inbox 数，并验证候选把 pending Inbox 纳入 active-dispatch 判定。
 
 ## Baseline vs candidate
 
@@ -39,6 +40,7 @@
 | duplicate dispatch after replay | pending | pending | 0 |
 | newer graph Tasks overwritten by old replay | pending | pending | 0 |
 | WorkItem rows with textual status | pending | pending | 100% |
+| duplicate `owner_ready` dispatch while Inbox pending | pending | pending | 0 |
 
 ## Decision
 

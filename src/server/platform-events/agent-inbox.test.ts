@@ -407,4 +407,24 @@ describe('AgentInbox', () => {
       expect.objectContaining({ id: active.id, status: 'claimed' }),
     ]);
   });
+
+  it('records an explicit operational reason when reconciling one pending item', () => {
+    const duplicate = inbox.enqueue({
+      projectId: 'project-1',
+      projectAgentId: 'implementer',
+      idempotencyKey: 'duplicate-owner-ready',
+      command: { source: 'workflow', prompt: 'Duplicate' },
+    });
+
+    expect(inbox.cancelPending(
+      'project-1',
+      'implementer',
+      'duplicate-owner-ready',
+      'duplicate_dispatch_reconciled',
+    )).toBe(1);
+    expect(inbox.get(duplicate.id)).toMatchObject({
+      status: 'cancelled',
+      lastError: 'duplicate_dispatch_reconciled',
+    });
+  });
 });

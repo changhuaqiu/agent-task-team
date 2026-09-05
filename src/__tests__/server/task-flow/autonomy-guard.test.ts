@@ -129,6 +129,19 @@ describe('autonomy guard wakeups', () => {
     expect(wakeups).toEqual([]);
   });
 
+  it('does not duplicate a wakeup while a Task dispatch is pending in Agent Inbox', () => {
+    const wakeups = resolveAutonomyGuardWakeups({
+      tasks: [task({ id: 'TASK-002', agent_id: 'luigi', status: 'ready' })],
+      envelopes: [],
+      pendingTaskDispatchIds: ['TASK-002'],
+      coordinatorAgentIds: ['mario'],
+      reviewAgentIds: ['peach'],
+      qaAgentIds: ['yoshi'],
+    });
+
+    expect(wakeups).toEqual([]);
+  });
+
   it('does not treat an acknowledged envelope as execution completion while Invocation runs', () => {
     const wakeups = resolveAutonomyGuardWakeups({
       tasks: [task({

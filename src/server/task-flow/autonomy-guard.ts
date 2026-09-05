@@ -9,6 +9,7 @@ export interface ResolveAutonomyGuardWakeupsInput {
   tasks: TaskRow[];
   envelopes: ExecutionEnvelopeRow[];
   invocations?: InvocationRow[];
+  pendingTaskDispatchIds?: string[];
   coordinatorAgentIds: string[];
   reviewAgentIds: string[];
   qaAgentIds: string[];
@@ -56,8 +57,9 @@ function hasActiveDispatch(
   taskId: string,
   envelopes: ExecutionEnvelopeRow[],
   invocations: InvocationRow[],
+  pendingTaskDispatchIds: ReadonlySet<string>,
 ): boolean {
-  return envelopes.some((envelope) =>
+  return pendingTaskDispatchIds.has(taskId) || envelopes.some((envelope) =>
     envelope.task_id === taskId && ACTIVE_ENVELOPE_STATUSES.has(envelope.status)
   ) || invocations.some((invocation) =>
     invocation.task_id === taskId && invocation.status !== 'terminated'
@@ -114,6 +116,7 @@ export function resolveAutonomyGuardActions(input: ResolveAutonomyGuardWakeupsIn
   const reviewableTaskIds = input.reviewableTaskIds
     ? new Set(input.reviewableTaskIds)
     : undefined;
+  const pendingTaskDispatchIds = new Set(input.pendingTaskDispatchIds ?? []);
   const closureRootIds = new Set<string>();
   const pushOnce = (wakeup: TaskWakeup) => {
     if (wakeups.some((item) => item.metadata.idempotencyKey === wakeup.metadata.idempotencyKey)) return;
@@ -195,7 +198,12 @@ export function resolveAutonomyGuardActions(input: ResolveAutonomyGuardWakeupsIn
     if (closureRootIds.has(task.id)) continue;
     const updatedAt = task.updated_at ? new Date(task.updated_at).getTime() : 0;
     const isStale = updatedAt > 0 && now.getTime() - updatedAt >= staleMs;
-    const activeDispatch = hasActiveDispatch(task.id, input.envelopes, input.invocations ?? []);
+    const activeDispatch = hasActiveDispatch(
+      task.id,
+      input.envelopes,
+      input.invocations ?? [],
+      pendingTaskDispatchIds,
+    );
 
     if (task.status === 'ready' && task.agent_id && dependenciesSatisfied(task, tasksById) && !activeDispatch) {
       if (retryBudgetExhausted(task, task.agent_id)) continue;

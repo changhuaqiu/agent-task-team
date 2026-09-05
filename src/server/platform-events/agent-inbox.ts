@@ -617,7 +617,12 @@ export class AgentInbox {
     }).immediate();
   }
 
-  cancelPending(projectId: string, projectAgentId: string, idempotencyKey?: string): number {
+  cancelPending(
+    projectId: string,
+    projectAgentId: string,
+    idempotencyKey?: string,
+    reasonCode = 'user_cancelled',
+  ): number {
     const db = this.database ?? getDb();
     return db.transaction(() => {
       const rows = (idempotencyKey
@@ -630,7 +635,7 @@ export class AgentInbox {
             SELECT * FROM agent_inbox_item
             WHERE project_id=? AND project_agent_id=? AND status IN ('enqueued','released')
           `).all(projectId, projectAgentId)) as AgentInboxRow[];
-      return this.cancelRows(rows, 'user_cancelled');
+      return this.cancelRows(rows, reasonCode);
     }).immediate();
   }
 

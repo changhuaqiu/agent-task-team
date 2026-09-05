@@ -39,6 +39,7 @@ Result success 不能由 Runtime 成功替代；Path convergence 也不能把失
 - Coordinator 已接纳的 Task Graph 中，所有已分配 Task 必须进入 `ready`；依赖只控制派发时机，不能用 `proposed` 表示“等待依赖”。
 - 新版本 Task Graph Outcome owner 必须重放历史 accepted Outcome，幂等激活仍由该 Outcome 最新拥有、且错误滞留在 `proposed` 的 Task，再按依赖状态恢复派发。
 - WorkItem 详情必须同时展示每个 Task 的可理解状态与依赖阻塞关系，并对“已分配但仍待确认”的不一致给出明确告警，不能用 A2A 接纳回执冒充执行进度。
+- Autonomy Guard 判断“没有活跃派发”时必须同时读取 pending Agent Inbox、ExecutionEnvelope 和 Invocation；已排队但受 lane 容量等待的 Task 不能被再次轻推。
 
 ## Invariants
 
@@ -54,6 +55,7 @@ Result success 不能由 Runtime 成功替代；Path convergence 也不能把失
 10. `task_graph_first` Outcome 一旦 accepted，图内每个已分配 Task 的执行资格为 `ready`；未完成依赖仅令它不可派发，不令它回到 `proposed`。
 11. 历史恢复只能激活仍由该 accepted Outcome 的最新 Task Graph commit 拥有的 Task；后续重规划、终态或未分配 Task 不得被旧事件改写。
 12. durable handler 的 `succeeded` 只代表处理完成；Project UI 的执行状态必须来自 Task/依赖事实，不得从 handler 或 A2A ACK 推断“已启动”。
+13. 同一 Task 已有 `enqueued|released|claimed` Inbox 时属于 active dispatch path；恢复扫描不得因尚未创建 Envelope/Invocation 而生成第二个 `owner_ready` 请求。
 
 ## Non-goals
 

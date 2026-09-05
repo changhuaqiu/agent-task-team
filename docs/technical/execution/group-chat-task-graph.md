@@ -315,6 +315,8 @@ A narrative plan, chat mention or direct A2A handoff is not a substitute for thi
 
 The same Outcome owner is the activation and recovery seam. A versioned durable handler replays historical accepted graph Outcomes after upgrade. When their commit already exists, it does not recommit or rewrite graph structure: it activates only Tasks that are still `proposed`, still assigned as committed, still in the same Project, and whose latest owning commit is that Outcome. It then reuses the normal idempotent dispatch path for dependency-ready Tasks. Later replans, active/terminal Tasks and Tasks owned by a newer commit are left untouched. This is a reconciliation loop over desired accepted state and observed Task state, not a one-shot event-success assumption.
 
+Dispatch liveness also includes the queue gap before an ExecutionEnvelope or Invocation exists. Autonomy Guard therefore treats Task-correlated Agent Inbox rows in `enqueued`, `released` or `claimed` as an active dispatch path. A ready Task waiting behind the same Agent lane is not “idle” and must not receive a second `owner_ready` request from the recovery sweep.
+
 Therefore the Coordinator coordinates and replans; it does not implement the work, duplicate scheduler dispatch, or claim that another Agent started without a durable receipt. Truly missing, non-inferable product choices may still exit through a human-decision request, and external blockers may exit through a structured blocker. A coordinator outcome-recovery Invocation re-evaluates remaining unassigned Tasks and retains the same Task Graph-first exits, so failure to submit the first structured result cannot reopen a direct-handoff bypass.
 
 Wakeup copy uses “系统轻推” so users understand this as a gentle nudge, not hidden orchestration.

@@ -12,6 +12,7 @@ import { requestTaskWakeup } from '../task-flow/task-work-request';
 import { resolveTaskNotificationAudience } from '../task-flow/task-notification-publisher';
 import { BlockedRecoveryOwner } from './blocked-recovery-owner';
 import { publishProjectView } from '../project-view/project-view-publisher';
+import { AgentInbox } from '../platform-events/agent-inbox';
 
 export interface AutonomyGuardOwnerOptions {
   io: IOServer;
@@ -100,6 +101,9 @@ export class AutonomyGuardOwner {
         tasks: conversationTasks,
         envelopes: executionEnvelopeRepo.listByConversation(conversationId),
         invocations: invocationRepo.listByConversation(conversationId),
+        pendingTaskDispatchIds: new AgentInbox().listPending(conversationId)
+          .map((item) => item.command.taskId)
+          .filter((taskId): taskId is string => Boolean(taskId)),
         coordinatorAgentIds: audience.coordinatorAgentIds,
         reviewAgentIds: audience.reviewGateAgentIds,
         qaAgentIds: audience.qaAgentIds,
