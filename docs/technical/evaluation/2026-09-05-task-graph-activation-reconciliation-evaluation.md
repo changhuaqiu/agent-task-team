@@ -3,7 +3,7 @@
 - Change ID: task-graph-activation-reconciliation-2026-09-05
 - Evaluation level: C
 - Status: accepted
-- Code/spec revision: `aa20879` (final desktop build revision recorded at release)
+- Code/spec revision: implementation `aa20879`, evidence `53ff3ef`, desktop build `desktop-build-2f3fa565f236254212a139d63d9eff51`
 - Evaluator/benchmark revision: Vitest 4.1.5, live desktop DB observed 2026-09-05
 
 ## Why
