@@ -178,7 +178,13 @@ describe('TaskGraphOutcomeProcessManager', () => {
     });
     const outcome = (input: {
       id: string;
-      tasks: Array<{ id: string; title: string; agentId: string; dependencies?: string[] }>;
+      tasks: Array<{
+        id: string;
+        title: string;
+        agentId: string;
+        dependencies?: string[];
+        initialStatus?: 'proposed' | 'ready';
+      }>;
     }): AgentOutcome => ({
       outcomeId: input.id,
       idempotencyKey: input.id,
@@ -216,6 +222,10 @@ describe('TaskGraphOutcomeProcessManager', () => {
           id: 'task-coordination-dependent', title: 'Integrate after the root', agentId: 'reviewer',
           dependencies: ['task-coordination-root'],
         },
+        {
+          id: 'task-coordination-new-child', title: 'Implement a bounded child', agentId: 'builder',
+          dependencies: ['task-coordination-root'], initialStatus: 'proposed',
+        },
       ],
     }))).toMatchObject({ status: 'accepted' });
     expect(taskRepo.getById('task-coordination-root')).toMatchObject({
@@ -226,10 +236,82 @@ describe('TaskGraphOutcomeProcessManager', () => {
       agent_id: 'reviewer',
       status: 'ready',
     });
+    expect(taskRepo.getById('task-coordination-new-child')).toMatchObject({
+      agent_id: 'builder',
+      status: 'ready',
+    });
     expect(getDb().prepare(`
       SELECT project_agent_id,json_extract(command_json,'$.taskId') task_id
       FROM agent_inbox_item
     `).all()).toEqual([{ project_agent_id: 'builder', task_id: 'task-coordination-root' }]);
+  });
+
+  it('reconciles historical assigned-proposed coordinator tasks without overriding a newer graph owner', async () => {
+    taskRepo.create({
+      id: 'task-reconcile-root', conversation_id: 'project-task-graph', title: 'Root',
+      agent_id: '', initialStatus: 'proposed',
+    });
+    const contracts = new WorkContractRepository();
+    const contract = contracts.issue({
+      workId: 'planning:reconcile', attemptId: 'inv-reconcile', projectId: 'project-task-graph',
+      agentId: 'planner', goal: 'Reconcile the accepted graph', acceptanceCriteria: ['Dispatch once'],
+      role: { responsibility: 'coordinator' }, permissions: {
+        coordination: { mode: 'task_graph_first', requiredTaskIds: ['task-reconcile-root'] },
+      },
+      authoritativeRefs: ['task_graph:project-task-graph'], authoritativeRevisions: { taskGraph: 0 },
+      contextSnapshotRef: 'context-reconcile', allowedOutcomeTypes: ['propose_task_graph'],
+      correlationId: 'trace-reconcile', causationId: 'request-reconcile', now: NOW,
+    });
+    const outcome: AgentOutcome = {
+      outcomeId: 'outcome-reconcile', idempotencyKey: 'outcome-reconcile',
+      contractId: contract.contractId, outcomeType: 'propose_task_graph',
+      payload: {
+        expectedRevision: 0,
+        tasks: [
+          { id: 'task-reconcile-root', title: 'Root', agentId: 'builder' },
+          {
+            id: 'task-reconcile-child', title: 'Child', agentId: 'reviewer',
+            dependencies: ['task-reconcile-root'], initialStatus: 'proposed',
+          },
+        ],
+      },
+      evidenceRefs: [], projectId: contract.projectId, workId: contract.workId,
+      workEpoch: contract.workEpoch, attemptId: contract.attemptId,
+      fencingToken: contract.fencingToken, authoritativeRevisions: contract.authoritativeRevisions,
+      correlationId: contract.correlationId, causationId: contract.contractId,
+      occurredAt: NOW.toISOString(),
+    };
+    expect(contracts.admitOutcome(outcome)).toMatchObject({ status: 'accepted' });
+    const acceptedEvent = new PlatformEventLog({ db: getDb() })
+      .listStream(`work:${contract.workId}`)
+      .find((candidate) => candidate.type === 'agent.outcome.accepted')!;
+    const manager = new TaskGraphOutcomeProcessManager();
+
+    // Recreate the valid persisted shape produced by the pre-fix owner: the
+    // child was created as proposed and never activated. Current DB guards do
+    // not allow rolling a ready Task backward, so this fixture bypasses only
+    // that transition trigger.
+    getDb().exec('DROP TRIGGER trg_task_transition_update');
+    getDb().prepare("UPDATE task SET status='proposed' WHERE id='task-reconcile-child'").run();
+    await manager.handle(acceptedEvent, { signal: new AbortController().signal });
+    await manager.handle(acceptedEvent, { signal: new AbortController().signal });
+    expect(taskRepo.getById('task-reconcile-child')).toMatchObject({ status: 'ready' });
+    expect(getDb().prepare('SELECT COUNT(*) count FROM agent_inbox_item').get()).toEqual({ count: 1 });
+
+    taskGraphRepo.commit({
+      conversationId: 'project-task-graph', expectedRevision: 1,
+      idempotencyKey: 'newer-owner', actorId: 'planner', actorType: 'agent',
+      tasks: [{
+        id: 'task-reconcile-child', title: 'Child replanned', agent_id: 'reviewer',
+        dependencies: ['task-reconcile-root'], initialStatus: 'ready',
+      }],
+    });
+    getDb().prepare("UPDATE task SET status='proposed' WHERE id='task-reconcile-child'").run();
+    await manager.handle(acceptedEvent, { signal: new AbortController().signal });
+    expect(taskRepo.getById('task-reconcile-child')).toMatchObject({
+      status: 'proposed', title: 'Child replanned',
+    });
+    expect(getDb().prepare('SELECT COUNT(*) count FROM agent_inbox_item').get()).toEqual({ count: 1 });
   });
 
   it('turns verify intent into one revision-fenced QualityGate command', async () => {

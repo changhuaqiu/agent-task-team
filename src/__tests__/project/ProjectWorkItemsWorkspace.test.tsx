@@ -92,4 +92,57 @@ describe('ProjectWorkItemsWorkspace', () => {
     expect(screen.getByRole('region', { name: 'Legacy B 工作项详情' })).toBeDefined();
     expect(useTaskHubStore.getState().selectedConversationId).toBe(project.workspaceConversationId);
   });
+
+  it('shows task status, dependency blocking, and assigned-proposed inconsistency separately from A2A receipts', () => {
+    const root = { ...task('work-a', 'workstream-a', '2026-08-31T00:01:00.000Z'), status: 'in_progress' as const };
+    const foundation = {
+      ...task('foundation', 'workstream-a', '2026-08-31T00:02:00.000Z'),
+      title: '基础拆分',
+      status: 'done' as const,
+      agentId: 'luigi',
+    };
+    const ux = {
+      ...task('ux', 'workstream-a', '2026-08-31T00:03:00.000Z'),
+      title: '复习体验',
+      status: 'proposed' as const,
+      agentId: 'luigi',
+      dependencies: ['foundation'],
+    };
+    const verify = {
+      ...task('verify', 'workstream-a', '2026-08-31T00:04:00.000Z'),
+      title: '验收',
+      status: 'ready' as const,
+      agentId: 'peach',
+      dependencies: ['ux'],
+    };
+    useTaskHubStore.setState({
+      selectedConversationId: 'workstream-a',
+      selectedTaskId: null,
+      conversations,
+      tasks: [],
+      agentRoster: [
+        {
+          id: 'luigi', name: 'Luigi', theme: 'luigi', emoji: '🟢', isOnline: true,
+          accountIds: [], instructions: '', skillIds: [], canModifyCode: true, canReview: false,
+        },
+        {
+          id: 'peach', name: 'Peach', theme: 'peach', emoji: '👑', isOnline: true,
+          accountIds: [], instructions: '', skillIds: [], canModifyCode: false, canReview: true,
+        },
+      ],
+    });
+
+    render(<ProjectWorkItemsWorkspace
+      project={project}
+      conversations={conversations}
+      tasks={[root, foundation, ux, verify]}
+      onCreate={vi.fn()}
+    />);
+
+    expect(screen.getByRole('alert').textContent).toContain('计划已分配，但尚未激活');
+    expect(screen.getByText('依赖已满足')).toBeDefined();
+    expect(screen.getByText('等待：复习体验')).toBeDefined();
+    expect(screen.getAllByText('待确认').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('待处理').length).toBeGreaterThan(0);
+  });
 });

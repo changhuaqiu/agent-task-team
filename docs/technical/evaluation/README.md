@@ -96,3 +96,4 @@ Project Context 的 L5“知识与证据”层必须索引本目录：
 - `2026-09-01-coordinator-task-graph-contract-evaluation.md`：Coordinator 对未分配工作执行 Task Graph-first 拆解、覆盖校验与自动派发的 C 级确定性对比（候选已通过组件门；真实 Agent 完成率仍需 E 级成对实验）。
 - `2026-09-03-non-git-workitem-runtime-evaluation.md`：普通目录 Project 的 WorkItem 执行配置继承、旧数据迁移与 Agent 启动路径 C 级对比（候选已通过组件门；不代表 Agent 任务成功率提升）。
 - `2026-09-05-multica-agent-collaboration-comparison.md`：以 Multica `ca47495f` 源码与官方文档为基线，对比 Agent/Issue/Run/Runtime/Squad 边界、leader 调度、失败恢复和本地目录互斥，给出本项目 P0/P1 学习项与不可照搬的已知缺陷。
+- `2026-09-05-task-graph-activation-reconciliation-evaluation.md`：accepted Coordinator Task Graph 的全图激活、历史重放恢复、依赖调度与 WorkItem 停滞可见性 C 级对比（计划中）。

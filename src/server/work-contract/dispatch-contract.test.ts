@@ -170,7 +170,8 @@ describe('issueDispatchWorkContract', () => {
     const instruction = renderWorkContractInstruction(contract);
     expect(instruction).toContain('Task Graph-first coordination is mandatory');
     expect(instruction).toContain('task-unassigned-root');
-    expect(instruction).toContain('automatically dispatches dependency-ready assigned Tasks');
+    expect(instruction).toContain('marks every assigned graph Task ready');
+    expect(instruction).toContain('never use it to mean waiting for dependencies');
     expect(instruction).toContain('do not perform implementation');
     expect(instruction).toContain('direct handoff cannot substitute');
   });

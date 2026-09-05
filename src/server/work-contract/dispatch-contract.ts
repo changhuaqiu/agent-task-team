@@ -437,7 +437,7 @@ export function renderWorkContractInstruction(contract: WorkContract): string {
       `Inspect the goal, acceptance criteria, current Task Graph, and Project members. One accepted task_propose_graph result must include and assign every frozen Task: ${requiredTaskIds.join(', ')}.`,
       'For multi-step work, add bounded tasks, dependencies, and review or verification intents needed for execution and closure.',
       'A narrative plan, chat mention, or direct handoff cannot substitute for the Task Graph proposal.',
-      'After acceptance the platform commits the graph and automatically dispatches dependency-ready assigned Tasks. Do not duplicate dispatch or claim another Agent started without a durable receipt.',
+      'After acceptance the platform marks every assigned graph Task ready, then automatically dispatches only those whose dependencies are satisfied. Use proposed only for a plan that is not accepted; never use it to mean waiting for dependencies. Do not duplicate dispatch or claim another Agent started without a durable receipt.',
       'Remain the coordinator for blockers, replanning, gates, and closure; do not perform implementation in this planning contract. Request a human decision only for a truly missing choice that cannot be inferred from Project facts.',
     ] : []),
     ...(outcomeRecovery ? [

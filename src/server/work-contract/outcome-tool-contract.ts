@@ -34,7 +34,11 @@ const TASK_GRAPH_PAYLOAD_SCHEMA: JsonSchema = {
             description: 'Execution semantics. Review and verify create a platform QualityGate instead of ordinary implementation work.',
           },
           dependencies: STRING_ARRAY,
-          initialStatus: { type: 'string', enum: ['proposed', 'ready'] },
+          initialStatus: {
+            type: 'string',
+            enum: ['proposed', 'ready'],
+            description: 'Optional compatibility hint. In an accepted coordinator graph, every assigned Task is normalized to ready; dependencies control dispatch timing.',
+          },
         },
         required: ['id', 'title', 'agentId'],
         additionalProperties: false,

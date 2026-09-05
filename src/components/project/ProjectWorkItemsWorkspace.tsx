@@ -9,7 +9,7 @@ import { projectWorkItems, type ProjectWorkItem } from '@/lib/project-work-items
 import { cn } from '@/lib/utils';
 import type { Conversation, WorkspaceProject } from '@/store/taskHubStore';
 import { useTaskHubStore } from '@/store/taskHubStore';
-import type { Task, TaskStatus } from '@/store/taskStore';
+import { STATUS_LABELS, type Task, type TaskStatus } from '@/store/taskStore';
 import { ProjectArtifactSurface } from './ProjectArtifactSurface';
 
 type DetailTab = 'summary' | 'activity' | 'artifacts';
@@ -86,6 +86,8 @@ function workItemKey(item: Pick<ProjectWorkItem, 'conversationId' | 'id'>): stri
 }
 
 function WorkItemSummary({ item, agents }: { item: ProjectWorkItem; agents: Map<string, { name: string; emoji: string }> }) {
+  const taskById = new Map(item.tasks.map((task) => [task.id, task]));
+  const strandedAssignedTasks = item.tasks.filter((task) => task.status === 'proposed' && Boolean(task.agentId));
   return <div className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-app))] p-5">
     <div className="mx-auto max-w-4xl space-y-4">
       <section className="rounded-2xl bg-[hsl(var(--bg-card))] p-5">
@@ -93,6 +95,13 @@ function WorkItemSummary({ item, agents }: { item: ProjectWorkItem; agents: Map<
         <p className="mt-3 whitespace-pre-wrap text-xs leading-6 text-[hsl(var(--text-secondary))]">{item.description || '该工作项尚未补充目标、约束或验收条件。'}</p>
         {item.sourceLabel && <div className="mt-4 text-[10px] text-[hsl(var(--text-tertiary))]">来源：{item.sourceLabel}</div>}
       </section>
+      {strandedAssignedTasks.length > 0 && <section className="flex gap-3 rounded-2xl border border-amber-400/40 bg-amber-50 p-4 text-amber-800 dark:bg-amber-950/20 dark:text-amber-300" role="alert">
+        <AlertCircle className="mt-0.5 size-4 shrink-0" />
+        <span>
+          <span className="block text-xs font-semibold">计划已分配，但尚未激活</span>
+          <span className="mt-1 block text-[10px] leading-5">{strandedAssignedTasks.length} 项任务已有负责人却仍处于待确认状态；系统会尝试恢复，恢复前不会把接纳回执当作正在执行。</span>
+        </span>
+      </section>}
       <section className="rounded-2xl bg-[hsl(var(--bg-card))]">
         <header className="flex items-center justify-between border-b border-[hsl(var(--border-subtle))] px-5 py-4">
           <h4 className="text-xs font-semibold">执行任务</h4>
@@ -100,16 +109,28 @@ function WorkItemSummary({ item, agents }: { item: ProjectWorkItem; agents: Map<
         </header>
         {item.tasks.length === 0
           ? <p className="px-5 py-6 text-xs text-[hsl(var(--text-tertiary))]">工作项已接收，Agent 正在生成执行计划。</p>
-          : <div className="divide-y divide-[hsl(var(--border-subtle))]">{item.tasks.map((task) => {
-              const agent = agents.get(task.agentId);
-              return <div key={task.id} className="flex items-center gap-3 px-5 py-3">
-                <WorkStatusIcon status={task.status} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-medium">{task.title}</span>
-                  <span className="mt-1 block truncate text-[10px] text-[hsl(var(--text-tertiary))]">{task.description || (task.id === item.rootTask?.id ? '工作项目标' : '执行拆解')}</span>
-                </span>
-                <span className="shrink-0 text-[10px] text-[hsl(var(--text-tertiary))]">{agent ? `${agent.emoji} ${agent.name}` : '未分配'}</span>
-              </div>;
+           : <div className="divide-y divide-[hsl(var(--border-subtle))]">{item.tasks.map((task) => {
+               const agent = agents.get(task.agentId);
+               const dependencies = task.dependencies
+                 .map((dependencyId) => taskById.get(dependencyId))
+                 .filter((dependency): dependency is Task => Boolean(dependency));
+               const unresolvedDependencies = dependencies.filter((dependency) => dependency.status !== 'done');
+               return <div key={task.id} className="flex items-center gap-3 px-5 py-3">
+                 <WorkStatusIcon status={task.status} />
+                 <span className="min-w-0 flex-1">
+                   <span className="block truncate text-xs font-medium">{task.title}</span>
+                   <span className="mt-1 block truncate text-[10px] text-[hsl(var(--text-tertiary))]">{task.description || (task.id === item.rootTask?.id ? '工作项目标' : '执行拆解')}</span>
+                   {dependencies.length > 0 && <span className="mt-1 block truncate text-[10px] text-[hsl(var(--text-secondary))]">
+                     {unresolvedDependencies.length > 0
+                       ? `等待：${unresolvedDependencies.map((dependency) => dependency.title).join('、')}`
+                       : '依赖已满足'}
+                   </span>}
+                 </span>
+                 <span className="shrink-0 text-right text-[10px] text-[hsl(var(--text-tertiary))]">
+                   <span className="block font-medium text-[hsl(var(--text-secondary))]">{STATUS_LABELS[task.status]}</span>
+                   <span className="mt-1 block">{agent ? `${agent.emoji} ${agent.name}` : '未分配'}</span>
+                 </span>
+               </div>;
             })}</div>}
       </section>
     </div>

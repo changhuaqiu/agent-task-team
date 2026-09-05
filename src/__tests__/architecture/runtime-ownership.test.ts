@@ -678,6 +678,7 @@ describe('runtime ownership architecture', () => {
   it('keeps every production Task write inside an explicit Task Graph owner module', () => {
     const allowedOwnerImplementations = new Set([
       'src/server/repositories/task-command-service.ts',
+      'src/server/repositories/task-graph-activation-controller.ts',
       'src/server/repositories/task-graph-repo.ts',
       'src/server/task-flow/group-chat-task-flow.ts',
     ]);

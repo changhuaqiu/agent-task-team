@@ -1,7 +1,7 @@
 # Agent Completion Reliability
 
-> Status: implemented
-> Date: 2026-08-30
+> Status: active
+> Date: 2026-09-05
 > Related: `command-driven-delivery`, `system-control-plane`, `agent-eval-system`
 
 ## Problem
@@ -36,6 +36,9 @@ Result success 不能由 Runtime 成功替代；Path convergence 也不能把失
 - EvalSnapshot 冻结相关 WorkAuthority 与 AgentOutcome，Deterministic Evaluator 输出完成率、路径收敛率和 Outcome 接纳率。
 - 正式交付件不再把 `cmd/test/trace/proof/live-db/disk/e2e` 引用渲染为独立产物卡。
 - 已退役的持久 handler 队列必须有明确终态，不允许无限 queued。
+- Coordinator 已接纳的 Task Graph 中，所有已分配 Task 必须进入 `ready`；依赖只控制派发时机，不能用 `proposed` 表示“等待依赖”。
+- 新版本 Task Graph Outcome owner 必须重放历史 accepted Outcome，幂等激活仍由该 Outcome 最新拥有、且错误滞留在 `proposed` 的 Task，再按依赖状态恢复派发。
+- WorkItem 详情必须同时展示每个 Task 的可理解状态与依赖阻塞关系，并对“已分配但仍待确认”的不一致给出明确告警，不能用 A2A 接纳回执冒充执行进度。
 
 ## Invariants
 
@@ -48,6 +51,9 @@ Result success 不能由 Runtime 成功替代；Path convergence 也不能把失
 7. 完成率、路径收敛率、Outcome 接纳率分别呈现，不用单一平均分掩盖失败。
 8. 终态 A2A Pass 的旧 Inbox 不可再次执行；人工重试创建可追溯到原消息的新 Chain/Pass/Inbox，并将旧失败项标记为已替代。相同失败 Inbox 的重复或并发重试返回同一替代 Inbox，不增加第二套协作聚合。
 9. active chain、成员/运行配置变化、Inbox 幂等冲突与容量耗尽必须返回稳定的 409/422/429 领域响应，不得退化为无法行动的通用 500。
+10. `task_graph_first` Outcome 一旦 accepted，图内每个已分配 Task 的执行资格为 `ready`；未完成依赖仅令它不可派发，不令它回到 `proposed`。
+11. 历史恢复只能激活仍由该 accepted Outcome 的最新 Task Graph commit 拥有的 Task；后续重规划、终态或未分配 Task 不得被旧事件改写。
+12. durable handler 的 `succeeded` 只代表处理完成；Project UI 的执行状态必须来自 Task/依赖事实，不得从 handler 或 A2A ACK 推断“已启动”。
 
 ## Non-goals
 
@@ -62,4 +68,5 @@ Result success 不能由 Runtime 成功替代；Path convergence 也不能把失
 - 所有场景的 Path convergence 为 100%，且失败场景不会被记为 Result success。
 - 相关测试、类型检查、生产构建通过。
 - 真实桌面数据库升级后不存在可自动判定的过期 Invocation、终态 A2A active Authority 或终态 Task 空完成时间。
+- 真实桌面数据库升级后，历史 accepted Coordinator 图中可安全识别的 assigned/proposed Task 已恢复为 ready，并对依赖已满足者产生唯一派发。
 - C 级前后对比记录完成；E 级未执行风险被明确保留。

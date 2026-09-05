@@ -288,8 +288,8 @@ export class PlatformEventRuntimeWorker {
     });
     const taskGraphOutcome = new TaskGraphOutcomeProcessManager();
     this.dispatcher.register({
-      id: 'task-graph-outcome-process-manager:v2',
-      supersedes: ['task-graph-outcome-process-manager:v1'],
+      id: 'task-graph-outcome-process-manager:v3',
+      supersedes: ['task-graph-outcome-process-manager:v1', 'task-graph-outcome-process-manager:v2'],
       pattern: 'agent.outcome.accepted',
       stereotype: 'process_manager',
       reliability: 'durable',

@@ -11,6 +11,7 @@ import {
   type TaskGraphCommitResult,
 } from './task-graph-repo';
 import type { AgentOutcomeRow, WorkContractRow } from '../work-contract/types';
+import { TaskGraphActivationController } from './task-graph-activation-controller';
 
 export class TaskGraphOutcomeInvariantError extends Error {
   constructor(readonly reasonCode: string, detail: string) {
@@ -259,11 +260,11 @@ function enqueueStandaloneTasks(
   }
 }
 
-function legacyCommittedResult(
-  eventId: string,
+function committedResult(
+  idempotencyKey: string,
   conversationId: string,
 ): TaskGraphCommitResult | undefined {
-  const record = taskGraphRepo.getCommitByIdempotencyKey(eventId);
+  const record = taskGraphRepo.getCommitByIdempotencyKey(idempotencyKey);
   if (!record) return undefined;
   if (record.conversation_id !== conversationId) {
     throw new TaskGraphOutcomeInvariantError(
@@ -282,7 +283,7 @@ function legacyCommittedResult(
     if (!action || action.conversation_id !== conversationId) {
       throw new TaskGraphOutcomeInvariantError(
         'task_graph_legacy_replay_unavailable',
-        `Historical Task Graph commit ${eventId} has no recoverable action`,
+        `Historical Task Graph commit ${idempotencyKey} has no recoverable action`,
       );
     }
     let taskIds: unknown;
@@ -294,14 +295,14 @@ function legacyCommittedResult(
     if (!Array.isArray(taskIds) || taskIds.some((taskId) => typeof taskId !== 'string')) {
       throw new TaskGraphOutcomeInvariantError(
         'task_graph_legacy_replay_unavailable',
-        `Historical Task Graph commit ${eventId} has invalid task identity`,
+        `Historical Task Graph commit ${idempotencyKey} has invalid task identity`,
       );
     }
     const tasks = taskIds.map((taskId) => taskRepo.getById(taskId));
     if (tasks.some((task) => !task || task.conversation_id !== conversationId)) {
       throw new TaskGraphOutcomeInvariantError(
         'task_graph_legacy_replay_unavailable',
-        `Historical Task Graph commit ${eventId} references unavailable Tasks`,
+        `Historical Task Graph commit ${idempotencyKey} references unavailable Tasks`,
       );
     }
     const taskIdSet = new Set(taskIds);
@@ -425,16 +426,33 @@ function commitTaskGraphProposal(
       );
     }
   }
+  const idempotencyKey = `task-graph-outcome:${outcome.id}`;
+  const prior = committedResult(idempotencyKey, contract.project_id);
+  if (prior) {
+    if (coordinationTaskIds.length > 0) {
+      new TaskGraphActivationController().reconcile({
+        conversationId: contract.project_id,
+        ownerCommitKey: idempotencyKey,
+        tasks: prior.tasks,
+        correlationId: outcome.correlation_id,
+        causationId: outcome.id,
+      });
+    }
+    enqueueStandaloneTasks(contract, outcome, prior);
+    return prior;
+  }
   const committed = taskGraphRepo.commit({
     conversationId: contract.project_id,
     expectedRevision: proposal.expectedRevision,
-    idempotencyKey: `task-graph-outcome:${outcome.id}`,
+    idempotencyKey,
     actorId: contract.agent_id,
     actorType: 'agent',
     correlationId: outcome.correlation_id,
     causationId: outcome.id,
     tasks: proposal.tasks,
-    activateTaskIds: coordinationTaskIds,
+    activateTaskIds: coordinationTaskIds.length > 0
+      ? proposal.tasks.map((task) => task.id)
+      : [],
     now: new Date(outcome.occurred_at),
   });
   enqueueStandaloneTasks(contract, outcome, committed);
@@ -459,8 +477,17 @@ export class TaskGraphOutcomeProcessManager {
         `WorkContract ${outcome.contract_id} not found`,
       );
     }
-    const legacy = legacyCommittedResult(event.eventId, contract.project_id);
+    const legacy = committedResult(event.eventId, contract.project_id);
     if (legacy) {
+      if (coordinationObligationTaskIds(contract).length > 0) {
+        new TaskGraphActivationController().reconcile({
+          conversationId: contract.project_id,
+          ownerCommitKey: event.eventId,
+          tasks: legacy.tasks,
+          correlationId: outcome.correlation_id,
+          causationId: outcome.id,
+        });
+      }
       enqueueStandaloneTasks(contract, outcome, legacy);
       return;
     }
