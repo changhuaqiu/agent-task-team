@@ -1,6 +1,6 @@
 # Agent Completion Reliability
 
-> Status: active
+> Status: implemented
 > Date: 2026-09-05
 > Related: `command-driven-delivery`, `system-control-plane`, `agent-eval-system`
 

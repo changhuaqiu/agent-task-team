@@ -11,5 +11,5 @@
 - [x] T9 修复 Coordinator accepted Task Graph 的全图激活语义，并以新 handler 版本重放恢复历史滞留 Task。
 - [x] T10 在 WorkItem 详情展示 Task 状态、依赖阻塞与执行不一致告警。
 - [x] T11 以“优化项目结构及UX”旧任务完成桌面升级、真实恢复、唯一派发和进度可见性核验。
-- [ ] T12 补充 C 级评测、独立代码审查、构建、合并、推送与 EXE 更新。
+- [x] T12 补充 C 级评测、独立代码审查、构建、合并、推送与 EXE 更新。
 - [x] T13 修复真实恢复发现的 Outcome 直派与 Autonomy Guard 重复派发竞争，并清理旧任务已生成的重复 Inbox。
