@@ -1,6 +1,7 @@
 # 简单、可信的工作闭环
 
-> Status: active · 2026-09-06
+> Status: implemented · 2026-09-06
+> 长期事实：[工作旅程](../../../product/ux/2026-09-06-simple-work-journey.md)、[结果阅读](../../../technical/execution/work-result-reading.md)、[评测与桌面交付](../../../technical/evaluation/2026-09-06-ux-journey-evaluation.md)。
 > Baseline: `59850ef`；审计：`docs/product/ux/2026-09-06-end-to-end-experience-audit.md`
 
 ## 目标与范围

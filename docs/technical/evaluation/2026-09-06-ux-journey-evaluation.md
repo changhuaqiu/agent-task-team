@@ -2,9 +2,10 @@
 
 - Change ID: UX-JOURNEY-2026-09-06
 - Level: C（确定性投影与界面路径对比，不是 Agent 质量实验）
-- Status: measured；代码评审通过，桌面构建/集成结果待收尾补录
+- Status: accepted；代码、固定样本、独立评审及本地桌面交付通过
+- Code revision: `ef71cc2`，已合入并推送 `main`
 - Baseline: 审计代码 59850ef，含审计文档的比较基线 c507451
-- Contract: [体验整改规格](../../../specs/ux-journey-completion/spec.md)
+- Contract: [归档体验整改规格](../../archive/specs/ux-journey-completion/spec.md)
 
 ## Why / What
 
@@ -55,4 +56,9 @@
 
 ## 集成收尾
 
-待记录：最终完整回归、生产构建、目标分支提交、桌面 build ID 与更新验证。此项完成前不把桌面交付写成已完成。
+- 最终源码：`ef71cc2`；全量 2052 通过 / 2 跳过 / 0 失败，生产构建与 `pnpm desktop:build --no-bundle` 通过。此命令产出本地开发者 release，不是签名安装包。
+- Desktop build ID：`desktop-build-22c5d0f602f002512175147b9fb8d0ba`；构建后重算保持一致。EXE SHA-256：`57d09c718cf1620ab2d9c8b63de8a6e38aca3dd3aa7cecc3597ba34cc60029dc`，替换前后核对一致，配套服务也包含同一 build ID。
+- 更新原主工作区 `src-tauri/target/release/agent-task-hub-desktop.exe` 及 `service/`，保留 `agent-task-hub-desktop.pre-ux-20260906.exe` 和 `service.pre-ux-20260906/` 可回退副本。原 AppData 数据库先做一致性备份 `data.db.pre-ux-journey-20260906.bak`，`quick_check=ok`；未修改真实任务状态或授权。
+- 重启前 Invocation 均 terminated，无执行中调用；更新后 Host PID 48576、独占子服务 PID 2680，服务健康，加载原有 2 项目 / 4 会话 / 15 任务。进程号仅是本次验证记录，不应硬编码为未来部署条件。
+- 使用 Windows Computer Use 操作真实桌面：原 `agent-interview` 项目显示 4 工作项、进行中 1、当前阻塞 1；进入旧“增加在线面试功能”工作项的“成果与验收”，看到其已通过 Gate、独立项目评审 0，以及 Mario/Luigi 两位贡献者的 6 项交付件。未触发真实 Agent 执行、重试或权限变更。
+- 稳定规则已回写产品旅程、结果阅读、Wiki 与中英文 README；原实施规格退出活动目录，归档保留。真实模型质量实验与上述构建/文件锁风险不在本次完成声明内。

@@ -4,6 +4,7 @@
 
 | 规格 | 归档状态 | 原因或替代规格 |
 | --- | --- | --- |
+| [`ux-journey-completion/`](ux-journey-completion/) | implemented | 九项全流程体验修正、确定性比较、独立评审与本地桌面更新完成；长期事实见工作旅程、结果阅读和 2026-09-06 体验评测 |
 | `outcome-commit-atomicity/` | implemented | Task Graph outcome 与 standalone continuation 原子落账、历史恢复及 latest-owner 派发已完成；长期事实见 `docs/technical/execution/platform-harness-state-machine-design.md` 与 `frontend-control-plane-convergence.md` |
 | `unify-integration-config-center/` | implemented | 账号、配置中心和多 backend 基线已完成；长期事实见 `docs/technical/integrations/2026-05-01-cli-channel-auth-config-center.md` |
 | `team-runtime-contract/` | implemented | TeamRuntime 解析与接线已完成；长期事实见 `docs/wiki/01-architecture.md` |
