@@ -49,7 +49,7 @@ describe('TaskGraphActionsPanel', () => {
     const onChanged = vi.fn();
     render(<TaskGraphActionsPanel task={task} revision={7} onChanged={onChanged} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '恢复任务' }));
+    fireEvent.click(screen.getByRole('button', { name: '检查后重试' }));
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/workspace-commands', expect.objectContaining({
       method: 'POST',
@@ -64,7 +64,7 @@ describe('TaskGraphActionsPanel', () => {
   });
 
   it('requires browser confirmation before canceling a task', async () => {
-    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} revision={7} />);
+    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} revision={7} agents={[{ id: 'frontend', name: 'Frontend' }, { id: 'reviewer', name: 'Reviewer' }]} />);
 
     fireEvent.click(screen.getByRole('button', { name: '取消任务' }));
 
@@ -76,7 +76,7 @@ describe('TaskGraphActionsPanel', () => {
   });
 
   it('submits split children from textarea input', async () => {
-    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} revision={7} />);
+    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} revision={7} agents={[{ id: 'frontend', name: 'Frontend' }, { id: 'reviewer', name: 'Reviewer' }]} />);
 
     fireEvent.change(screen.getByLabelText('拆分子任务'), { target: { value: 'API 合约\n群聊组件' } });
     fireEvent.click(screen.getByRole('button', { name: '拆分' }));
@@ -92,7 +92,7 @@ describe('TaskGraphActionsPanel', () => {
   });
 
   it('submits reassignment from owner input', async () => {
-    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} revision={7} />);
+    render(<TaskGraphActionsPanel task={{ ...task, status: 'in_progress' }} revision={7} agents={[{ id: 'frontend', name: 'Frontend' }, { id: 'reviewer', name: 'Reviewer' }]} />);
 
     fireEvent.change(screen.getByLabelText('改派给'), { target: { value: 'reviewer' } });
     fireEvent.click(screen.getByRole('button', { name: '改派' }));

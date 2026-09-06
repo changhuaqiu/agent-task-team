@@ -46,7 +46,7 @@ describe('ProjectSidebar', () => {
     fireEvent.click(screen.getByRole('button', { name: '收起工作区侧栏' }));
     expect(screen.getByTitle('收件箱')).toBeDefined();
     expect(screen.getByTitle('Agents')).toBeDefined();
-    expect(screen.getByTitle('Projects')).toBeDefined();
+    expect(screen.getByTitle('项目')).toBeDefined();
     expect(screen.queryByText('bravo')).toBeNull();
   });
 });

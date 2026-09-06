@@ -11,6 +11,7 @@ vi.mock('@/components/task-hub/GlobalChatRoom', () => ({
 vi.mock('@/components/task-hub/A2APossessionStrip', () => ({
   A2APossessionStrip: ({ conversationId }: { conversationId: string }) => <div data-testid="scoped-possession">{conversationId}</div>,
 }));
+vi.mock('@/components/project/WorkResultPanel', () => ({ WorkResultPanel: () => <div data-testid="work-result" /> }));
 vi.mock('@/components/project/ProjectArtifactSurface', () => ({
   ProjectArtifactSurface: ({ conversationId, workIds }: { conversationId?: string; workIds?: string[] }) => <div data-testid="scoped-artifacts">{conversationId}:{workIds?.join(',')}</div>,
 }));
@@ -32,6 +33,12 @@ function task(id: string, conversationId: string, updatedAt: string): Task {
 }
 
 describe('ProjectWorkItemsWorkspace', () => {
+  it('never substitutes a different actionable work item for an unresolved explicit identity', () => {
+    useTaskHubStore.setState({ selectedConversationId: project.workspaceConversationId, agentRoster: [] });
+    render(<ProjectWorkItemsWorkspace project={project} conversations={conversations} tasks={[task('legacy-a', project.workspaceConversationId, '2026-09-06T00:00:00Z')]} preferredWorkItem={{ conversationId: project.workspaceConversationId, taskId: 'deleted-b' }} onCreate={vi.fn()} />);
+    expect(screen.getByRole('region', { name: '工作项不可用' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /打开任务/ })).toBeNull();
+  });
   it('scopes chat and role deliverables to the selected WorkItem', () => {
     useTaskHubStore.setState({
       selectedConversationId: project.workspaceConversationId,
@@ -58,7 +65,7 @@ describe('ProjectWorkItemsWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: '活动' }));
     expect(screen.getByTestId('scoped-chat').textContent).toBe('workstream-a');
 
-    fireEvent.click(screen.getByRole('button', { name: '交付件' }));
+    fireEvent.click(screen.getByRole('button', { name: '成果与验收' }));
     expect(screen.getByTestId('scoped-artifacts').textContent).toBe('workstream-a:work-a');
 
     fireEvent.click(screen.getByRole('button', { name: /Issue B/ }));

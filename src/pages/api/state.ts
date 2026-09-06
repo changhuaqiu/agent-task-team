@@ -9,6 +9,7 @@ import { autonomousDeliveryRepo } from '@/server/autonomous-delivery/repository'
 import { projectRepo } from '@/server/repositories/project-repo';
 import { PlatformEventLog } from '@/server/platform-events';
 import { executionEnvelopeRepo } from '@/server/repositories/execution-envelope-repo';
+import { getDb } from '@/server/db';
 
 export const STATE_MESSAGE_LIMIT = 200;
 
@@ -17,6 +18,17 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const autonomousConversationIds = new Set(autonomousDeliveryRepo.listConversationIds());
+    // Normal workstreams also have a durable root: the accepted work.created
+    // fact. Timestamp ties between root/children must not change work identity.
+    const rootFacts = getDb().prepare(`
+      SELECT event.project_id conversation_id,event.subject_id task_id
+      FROM platform_event event JOIN task ON task.id=event.subject_id
+      WHERE event.type='work.created' AND event.subject_type='work'
+        AND task.conversation_id=event.project_id
+      ORDER BY event.recorded_at,event.id
+    `).all() as Array<{ conversation_id: string; task_id: string }>;
+    const roots = new Map<string, string>();
+    for (const fact of rootFacts) if (!roots.has(fact.conversation_id)) roots.set(fact.conversation_id, fact.task_id);
     const conversations = conversationRepo.list().map((conversation) => {
       const delivery = autonomousConversationIds.has(conversation.id)
         ? autonomousDeliveryRepo.getLatestByConversation(conversation.id)
@@ -24,7 +36,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       return {
         ...conversation,
         autonomous: Boolean(delivery),
-        root_task_id: delivery?.run.root_task_id ?? null,
+        root_task_id: delivery?.run.root_task_id ?? roots.get(conversation.id) ?? null,
       };
     });
     const tasks = taskRepo.list();

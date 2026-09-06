@@ -34,6 +34,7 @@ beforeEach(() => {
       }],
     },
     a2aByConversation: {},
+    eventsByConversation: {},
   });
 });
 
@@ -161,6 +162,8 @@ describe('A2APossessionStrip', () => {
 
     render(<A2APossessionStrip conversationId="conv-receipt" />);
 
+    expect(screen.queryByText('Agent 连接已中断')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '查看 Agent 交接记录' }));
     expect(screen.getByText('Agent 连接已中断')).toBeTruthy();
     expect(screen.queryByText('runtime_transport_lost')).toBeNull();
   });
@@ -187,6 +190,9 @@ describe('A2APossessionStrip', () => {
     render(<A2APossessionStrip conversationId="conv-receipt" />);
 
     expect(screen.getByTestId('a2a-status-summary').textContent).toMatch(/Luigi.*运行失败/);
+    expect(screen.getByTestId('a2a-status-summary').textContent).toContain('记录');
+    expect(screen.getByTestId('a2a-status-bar').className).not.toContain('bg-amber');
+    fireEvent.click(screen.getByRole('button', { name: '查看 Agent 交接记录' }));
     expect(screen.getByText('所选模型当前不可用，请检查 Agent 的账号与模型')).toBeTruthy();
     expect(screen.queryByText('runtime_model_unavailable')).toBeNull();
   });
@@ -240,7 +246,7 @@ describe('A2APossessionStrip', () => {
     rerender(<A2APossessionStrip conversationId="project-b" />);
 
     expect(screen.queryByTestId('a2a-record-popover')).toBeNull();
-    expect(screen.queryByRole('button', { name: '查看 Agent 交接记录' })).toBeNull();
+    expect(screen.getByRole('button', { name: '查看 Agent 交接记录' }).getAttribute('aria-expanded')).toBe('false');
   });
 
   it('keeps the complete mixed history available in the record popover', () => {

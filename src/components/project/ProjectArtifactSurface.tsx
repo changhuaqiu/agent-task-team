@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import {
   Check,
   Clipboard,
@@ -16,6 +16,8 @@ import {
   Search,
   ShieldCheck,
 } from 'lucide-react';
+import { ArtifactPreviewPanel, safeExternalUrl } from './ArtifactPreviewPanel';
+import type { WorkItemIdentity } from '@/lib/project-work-items';
 import { cn } from '@/lib/utils';
 import type { WorkspaceProject } from '@/store/taskHubStore';
 import type {
@@ -110,14 +112,22 @@ const OPERATION_LABEL = {
   register: '登记证据',
 } as const;
 
-export function ProjectArtifactSurface({ project, agents = [], conversationId, workIds }: {
+export function ProjectArtifactSurface(props: Parameters<typeof ProjectArtifactBrowser>[0]) {
+  const identity = JSON.stringify([props.project.id, props.conversationId, props.workIds, props.initialArtifactId]);
+  return <ProjectArtifactBrowser key={identity} {...props} />;
+}
+
+function ProjectArtifactBrowser({ project, agents = [], conversationId, workIds, initialArtifactId, onOpenWork }: {
   project: WorkspaceProject;
   agents?: Array<{ id: string; name: string; emoji?: string }>;
   conversationId?: string;
   workIds?: string[];
+  initialArtifactId?: string;
+  onOpenWork?: (identity: WorkItemIdentity) => void;
 }) {
   const [artifacts, setArtifacts] = useState<ProjectArtifactLedgerItem[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialArtifactId ?? null);
+  const requestGeneration = useRef(0);
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -131,6 +141,7 @@ export function ProjectArtifactSurface({ project, agents = [], conversationId, w
   );
 
   const refresh = useCallback(async (quiet = false) => {
+    const generation = ++requestGeneration.current;
     if (quiet) setRefreshing(true);
     else setLoading(true);
     try {
@@ -140,21 +151,24 @@ export function ProjectArtifactSurface({ project, agents = [], conversationId, w
       const response = await fetch(`/api/artifacts?${query.toString()}`, { cache: 'no-store' });
       const payload = await response.json() as { artifacts?: ProjectArtifactLedgerItem[]; error?: string };
       if (!response.ok) throw new Error(payload.error ?? 'artifact_load_failed');
+      if (requestGeneration.current !== generation) return;
       const next = payload.artifacts ?? [];
       setArtifacts(next);
-      setSelectedId((current) => current && next.some((item) => item.id === current) ? current : next[0]?.id ?? null);
+      setSelectedId((current) => initialArtifactId ?? (current && next.some((item) => item.id === current) ? current : next[0]?.id ?? null));
       setError('');
     } catch (cause) {
+      if (requestGeneration.current !== generation) return;
       setError(cause instanceof Error ? cause.message : '产物加载失败');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (requestGeneration.current === generation) { setLoading(false); setRefreshing(false); }
     }
-  }, [conversationId, project.id, scopedWorkIds]);
+  }, [conversationId, project.id, scopedWorkIds, initialArtifactId]);
 
   useEffect(() => {
     const controller = window.setTimeout(() => void refresh(), 0);
-    return () => window.clearTimeout(controller);
+    // Request counter invalidates asynchronous responses; not a DOM reference.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { window.clearTimeout(controller); requestGeneration.current++; };
   }, [refresh]);
 
   const scopedArtifacts = artifacts;
@@ -171,7 +185,7 @@ export function ProjectArtifactSurface({ project, agents = [], conversationId, w
         artifact.updatedBy,
         identity.label,
         KIND_LABEL[artifact.kind],
-        CATEGORY_LABEL[KIND_CATEGORY[artifact.kind]],
+        CATEGORY_LABEL[artifactCategory(artifact)],
       ]
         .filter(Boolean)
         .some((value) => value!.toLocaleLowerCase().includes(normalizedQuery));
@@ -179,7 +193,7 @@ export function ProjectArtifactSurface({ project, agents = [], conversationId, w
   }, [agents, filter, query, scopedArtifacts]);
   const contributors = useMemo(() => groupByContributor(filtered, agents), [agents, filtered]);
   const selected = filtered.find((artifact) => artifact.id === selectedId)
-    ?? contributors[0]?.artifacts[0]
+    ?? (initialArtifactId ? null : contributors[0]?.artifacts[0])
     ?? null;
   const registeredCount = scopedArtifacts.filter((artifact) => artifact.status === 'registered').length;
 
@@ -225,7 +239,7 @@ export function ProjectArtifactSurface({ project, agents = [], conversationId, w
                     {contributors.map((contributor) => <ContributorArtifacts key={contributor.identity.id} contributor={contributor} selectedId={selected?.id ?? null} onSelect={setSelectedId} />)}
                   </div>
                 </div>
-                <div className="min-h-[280px] bg-[hsl(var(--bg-card))]">{selected ? <ArtifactDetail artifact={selected} actorLabel={agentIdentity(selected.updatedBy, agents).label} copied={copied} onCopy={() => void copyReference()} /> : <div className="flex h-full items-center justify-center p-8 text-xs text-[hsl(var(--text-tertiary))]">选择一个产物查看详情</div>}</div>
+                <div className="min-h-[280px] bg-[hsl(var(--bg-card))]">{selected ? <ArtifactDetail key={selected.id} projectId={project.id} onOpenWork={onOpenWork} artifact={selected} actorLabel={agentIdentity(selected.updatedBy, agents).label} copied={copied} onCopy={() => void copyReference()} /> : <div className="flex h-full items-center justify-center p-8 text-xs text-[hsl(var(--text-tertiary))]">目标交付件尚未加载或已不在当前范围，请重新选择</div>}</div>
               </div>}
     </section>
   </section>;
@@ -261,19 +275,24 @@ function ArtifactRow({ artifact, selected, onSelect }: { artifact: ProjectArtifa
   </button>;
 }
 
-function ArtifactDetail({ artifact, actorLabel, copied, onCopy }: { artifact: ProjectArtifactLedgerItem; actorLabel: string; copied: boolean; onCopy: () => void }) {
+function ArtifactDetail({ artifact, actorLabel, copied, onCopy, projectId, onOpenWork }: { artifact: ProjectArtifactLedgerItem; actorLabel: string; copied: boolean; onCopy: () => void; projectId: string; onOpenWork?: (identity: WorkItemIdentity) => void }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const externalUrl = safeExternalUrl(artifact.ref);
+  const query = new URLSearchParams({ projectId, artifactId: artifact.id, ...(artifact.conversationId ? { conversationId: artifact.conversationId } : {}), ...(artifact.workId ? { workId: artifact.workId } : {}) }).toString();
   const Icon = KIND_ICON[artifact.kind];
   return <article className="p-5 sm:p-6">
     <div className="flex items-start justify-between gap-4"><div className="flex min-w-0 items-start gap-3"><span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[hsl(var(--bg-muted))]"><Icon className="size-4" /></span><div className="min-w-0"><h4 className="truncate text-sm font-semibold">{artifact.label}</h4><div className="mt-1.5 flex flex-wrap items-center gap-2"><StatusBadge status={artifact.status} /><span className="text-[10px] text-[hsl(var(--text-tertiary))]">{KIND_LABEL[artifact.kind]}</span></div></div></div><button type="button" onClick={onCopy} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[hsl(var(--border))] px-2.5 text-[11px] hover:bg-[hsl(var(--bg-muted))]">{copied ? <Check className="size-3.5 text-emerald-600" /> : <Clipboard className="size-3.5" />}{copied ? '已复制' : '复制引用'}</button></div>
+    <div className="mt-4 flex flex-wrap gap-3">{externalUrl ? <a href={externalUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-[hsl(var(--text-primary))] px-3 py-2 text-xs text-[hsl(var(--text-inverse))]">打开交付链接</a> : <button type="button" onClick={() => setPreviewOpen(!previewOpen)} aria-expanded={previewOpen} className="rounded-lg bg-[hsl(var(--text-primary))] px-3 py-2 text-xs text-[hsl(var(--text-inverse))]">{previewOpen ? '收起预览' : '预览文件'}</button>}</div>
+    {previewOpen && <ArtifactPreviewPanel query={query} />}
     <dl className="mt-6 space-y-4">
       <DetailFact label="引用"><code className="block break-all rounded-lg bg-[hsl(var(--bg-muted))] px-3 py-2.5 text-[11px] leading-5">{artifact.ref}</code></DetailFact>
       <div className="grid gap-4 sm:grid-cols-2"><DetailFact label="来源"><span>{actorLabel}</span></DetailFact><DetailFact label="最后变化"><span>{formatTime(artifact.updatedAt)}</span></DetailFact></div>
-      {artifact.workTitle && <DetailFact label="关联工作"><span>{artifact.workTitle}</span></DetailFact>}
+      {artifact.workTitle && <DetailFact label="关联工作">{onOpenWork && artifact.workId && artifact.conversationId ? <button type="button" onClick={() => onOpenWork({ conversationId: artifact.conversationId!, taskId: artifact.workId! })} className="text-left underline">{artifact.workTitle}</button> : <span>{artifact.workTitle}（历史记录缺少定位信息）</span>}</DetailFact>}
       <DetailFact label="发生过"><div className="flex flex-wrap gap-1.5">{artifact.operations.map((operation) => <span key={operation} className="rounded-md bg-[hsl(var(--bg-muted))] px-2 py-1 text-[10px]">{OPERATION_LABEL[operation]}</span>)}</div></DetailFact>
     </dl>
     <div className={cn('mt-6 rounded-xl border p-4', artifact.status === 'registered' ? 'border-emerald-500/20 bg-emerald-500/[0.06]' : 'border-amber-500/20 bg-amber-500/[0.06]')}>
-      <div className="flex items-center gap-2 text-xs font-medium">{artifact.status === 'registered' ? <FileCheck2 className="size-3.5 text-emerald-600" /> : <RefreshCw className="size-3.5 text-amber-600" />}{artifact.status === 'registered' ? '已成为正式证据' : 'Agent 正在形成结果'}</div>
-      <p className="mt-1.5 text-[11px] leading-5 text-[hsl(var(--text-tertiary))]">{artifact.status === 'registered' ? '该引用已随工作结果提交，可以用于评审、发布与后续 Agent 接力。' : '平台已观察到成功写入，但尚未随工作结果登记；它会进入后续 Agent 的项目上下文，不会被误判为已经交付。'}</p>
+      <div className="flex items-center gap-2 text-xs font-medium">{artifact.status === 'registered' ? <FileCheck2 className="size-3.5 text-emerald-600" /> : <RefreshCw className="size-3.5 text-amber-600" />}{artifact.status === 'registered' ? '已登记为交付件' : 'Agent 正在形成结果'}</div>
+      <p className="mt-1.5 text-[11px] leading-5 text-[hsl(var(--text-tertiary))]">{artifact.status === 'registered' ? '该引用已随工作结果登记，但登记本身不等于验收通过；完成依据请查看所属工作项的成果与验收。' : '平台已观察到成功写入，但尚未随工作结果登记；它会进入后续 Agent 的项目上下文，不会被误判为已经交付。'}</p>
     </div>
   </article>;
 }
@@ -330,6 +349,14 @@ function agentIdentity(
     : { id: actorId, label: actorId, order: agents.length + 1 };
 }
 
+function artifactCategory(artifact: ProjectArtifactLedgerItem): ArtifactCategory {
+  if (artifact.kind === 'file') {
+    if (/\.(log|tap|junit)$/i.test(artifact.ref)) return 'verification';
+    if (/(^|\/)(package(?:-lock)?\.json|tsconfig[^/]*\.json|[^/]+\.config\.[^/]+|pnpm-lock\.yaml|Cargo\.(toml|lock))$/i.test(artifact.ref)) return 'implementation';
+  }
+  return KIND_CATEGORY[artifact.kind];
+}
+
 function groupByContributor(
   artifacts: ProjectArtifactLedgerItem[],
   agents: Array<{ id: string; name: string; emoji?: string }>,
@@ -344,7 +371,7 @@ function groupByContributor(
     .map(([actorId, contributorArtifacts]): ContributorColumn => {
       const categories = CATEGORY_ORDER.flatMap((category) => {
         const categoryArtifacts = contributorArtifacts.filter(
-          (artifact) => KIND_CATEGORY[artifact.kind] === category,
+          (artifact) => artifactCategory(artifact) === category,
         );
         return categoryArtifacts.length > 0 ? [{ category, artifacts: categoryArtifacts }] : [];
       });

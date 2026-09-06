@@ -198,7 +198,7 @@ export function ProjectAddDialog({
                     </div>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs font-medium">{query.trim() ? `连接“${query.trim()}”` : '连接新项目'}</span>
-                      <span className="mt-0.5 block text-[11px] text-[hsl(var(--text-tertiary))]">选择本地目录并创建长期 Project</span>
+                      <span className="mt-0.5 block text-[11px] text-[hsl(var(--text-tertiary))]">选择本地目录并创建长期项目</span>
                     </span>
                   </button>
                 )}
@@ -251,7 +251,7 @@ export function ProjectAddDialog({
                   if (!nameTouched && !name.trim()) setName(nameFromPath(value));
                   setError('');
                 }} />
-                <p className="text-xs leading-5 text-[hsl(var(--text-tertiary))]">连接后直接进入项目协作流。工作、产物和评审会作为同一 Project 中的正式对象出现。</p>
+                <p className="text-xs leading-5 text-[hsl(var(--text-tertiary))]">连接后进入项目概览。创建工作项、交给团队安排，再查看进度与验收；每项工作都有独立讨论。</p>
                 {error && <div role="alert" className="rounded-md bg-[hsl(var(--status-rejected-bg))] px-3 py-2 text-xs text-[hsl(var(--status-rejected))]">{error}</div>}
               </div>
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ProjectObjectWorkspace } from '@/components/project/ProjectObjectWorkspace';
 import { useTaskHubStore, type WorkspaceProject } from '@/store/taskHubStore';
 
@@ -22,6 +22,12 @@ const project: WorkspaceProject = {
 };
 
 describe('ProjectObjectWorkspace', () => {
+  it('does not overwrite an external project selection when its parent owns navigation', () => {
+    useTaskHubStore.setState({ selectedConversationId: project.workspaceConversationId, agentRoster: [] });
+    render(<ProjectObjectWorkspace project={project} conversations={[]} tasks={[]} blockers={{}} requestedNavigation={{ projectId: project.id, tab: 'overview' }} onNavigate={vi.fn()} />);
+    act(() => useTaskHubStore.getState().setSelectedConversationId('workspace-bravo'));
+    expect(useTaskHubStore.getState().selectedConversationId).toBe('workspace-bravo');
+  });
   it('opens a Project overview without mounting a global chat composer', () => {
     useTaskHubStore.setState({
       selectedConversationId: project.workspaceConversationId,

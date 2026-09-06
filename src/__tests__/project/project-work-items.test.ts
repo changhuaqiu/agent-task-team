@@ -79,3 +79,25 @@ describe('projectWorkItems', () => {
     }]);
   });
 });
+
+describe('audit fixture: 4 work items, 13 execution records', () => {
+  it('counts root work, not execution records, and excludes ready from active', async () => {
+    const { projectWorkSummary, resolveProjectWorkItem } = await import('@/lib/project-work-items');
+    const scopes = [
+      conversation({ id: 'workspace-1', projectId: project.id, workspaceKind: 'project_workspace' }),
+      conversation({ id: 'new', projectId: project.id, workspaceKind: 'workstream', rootTaskId: 'root' }),
+      conversation({ id: 'pending', projectId: project.id, workspaceKind: 'workstream' }),
+    ];
+    const tasks = [
+      task('legacy-a', 'workspace-1', '2026-09-06T00:00:00Z'),
+      { ...task('legacy-b', 'workspace-1', '2026-09-06T00:00:00Z'), status: 'done' as const },
+      { ...task('root', 'new', '2026-09-06T00:00:00Z'), status: 'in_progress' as const },
+      ...Array.from({ length: 10 }, (_, i) => task('child-' + i, 'new', '2026-09-06T00:00:00Z')),
+    ];
+    const items = projectWorkItems(project, scopes, tasks);
+    expect(tasks).toHaveLength(13);
+    expect(projectWorkSummary(items)).toMatchObject({ total: 4, active: 1, done: 1, open: 3 });
+    expect(resolveProjectWorkItem(items, { conversationId: 'new', taskId: 'child-4' })?.id).toBe('root');
+    expect(resolveProjectWorkItem(items, { conversationId: 'workspace-1', taskId: 'child-4' })).toBeUndefined();
+  });
+});

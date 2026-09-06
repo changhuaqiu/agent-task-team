@@ -1,0 +1,13 @@
+{
+  "evaluation": "UX-JOURNEY-2026-09-06",
+  "reports": [
+    {"file": ".ath/ux-release-tests.json", "tests": 2054, "passed": 2052, "failed": 0, "skipped": 2, "sha256": "d16203759565d51a9f2a4a42b8c358ae88d7881bb9ae6734d72b4ae43e8134f4", "scope": "final source including desktop renderer credential navigation regression"},
+    {"file": ".ath/ux-full-tests.json", "tests": 2053, "passed": 2051, "failed": 0, "skipped": 2, "sha256": "5fb4c4bb5272a4725f61d0dc2a670f4a6c698b214390cbff2647412b58fa7425"},
+    {"file": ".ath/ux-final-tests.json", "tests": 2053, "passed": 2050, "failed": 1, "skipped": 2, "sha256": "722df412af63aa26bdb003519ee98fbbd7d0b34569e0eee1d3b66df290f4ea9d", "failure": "Windows EPERM opening temporary .ath/context/.prepare.lock in existing cross-process serialization test"},
+    {"file": ".ath/ux-final-recheck.json", "tests": 39, "passed": 39, "failed": 0, "skipped": 0, "sha256": "9d5f525e0834294ebb329322d1d6f9b53e214bf89838c95f82484837b4eb5823"},
+    {"file": ".ath/ux-final-clean-tests.json", "tests": 2053, "passed": 2051, "failed": 0, "skipped": 2, "sha256": "e623c210dd95ea2f94749a38cd72f3f41264a2ceb241b7005cab9d1836a19c59"}
+  ],
+  "sourceLint": {"files": 46, "errors": 0, "warnings": 0, "scope": "changed production files and new test files; legacy state test any annotations are not included"},
+  "typecheck": "passed",
+  "note": "Summary extracted from local Vitest JSON reports; full reports remain in the dedicated worktree .ath directory. A passing rerun does not prove Windows filesystem contention is eliminated. No live Agent quality experiment."
+}

@@ -88,6 +88,8 @@ Project Context 的 L5“知识与证据”层必须索引本目录：
 
 ## 5. 当前记录
 
+- [2026-09-06-ux-journey-evaluation.md](2026-09-06-ux-journey-evaluation.md)：全流程体验的 C 级计数、精确导航、当前阻塞、首用安排与成果查收验证；包含旧工作项兼容和安全预览边界，不代表真实 Agent 完成率结论。
+
 - `agent-evaluation-system.md`：Agent 任务与应用版本评估系统设计。
 - `2026-07-20-project-context-bootstrap-evaluation.md`：项目上下文初始化的 C 级前后对比与 2026-07-21 两场景真实 Agent live verification（已接受；任务质量结论仍需 E 级实验）。
 - `2026-08-22-runtime-trace-hardening-evaluation.md`：基于最近真实 Trace 的 WorkContract、Task 权限、ACP session 与 Phoenix 在线投影 C 级对比（组件已接受；任务完成率仍需 E 级复测）。

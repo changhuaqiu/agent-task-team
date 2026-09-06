@@ -56,7 +56,8 @@ Coding agents are already good at producing code. The harder problem is keeping 
 ```mermaid
 flowchart LR
   A["Goal · Acceptance · Scope · Authorization"] --> B["Work item inside a project"]
-  B --> C["Task breakdown and dependencies"]
+  B --> S["Hand work to the team"]
+  S --> C["Task breakdown and dependencies"]
   C --> D["Agent execution and handoff"]
   D --> E["Review · Tests · Browser acceptance"]
   E -->|Pass| F["Deliverables · Evidence · Limitations"]
@@ -64,6 +65,15 @@ flowchart LR
 ```
 
 Humans own the goal, taste, boundaries, and high-risk decisions. The system makes sure the right role receives the right work, failures can recover, and completion requires evidence.
+
+The everyday path has four steps:
+
+1. **Create a goal:** connect a project directory, create a work item, and define acceptance. Saving a goal does not start execution.
+2. **Hand it to the team:** check the coordinator and account source, then explicitly request orchestration. A submission receipt is not proof that an agent is running.
+3. **Handle what needs you:** open the exact blocked task from the overview, provide missing input, or retry after checking the cause. Retry does not expand permissions.
+4. **Collect results and acceptance:** browse deliverables by contributor and category, preview their contents, and inspect the verifier, version, evidence, and limitations.
+
+Existing projects and legacy work items use the same entry points; no recreation is required. Missing historical evidence is shown explicitly. Artifact registration, task completion, and acceptance are separate facts, and a preview shows the current file, not a frozen historical version. See the [end-to-end UX evaluation](docs/technical/evaluation/2026-09-06-ux-journey-evaluation.md).
 
 ---
 

@@ -1,0 +1,71 @@
+{
+  "evaluation": "UX-JOURNEY-2026-09-06",
+  "level": "C",
+  "baselineRevision": "c507451",
+  "candidateSourceSha256": "64a712dc33f2dcfed104e9507010608bfe5dc6baef456ec9fa8b23459c8ec4de",
+  "fixture": {
+    "workItems": 4,
+    "tasks": 13,
+    "hasUnplannedWork": true,
+    "hasLegacySharedScope": true
+  },
+  "cases": [
+    {
+      "metric": "sidebar_work_count",
+      "expected": 4,
+      "baseline": 13,
+      "candidate": 4
+    },
+    {
+      "metric": "actually_in_progress",
+      "expected": 1,
+      "baseline": 3,
+      "candidate": 1
+    },
+    {
+      "metric": "current_blocked_tasks_visible",
+      "expected": 1,
+      "baseline": 0,
+      "candidate": 1
+    }
+  ],
+  "exactTargets": [
+    {
+      "conversationId": "legacy",
+      "taskId": "a",
+      "expected": "a",
+      "actual": "a"
+    },
+    {
+      "conversationId": "legacy",
+      "taskId": "b",
+      "expected": "b",
+      "actual": "b"
+    },
+    {
+      "conversationId": "work",
+      "taskId": "child-0",
+      "expected": "root",
+      "actual": "root"
+    },
+    {
+      "conversationId": "pending",
+      "taskId": "pending",
+      "expected": "pending",
+      "actual": "pending"
+    },
+    {
+      "conversationId": "legacy",
+      "taskId": "child-0",
+      "expected": null,
+      "actual": null
+    }
+  ],
+  "baselineCountCasesPassed": 0,
+  "candidateCountCasesPassed": 3,
+  "limitations": [
+    "Deterministic projection comparison, not human usability timing.",
+    "No live Agent runs; no task-completion-rate claim.",
+    "Navigation baseline assessed in audit/component regressions, not synthesized as a numeric success rate."
+  ]
+}

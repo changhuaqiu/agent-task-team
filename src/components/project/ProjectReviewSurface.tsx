@@ -12,13 +12,20 @@ const STATUS_LABEL: Record<ProjectReviewStatus, string> = {
   closed: '已关闭',
 };
 
-export function ProjectReviewSurface({ project, refreshToken = 0, onCreate }: {
+type ProjectReviewSurfaceProps = {
   project: WorkspaceProject;
   refreshToken?: number;
+  initialReviewId?: string;
   onCreate?: () => void;
-}) {
+};
+
+export function ProjectReviewSurface(props: ProjectReviewSurfaceProps) {
+  return <ProjectReviewBrowser key={`${props.project.id}:${props.initialReviewId ?? ''}`} {...props} />;
+}
+
+function ProjectReviewBrowser({ project, refreshToken = 0, initialReviewId, onCreate }: ProjectReviewSurfaceProps) {
   const [reviews, setReviews] = useState<ProjectReview[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialReviewId ?? null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [summary, setSummary] = useState('');

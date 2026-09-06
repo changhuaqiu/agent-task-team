@@ -19,6 +19,33 @@ export interface ProjectWorkItem {
   sourceLabel?: string;
 }
 
+export interface WorkItemIdentity {
+  conversationId: string;
+  taskId: string;
+}
+
+export function workItemIdentityKey(identity: WorkItemIdentity): string {
+  return JSON.stringify([identity.conversationId, identity.taskId]);
+}
+
+/** Resolve an exact root OR descendant, never a naked task id across scopes. */
+export function resolveProjectWorkItem(items: ProjectWorkItem[], identity: WorkItemIdentity): ProjectWorkItem | undefined {
+  return items.find((item) => item.conversationId === identity.conversationId
+    && (item.id === identity.taskId || item.tasks.some((task) => task.id === identity.taskId)));
+}
+
+export function projectWorkSummary(items: ProjectWorkItem[]) {
+  return {
+    total: items.length,
+    active: items.filter((item) => item.status === 'in_progress').length,
+    open: items.filter((item) => !['done', 'cancelled'].includes(item.status)).length,
+    review: items.filter((item) => item.status === 'in_review').length,
+    done: items.filter((item) => item.status === 'done').length,
+    // An execution blocker is not a terminal status of its parent goal.
+    blocked: items.filter((item) => item.tasks.some((task) => task.status === 'blocked')),
+  };
+}
+
 function compareTaskAge(left: Task, right: Task): number {
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }

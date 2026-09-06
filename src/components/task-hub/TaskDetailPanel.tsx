@@ -131,7 +131,6 @@ export function TaskDetailPanel() {
   })));
   const panelRef = useRef<HTMLDivElement>(null);
   const descEditRef = useRef<HTMLTextAreaElement>(null);
-  const reviewNoteRef = useRef<HTMLTextAreaElement>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [progressRequestStates, setProgressRequestStates] = useState<Record<string, {
@@ -190,6 +189,8 @@ export function TaskDetailPanel() {
       ? reusableCommand
       : {
         identity,
+        // This timestamp is created only inside the click handler, never during render.
+        // eslint-disable-next-line react-hooks/purity
         idempotencyKey: `human:${task.conversationId}:${task.id}:progress:${Date.now()}`,
         issuedAt: new Date().toISOString(),
       };
@@ -249,24 +250,6 @@ export function TaskDetailPanel() {
     });
   }, [editValue]);
 
-  const handleReviewNoteEmoji = useCallback((emoji: string) => {
-    if (!task) return;
-    const textarea = reviewNoteRef.current;
-    const current = task.reviewNote ?? '';
-    if (!textarea) {
-      updateTaskStatus(taskIdentity(task), task.status, current + emoji);
-      return;
-    }
-    const start = textarea.selectionStart ?? current.length;
-    const end = textarea.selectionEnd ?? start;
-    const next = current.slice(0, start) + emoji + current.slice(end);
-    updateTaskStatus(taskIdentity(task), task.status, next);
-    requestAnimationFrame(() => {
-      const pos = start + emoji.length;
-      textarea.focus();
-      textarea.setSelectionRange(pos, pos);
-    });
-  }, [task, updateTaskStatus]);
 
   if (!task) return null;
 
@@ -426,7 +409,7 @@ export function TaskDetailPanel() {
               >
                 <span className="text-sm">{agent?.emoji ?? '🤖'}</span>
                 <span className="text-sm font-medium text-[hsl(var(--text-primary))]">
-                  {agent?.name ?? 'Unassigned'}
+                  {agent?.name ?? '未分配'}
                 </span>
               </button>
             )}
@@ -438,21 +421,8 @@ export function TaskDetailPanel() {
               <label className="text-xs font-medium uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
                 阻塞原因
               </label>
-              <div className="relative">
-                <textarea
-                  ref={reviewNoteRef}
-                  value={task.reviewNote ?? ''}
-                  onChange={(e) => {
-                    updateTaskStatus(taskIdentity(task), task.status, e.target.value);
-                  }}
-                  placeholder="填写原因..."
-                  rows={2}
-                  className="text-sm leading-relaxed bg-[hsl(var(--status-rejected-bg))] border border-[hsl(var(--status-rejected-border))] rounded-sm p-3 pr-10 outline-none w-full resize-y text-[hsl(var(--status-rejected))]"
-                />
-                <div className="absolute top-2.5 right-2.5">
-                  <EmojiPickerButton onEmojiSelect={handleReviewNoteEmoji} placement="bottom-end" />
-                </div>
-              </div>
+              <p className="whitespace-pre-wrap rounded-lg border border-[hsl(var(--status-rejected-border))] bg-[hsl(var(--status-rejected-bg))] p-3 text-sm leading-6 text-[hsl(var(--status-rejected))]">{task.reviewNote || '尚未提供具体原因，请查看任务活动。'}</p>
+              <p className="text-xs text-[hsl(var(--text-tertiary))]">原因来自当前任务记录；修改原因请使用下方明确的任务操作。</p>
             </div>
           )}
 
@@ -527,6 +497,8 @@ export function TaskDetailPanel() {
           />
 
           <TaskGraphActionsPanel
+            key={`${task.conversationId}:${task.id}`}
+            agents={effectiveRoster}
             revision={graph?.revision ?? 0}
             task={{
               id: task.id,
@@ -560,8 +532,9 @@ export function TaskDetailPanel() {
           </div>
         </div>
 
-        {/* Action Bar */}
-        <div className="p-4 border-t border-[hsl(var(--border))] space-y-3">
+        {/* Advanced status controls do not compete with the primary recovery action. */}
+        <details key={`${task.conversationId}:${task.id}:advanced`} className="p-4 border-t border-[hsl(var(--border))] space-y-3">
+          <summary className="cursor-pointer text-xs font-medium">高级状态与删除</summary>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
             流转到
           </label>
@@ -603,7 +576,8 @@ export function TaskDetailPanel() {
           <button
             type="button"
             onClick={() => {
-              removeTask(taskIdentity(task));
+              if (!window.confirm(`确认删除「${task.title}」？请先确认不再需要这个任务。`)) return;
+              void removeTask(taskIdentity(task));
               setSelectedTaskId(null);
               void refreshGraph();
             }}
@@ -612,11 +586,12 @@ export function TaskDetailPanel() {
             <Trash2 className="w-3 h-3" />
             删除任务
           </button>
-        </div>
+        </details>
 
-        {/* Terminal View (Lower Half) */}
+        {/* Diagnostics are secondary to the task itself. */}
         {agent && (
-        <div className="h-64 shrink-0 flex flex-col bg-[#111111] border-t-2 border-[hsl(var(--border))]">
+        <details key={`${task.conversationId}:${task.id}:terminal`} className="shrink-0 border-t border-[hsl(var(--border))] p-4"><summary className="cursor-pointer text-xs font-medium">查看运行控制台</summary>
+        <div className="mt-3 h-64 flex flex-col bg-[#111111]">
           <div className="px-3 py-1.5 flex items-center justify-between border-b-2 border-[#333]">
             <span className="text-[10px] font-bold text-[#888] uppercase tracking-widest">
               {agent.name} 的控制台
@@ -630,7 +605,7 @@ export function TaskDetailPanel() {
           <div className="flex-1 relative overflow-hidden">
             <TerminalView agentId={agent.id} />
           </div>
-        </div>
+        </div></details>
         )}
       </div>
     </>

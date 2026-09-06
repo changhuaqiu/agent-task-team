@@ -140,7 +140,7 @@ export class WorkspaceInboxRepository {
     db.transaction(() => {
       const tasks = db.prepare(`
         SELECT task.id,task.title,task.description,task.status,task.agent_id,task.revision,
-          task.updated_at,conversation.project_id
+          task.updated_at,task.conversation_id,conversation.project_id
         FROM task JOIN conversation ON conversation.id=task.conversation_id
         WHERE conversation.project_id IS NOT NULL
       `).all() as Array<Record<string, unknown>>;
@@ -152,7 +152,7 @@ export class WorkspaceInboxRepository {
         title: String(task.title), preview: String(task.description ?? ''),
         actionState: task.status === 'blocked' ? 'needs_action' : ['done', 'cancelled'].includes(String(task.status)) ? 'resolved' : 'informational',
         latestEventId: `task:${task.id}:r${task.revision}`,
-        latestAt: String(task.updated_at), metadata: { status: task.status },
+        latestAt: String(task.updated_at), metadata: { status: task.status, conversationId: task.conversation_id },
       });
 
       const reviews = db.prepare(`
@@ -173,7 +173,7 @@ export class WorkspaceInboxRepository {
 
       const excludedMessageTypes = RUNTIME_OBSERVATION_CONTENT_TYPES.map(() => '?').join(',');
       const messages = db.prepare(`
-        SELECT message.*,conversation.project_id
+        SELECT message.*,conversation.project_id,conversation.title scope_title
         FROM chat_message message JOIN conversation ON conversation.id=message.conversation_id
         WHERE conversation.project_id IS NOT NULL
           AND message.visibility='public' AND message.sender_type IN ('human','agent')
@@ -185,19 +185,46 @@ export class WorkspaceInboxRepository {
           )
         ORDER BY message.created_at,message.id
       `).all(...RUNTIME_OBSERVATION_CONTENT_TYPES, LEGACY_RUNTIME_FAILURE_PREFIX) as Array<Record<string, unknown>>;
+      const latestByThread = new Map<string, Record<string, unknown>>();
       for (const message of messages) {
         const metadata = parseObject(typeof message.metadata === 'string' ? message.metadata : null);
-        const root = threadRoot(metadata, String(message.id));
+        const root = threadRoot(metadata, message.sender_type === 'agent' && message.invocation_id ? `invocation:${message.invocation_id}` : String(message.id));
+        const key = `message:${message.conversation_id}:${root}`;
+        latestByThread.set(key, message);
+      }
+      // Project only the final message of each thread. Replaying every older
+      // segment on each refresh incorrectly advances revision/unread counters.
+      for (const [key, message] of latestByThread) {
+        const existing = db.prepare('SELECT 1 FROM workspace_inbox_item WHERE conversation_key=?').get(key);
+        const legacySources = !existing ? messages.filter((source) => {
+          const metadata = parseObject(typeof source.metadata === 'string' ? source.metadata : null);
+          const root = threadRoot(metadata, source.sender_type === 'agent' && source.invocation_id ? `invocation:${source.invocation_id}` : String(source.id));
+          return key === `message:${source.conversation_id}:${root}`;
+        }).map((source) => db.prepare("SELECT unread_count,read_at FROM workspace_inbox_item WHERE kind='message_thread' AND latest_event_id=?")
+          .get(String(source.id)) as { unread_count: number; read_at: string | null } | undefined) : [];
+        const metadata = parseObject(typeof message.metadata === 'string' ? message.metadata : null);
+        const root = threadRoot(metadata, message.sender_type === 'agent' && message.invocation_id ? `invocation:${message.invocation_id}` : String(message.id));
         this.project({
-          conversationKey: `message:${message.conversation_id}:${root}`,
+          conversationKey: key,
           kind: 'message_thread', projectId: String(message.project_id),
           subject: { type: 'message_thread', id: root },
           actor: { type: String(message.sender_type), id: String(message.sender_id) },
-          title: String(message.content).trim().split('\n')[0].slice(0, 120) || '消息',
+          title: String(message.scope_title || '项目讨论'),
           preview: String(message.content),
           latestEventId: String(message.id), latestAt: String(message.created_at),
-          metadata: { ...metadata, conversationId: message.conversation_id },
+          metadata: { ...metadata, conversationId: message.conversation_id, messageId: String(message.id) },
         });
+        if (legacySources.length && legacySources.every((source) => source && source.unread_count === 0 && source.read_at)) {
+          this.markRead(key, legacySources.map((source) => source!.read_at!).sort().at(-1)!);
+        }
+      }
+
+      // Remove pre-grouping rows only after their eligible source messages have
+      // been projected above. Current invocation/thread rows remain intact.
+      for (const message of messages) {
+        const metadata = parseObject(typeof message.metadata === 'string' ? message.metadata : null);
+        const root = threadRoot(metadata, message.sender_type === 'agent' && message.invocation_id ? `invocation:${message.invocation_id}` : String(message.id));
+        db.prepare("DELETE FROM workspace_inbox_item WHERE kind='message_thread' AND latest_event_id=? AND conversation_key<>?").run(String(message.id), `message:${message.conversation_id}:${root}`);
       }
 
       // Runtime observations remain canonical chat trace rows, but they are not
@@ -227,7 +254,7 @@ export class WorkspaceInboxRepository {
       SELECT item.*,project.name project_name
       FROM workspace_inbox_item item LEFT JOIN project ON project.id=item.project_id
       WHERE ${where}
-      ORDER BY item.latest_at DESC,item.conversation_key
+      ORDER BY CASE item.action_state WHEN 'needs_action' THEN 0 ELSE 1 END,item.latest_at DESC,item.conversation_key
       LIMIT ?
     `).all(Math.max(1, Math.min(500, limit))) as InboxRow[];
     return rows.map(hydrate);

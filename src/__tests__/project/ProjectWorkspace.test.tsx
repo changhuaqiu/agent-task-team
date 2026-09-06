@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ProjectWorkspace } from '@/components/project/ProjectWorkspace';
 import { useTaskHubStore, type WorkspaceProject } from '@/store/taskHubStore';
 import type { Task } from '@/store/taskStore';
+import { readDesktopRendererSessionToken } from '@/lib/desktop-host/renderer-session';
 
 vi.mock('@/components/project/ProjectSidebar', () => ({
   ProjectSidebar: ({ activeSurface, projects, onOpenActivity, onOpenAgents, onOpenProjects, onSelectProject }: {
@@ -21,16 +22,17 @@ vi.mock('@/components/project/ProjectSidebar', () => ({
   </aside>,
 }));
 vi.mock('@/components/project/ProjectsOverview', () => ({
-  ProjectsOverview: ({ lens, onOpenTask }: { lens: string; onOpenTask: (taskId: string) => void }) => <section data-testid="projects-overview" data-lens={lens}><button type="button" onClick={() => onOpenTask('task-bravo')}>打开跨项目工作</button></section>,
+  ProjectsOverview: ({ lens, onOpenTask }: { lens: string; onOpenTask: (taskId: string) => void }) => <section data-testid="projects-overview" data-lens={lens}><button type="button" onClick={() => onOpenTask('task-bravo')}>打开跨项目工作</button><button type="button" onClick={() => onOpenTask('pending')}>打开待规划工作</button></section>,
 }));
 vi.mock('@/components/agent/AgentsDirectory', () => ({ AgentsDirectory: () => <section data-testid="agents-directory" /> }));
 vi.mock('@/components/project/ProjectObjectWorkspace', () => ({
-  ProjectObjectWorkspace: ({ project }: { project: WorkspaceProject }) => <section data-testid="project-object-workspace">{project.name}</section>,
+  ProjectObjectWorkspace: ({ project, requestedNavigation }: { project: WorkspaceProject; requestedNavigation: unknown }) => <section data-testid="project-object-workspace" data-navigation={JSON.stringify(requestedNavigation)}>{project.name}</section>,
 }));
 vi.mock('@/components/project/AgentObservabilityDrawerHost', () => ({
   AgentObservabilityDrawerHost: () => <aside data-testid="observability-drawer-host" />,
 }));
 
+beforeEach(() => window.history.replaceState(null, '', '/'));
 afterEach(cleanup);
 
 const projects: WorkspaceProject[] = [
@@ -105,5 +107,58 @@ describe('ProjectWorkspace', () => {
     expect(useTaskHubStore.getState().selectedConversationId).toBe('workspace-bravo');
     expect(useTaskHubStore.getState().selectedTaskId).toBeNull();
     expect(screen.getByTestId('project-object-workspace').textContent).toBe('Bravo');
+  });
+});
+
+describe('navigation regressions from end-to-end audit', () => {
+  it('preserves desktop command authentication across project/global navigation, remount and Back', () => {
+    resetWorkspace();
+    const initial = '#ath-desktop-session=fixture-renderer-token';
+    window.history.replaceState(null, '', initial);
+    const view = render(<ProjectWorkspace onAddProject={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Bravo' }));
+    expect(readDesktopRendererSessionToken()).toBe('fixture-renderer-token');
+    expect(new URLSearchParams(window.location.hash.slice(1)).get('project')).toBe('bravo');
+    view.unmount();
+    render(<ProjectWorkspace onAddProject={vi.fn()} />);
+    expect(screen.getByTestId('project-object-workspace').textContent).toBe('Bravo');
+    expect(readDesktopRendererSessionToken()).toBe('fixture-renderer-token');
+    fireEvent.click(screen.getByRole('button', { name: '收件箱' }));
+    expect(readDesktopRendererSessionToken()).toBe('fixture-renderer-token');
+    fireEvent.click(screen.getByRole('button', { name: 'Bravo' }));
+    window.history.replaceState(null, '', initial);
+    act(() => window.dispatchEvent(new PopStateEvent('popstate')));
+    expect(screen.getByTestId('projects-overview').getAttribute('data-lens')).toBe('activity');
+    expect(useTaskHubStore.getState().selectedConversationId).toBeNull();
+    expect(readDesktopRendererSessionToken()).toBe('fixture-renderer-token');
+  });
+  const pending = { id: 'pending', projectId: 'bravo', workspaceKind: 'workstream' as const, title: 'Pending goal', goal: 'Goal', status: 'active' as const, priority: 'p2' as const, projectPath: 'C:/projects/bravo', breakdownStatus: 'none' as const, createdAt: '2026-09-06T00:00:00Z', updatedAt: '2026-09-06T00:00:00Z' };
+  function target() { return JSON.parse(screen.getByTestId('project-object-workspace').getAttribute('data-navigation')!); }
+  it('preserves a deferred exact URL over persisted old selection until hydration', () => {
+    resetWorkspace('workspace-alpha');
+    const hash = '#project=bravo&view=work&scope=pending&work=pending&detail=activity';
+    window.history.replaceState(null, '', hash);
+    render(<ProjectWorkspace onAddProject={vi.fn()} />);
+    expect(window.location.hash).toBe(hash);
+    act(() => useTaskHubStore.setState({ conversations: [pending] }));
+    expect(target()).toMatchObject({ projectId: 'bravo', work: { conversationId: 'pending', taskId: 'pending' }, detailTab: 'activity' });
+  });
+  it('opens a pending work item even without an execution task', () => {
+    resetWorkspace();
+    useTaskHubStore.setState({ conversations: [pending] });
+    render(<ProjectWorkspace onAddProject={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '打开待规划工作' }));
+    expect(target().work).toEqual({ conversationId: 'pending', taskId: 'pending' });
+  });
+  it('restores global navigation and clears project scope on Back to empty initial hash', () => {
+    resetWorkspace();
+    render(<ProjectWorkspace onAddProject={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Bravo' }));
+    window.history.replaceState(null, '', '/');
+    act(() => window.dispatchEvent(new PopStateEvent('popstate')));
+    expect(screen.getByTestId('projects-overview').getAttribute('data-lens')).toBe('activity');
+    expect(useTaskHubStore.getState().selectedConversationId).toBeNull();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Agents' })[0]);
+    expect(window.location.hash).toBe('#workspace=agents');
   });
 });

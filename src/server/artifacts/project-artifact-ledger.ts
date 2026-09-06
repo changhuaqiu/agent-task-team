@@ -287,7 +287,9 @@ function merge(items: ArtifactProjectionItem[], limit: number): ProjectArtifactL
           : {}),
     } : item;
     if (prior && keepProducer) {
+      merged.id = prior.id;
       merged.updatedBy = prior.updatedBy;
+      merged.conversationId = prior.conversationId;
       if (prior.invocationId) merged.invocationId = prior.invocationId;
       else delete merged.invocationId;
       if (prior.workId) {
@@ -303,9 +305,8 @@ function merge(items: ArtifactProjectionItem[], limit: number): ProjectArtifactL
   return [...byRef.values()]
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
     .slice(0, Math.max(1, Math.min(200, limit)))
-    .map(({ producerRank, conversationId, ...item }) => {
+    .map(({ producerRank, ...item }) => {
       void producerRank;
-      void conversationId;
       return item;
     });
 }

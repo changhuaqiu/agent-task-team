@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { FocusedMessage } from '@/components/project/FocusedMessage';
 import { useIMEGuard } from '@/hooks/useIMEGuard';
 import { useTaskHubStore } from '@/store/taskHubStore';
 import type { Agent } from '@/store/agentStore';
@@ -44,7 +45,7 @@ function formatDateSeparator(dateStr: string): string {
   return `${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
-export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalone' | 'embedded' }) {
+export function GlobalChatRoom({ variant = 'standalone', focusMessageId }: { variant?: 'standalone' | 'embedded'; focusMessageId?: string }) {
   const selectedConversationId = useTaskHubStore((s) => s.selectedConversationId);
   const chatMessages = useTaskHubStore((s) => s.getChatMessagesForSelectedConversation());
   const addChatMessage = useTaskHubStore((s) => s.addChatMessage);
@@ -315,6 +316,7 @@ export function GlobalChatRoom({ variant = 'standalone' }: { variant?: 'standalo
         </div>
       )}
 
+      {focusMessageId && selectedConversationId && <FocusedMessage key={`${selectedConversationId}:${focusMessageId}`} messageId={focusMessageId} conversationId={selectedConversationId} />}
       {/* Stable activity timeline */}
       <div className="relative min-h-0 flex-1">
       <div

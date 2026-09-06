@@ -19,6 +19,7 @@ interface TaskGraphActionsPanelProps {
   revision: number;
   onChanged?: () => void | Promise<void>;
   className?: string;
+  agents?: Array<{ id: string; name: string }>;
 }
 
 function newIdempotencyKey(): string {
@@ -31,17 +32,21 @@ export function TaskGraphActionsPanel({
   revision,
   onChanged,
   className,
+  agents = [],
 }: TaskGraphActionsPanelProps) {
   const [splitText, setSplitText] = useState('');
   const [ownerAgentId, setOwnerAgentId] = useState(task.agentId);
   const [mergeSourceText, setMergeSourceText] = useState(task.id);
   const [mergeTargetTitle, setMergeTargetTitle] = useState(`${task.title} 集成`);
   const [error, setError] = useState<string | null>(null);
+  const [receiptMessage, setReceiptMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const commandIntents = useRef(new Map<string, { idempotencyKey: string; issuedAt: string }>());
 
   async function run(body: Record<string, unknown>) {
+    if (isSubmitting) return;
     setIsSubmitting(true);
+    setReceiptMessage(null);
     try {
       const intentSignature = JSON.stringify({ body, revision, deliveryId: task.conversationId });
       const intent = commandIntents.current.get(intentSignature) ?? {
@@ -65,6 +70,7 @@ export function TaskGraphActionsPanel({
       if (receipt.status !== 'accepted') throw new Error(receipt.userMessage ?? '任务操作被拒绝');
       commandIntents.current.delete(intentSignature);
       setError(null);
+      setReceiptMessage(action === 'resumeTask' ? '恢复请求已接纳；系统会重新检查依赖与权限，尚不代表执行成功。' : '操作已接纳，正在更新任务。');
       await onChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -93,9 +99,13 @@ export function TaskGraphActionsPanel({
             className={cn(buttonClass, 'border-lime-400/50 bg-lime-500/10 text-lime-700')}
           >
             <PlayCircle className="h-3.5 w-3.5" />
-            恢复任务
+            检查后重试
           </button>
-        ) : (
+        ) : null}
+      </div>
+      {task.status === 'blocked' && <p className="text-xs leading-5 text-[hsl(var(--text-secondary))]">先解决上方原因，再重试。权限被拒绝时，重试不会替你授权；可向负责人补充说明或调整执行方案。</p>}
+      <details className="pt-2"><summary className="cursor-pointer text-xs font-medium">更多任务操作</summary><div className="mt-3 space-y-3">
+      {task.status !== 'blocked' && (
           <button
             type="button"
             disabled={isSubmitting}
@@ -118,20 +128,16 @@ export function TaskGraphActionsPanel({
           <XCircle className="h-3.5 w-3.5" />
           取消任务
         </button>
-      </div>
 
       <div className="space-y-1.5">
         <label htmlFor={`assign-${task.id}`} className="text-[10px] font-medium text-[hsl(var(--text-secondary))]">
           改派给
         </label>
-        <input
-          id={`assign-${task.id}`}
-          aria-label="改派给"
-          value={ownerAgentId}
-          onChange={(event) => setOwnerAgentId(event.target.value)}
-          placeholder="Agent ID，例如 reviewer"
-          className="w-full rounded-[var(--radius-sm)] border border-[hsl(var(--border))] bg-[hsl(var(--bg-app))] px-2 py-1.5 text-xs outline-none focus:border-[hsl(var(--accent))]"
-        />
+        <select id={`assign-${task.id}`} aria-label="改派给" value={ownerAgentId} onChange={(event) => setOwnerAgentId(event.target.value)} className="field">
+          <option value="">选择负责人</option>
+          {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+          {ownerAgentId && !agents.some((agent) => agent.id === ownerAgentId) && <option value={ownerAgentId}>{ownerAgentId}（原负责人）</option>}
+        </select>
         <button
           type="button"
           disabled={isSubmitting || ownerAgentId.trim().length === 0 || ownerAgentId.trim() === task.agentId}
@@ -220,6 +226,8 @@ export function TaskGraphActionsPanel({
         </button>
       </div>
 
+      </div></details>
+      {receiptMessage && <p role="status" className="text-xs leading-5">{receiptMessage}</p>}
       {error && (
         <div className="rounded-[var(--radius-sm)] border border-[hsl(var(--status-rejected-border))] bg-[hsl(var(--status-rejected-bg))] p-2 text-xs text-[hsl(var(--status-rejected))]">
           {error}

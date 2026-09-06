@@ -219,7 +219,7 @@ function AccountDialog({
             <div className="text-[14px] font-semibold text-[hsl(var(--text-primary))]">
               {isEdit ? '编辑账号' : '添加账号'}
             </div>
-            <button type="button" onClick={onClose} className="p-1.5 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))]">
+            <button type="button" onClick={onClose} aria-label="关闭账号设置" className="p-1.5 rounded-[var(--radius-sm)] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))]">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -423,9 +423,9 @@ export function SettingsAccountsTab() {
 
       {accounts.length === 0 ? (
         <div className="rounded-[var(--radius-lg)] border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--bg-card))] p-8 text-center">
-          <div className="text-[13px] font-semibold text-[hsl(var(--text-secondary))]">还没有账号</div>
+          <div className="text-[13px] font-semibold text-[hsl(var(--text-secondary))]">还没有单独配置的账号</div>
           <div className="text-[11px] text-[hsl(var(--text-tertiary))] mt-2">
-            点击「新增账号」添加 API Key 或 OAuth 认证，连接你的模型提供商。
+            使用本机默认配置的成员会沿用本机登录，无需在此重复添加。需要独立账号时，点击「新增账号」选择网页授权或 API Key。
           </div>
         </div>
       ) : (

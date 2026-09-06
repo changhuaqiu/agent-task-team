@@ -80,7 +80,7 @@ describe('WorkspaceInboxRepository', () => {
     expect(messageRepo.getByConversation(conversationId).map((message) => message.id))
       .toEqual([messageId, toolMessageId, thinkingMessageId]);
     expect(repo.list().filter((item) => item.kind === 'message_thread'))
-      .toMatchObject([{ latestEventId: messageId, title: 'Verified result' }]);
+      .toMatchObject([{ latestEventId: messageId, title: 'Alpha', preview: 'Verified result' }]);
   });
 
   it('removes legacy thinking rows during reconciliation', () => {
@@ -188,7 +188,44 @@ describe('WorkspaceInboxRepository', () => {
     expect(repo.list().filter((item) => item.kind === 'message_thread')).toMatchObject([{
       conversationKey: `message:${conversationId}:${rootId}`,
       latestEventId: rootId,
-      title: 'Please verify this',
+      title: 'Alpha', preview: 'Please verify this',
     }]);
+  });
+});
+
+describe('invocation grouping frontier', () => {
+  it('preserves an already-read pre-grouping message through upgrade', () => {
+    const p = projectRepo.create({ name: 'Migrating', rootPath: 'C:/migrating' });
+    const id = messageRepo.append({ conversationId: p.workspace_conversation_id, senderType: 'agent', senderId: 'builder', invocationId: 'old-run', content: 'Already read' });
+    const repo = new WorkspaceInboxRepository();
+    const key = `message:${p.workspace_conversation_id}:${id}`;
+    repo.project({ conversationKey: key, kind: 'message_thread', projectId: p.id, subject: { type: 'message_thread', id }, actor: { type: 'agent', id: 'builder' }, title: 'Old title', latestEventId: id, latestAt: new Date().toISOString() });
+    repo.markRead(key);
+    repo.reconcile();
+    expect(repo.list().filter((item) => item.kind === 'message_thread')).toMatchObject([{ conversationKey: `message:${p.workspace_conversation_id}:invocation:old-run`, unreadCount: 0, readAt: expect.any(String) }]);
+  });
+  beforeEach(() => setTestDb(createTestDb()));
+  afterEach(() => resetDb());
+  it('groups one invocation and does not grow unread/revision when reconciled again', () => {
+    const p = projectRepo.create({ name: 'Grouped', rootPath: 'C:/grouped' });
+    const conv = p.workspace_conversation_id;
+    messageRepo.append({ conversationId: conv, senderType: 'agent', senderId: 'builder', invocationId: 'one-run', content: 'Part one' });
+    const last = messageRepo.append({ conversationId: conv, senderType: 'agent', senderId: 'builder', invocationId: 'one-run', content: 'Final result' });
+    const repo = new WorkspaceInboxRepository();
+    repo.reconcile();
+    const item = repo.list().find((row) => row.kind === 'message_thread')!;
+    expect(repo.list().filter((row) => row.kind === 'message_thread')).toHaveLength(1);
+    expect(item).toMatchObject({ latestEventId: last, preview: 'Final result', metadata: { conversationId: conv, messageId: last } });
+    repo.reconcile();
+    expect(repo.list().find((row) => row.kind === 'message_thread')).toEqual(item);
+    repo.markRead(item.conversationKey);
+    repo.reconcile();
+    expect(repo.list().find((row) => row.kind === 'message_thread')).toMatchObject({ unreadCount: 0, revision: item.revision, actionState: 'informational' });
+  });
+  it('reading a blocker does not resolve it', () => {
+    const repo = new WorkspaceInboxRepository();
+    repo.project({ conversationKey: 'work:block', kind: 'work', subject: { type: 'work', id: 'block' }, actor: { type: 'system', id: 'team' }, title: 'Needs decision', actionState: 'needs_action', latestEventId: 'event', latestAt: '2026-09-06T00:00:00Z' });
+    repo.markRead('work:block');
+    expect(repo.list('needs_action')).toMatchObject([{ unreadCount: 0, actionState: 'needs_action' }]);
   });
 });

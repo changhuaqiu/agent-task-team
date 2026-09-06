@@ -128,7 +128,7 @@ export function ProjectObjectCreateDialog({ kind, project, onClose, onReviewCrea
   }
 
   const Icon = isWork ? ListChecks : GitPullRequest;
-  const heading = isWork ? '创建工作' : '发起评审';
+  const heading = isWork ? '创建工作项' : '发起评审';
   return <>
     <div className="fixed inset-0 z-[60] bg-black/25 backdrop-blur-[2px]" onClick={requestClose} />
     <div className="fixed inset-0 z-[61] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={heading}>
@@ -139,7 +139,8 @@ export function ProjectObjectCreateDialog({ kind, project, onClose, onReviewCrea
         </header>
         <div className="space-y-4 p-5">
           {isWork ? <>
-            <Field label="类别"><select value={category} onChange={(event) => setCategory(event.target.value as typeof category)} className="field"><option value="issue">Issue</option><option value="change_request">Change request</option><option value="improvement">Improvement</option></select></Field>
+            <p className="text-xs leading-5 text-[hsl(var(--text-tertiary))]">先记录要完成的目标。创建后可以交给团队安排；仅创建不会启动 Agent。</p>
+            <Field label="类别"><select value={category} onChange={(event) => setCategory(event.target.value as typeof category)} className="field"><option value="issue">问题</option><option value="change_request">变更</option><option value="improvement">改进</option></select></Field>
             <Field label="标题"><input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="要完成什么？" className="field" /></Field>
             <Field label="说明（可选）"><textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} placeholder="补充目标、约束或验收条件" className="field min-h-24 py-2" /></Field>
           </> : <>

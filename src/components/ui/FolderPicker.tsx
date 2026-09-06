@@ -1,128 +1,89 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { ChevronRight, Folder, FolderOpen, Home } from 'lucide-react';
 
-interface DirEntry {
-  name: string;
-  path: string;
-  hasChildren: boolean;
-}
+interface DirEntry { name: string; path: string; hasChildren: boolean }
+interface FolderPickerProps { value: string; onChange: (path: string) => void }
 
-interface FolderPickerProps {
-  value: string;
-  onChange: (path: string) => void;
+export function folderBreadcrumbs(value: string) {
+  const normalized = value.replace(/\\/g, '/');
+  const segments = normalized.split('/').filter(Boolean);
+  const prefix = normalized.startsWith('//') ? '//' : normalized.startsWith('/') ? '/' : '';
+  return segments.map((label, index) => ({
+    label, path: prefix + segments.slice(0, index + 1).join('/') + (/^[a-z]:$/i.test(label) ? '/' : ''),
+  }));
 }
 
 export function FolderPicker({ value, onChange }: FolderPickerProps) {
-  const [currentPath, setCurrentPath] = useState(value || '');
+  const pathId = useId();
+  const [currentPath, setCurrentPath] = useState('');
+  const [draftPath, setDraftPath] = useState(value);
   const [children, setChildren] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const generation = useRef(0);
 
   const fetchDir = useCallback(async (dirPath: string) => {
+    const request = ++generation.current;
     setLoading(true);
+    setError('');
     try {
-      const res = await fetch(`/api/fs/list?path=${encodeURIComponent(dirPath)}`);
+      const res = await fetch('/api/fs/list?path=' + encodeURIComponent(dirPath));
+      if (!res.ok) throw new Error(res.status === 403 ? '只能浏览当前用户目录内的文件夹。' : '无法读取此目录，请检查路径与访问权限。');
       const data = await res.json();
+      if (generation.current !== request) return;
       setChildren(data.children || []);
-      setCurrentPath(data.path || dirPath);
-    } catch {
+      setCurrentPath(data.path);
+      setDraftPath(data.path);
+    } catch (cause) {
+      if (generation.current !== request) return;
+      setError(cause instanceof Error ? cause.message : '目录读取失败，请重试。');
+      setCurrentPath('');
       setChildren([]);
-    } finally {
-      setLoading(false);
-    }
+    } finally { if (generation.current === request) setLoading(false); }
   }, []);
 
   useEffect(() => {
-    fetchDir(value || '');
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // A new external selected directory starts a fresh asynchronous listing.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchDir(value || '');
+    // Request-generation counter, not a DOM ref; invalidates pending responses.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { generation.current++; };
+  }, [value, fetchDir]);
 
-  const navigateTo = (dirPath: string) => {
-    fetchDir(dirPath);
-  };
-
-  const selectPath = (dirPath: string) => {
-    onChange(dirPath);
-  };
-
-  const breadcrumbs = currentPath.split('/').filter(Boolean);
-
-  return (
-    <div className="space-y-1.5">
-      <label className="text-[11px] font-semibold uppercase tracking-wider text-[hsl(var(--text-tertiary))]">
-        项目目录
-      </label>
-
-      {value && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-[4px] bg-[hsl(var(--accent-soft))] border-2 border-[hsl(var(--accent))] text-[12px] font-medium text-[hsl(var(--accent))]">
-          <FolderOpen className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate">{value}</span>
-          <button
-            type="button"
-            onClick={() => onChange('')}
-            className="ml-auto text-[10px] text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))]"
-          >
-            清除
-          </button>
-        </div>
-      )}
-
-      <div className="flex items-center gap-0.5 flex-wrap text-[10px] text-[hsl(var(--text-tertiary))]">
-        <button
-          type="button"
-          onClick={() => navigateTo('')}
-          className="hover:text-[hsl(var(--text-primary))] transition-colors"
-        >
-          <Home className="w-3 h-3 inline" />
-        </button>
-        {breadcrumbs.map((seg, i) => {
-          const partial = '/' + breadcrumbs.slice(0, i + 1).join('/');
-          return (
-            <span key={partial} className="flex items-center gap-0.5">
-              <span>/</span>
-              <button
-                type="button"
-                onClick={() => navigateTo(partial)}
-                className="hover:text-[hsl(var(--text-primary))] transition-colors truncate max-w-[80px]"
-              >
-                {seg}
-              </button>
-            </span>
-          );
-        })}
-      </div>
-
-      <div className="max-h-[180px] overflow-y-auto rounded-[4px] border-2 border-[hsl(var(--border))] bg-[hsl(var(--bg-muted))] scrollbar-thin">
-        {loading ? (
-          <div className="px-3 py-2 text-[11px] text-[hsl(var(--text-tertiary))]">加载中…</div>
-        ) : children.length === 0 ? (
-          <div className="px-3 py-2 text-[11px] text-[hsl(var(--text-tertiary))]">空目录</div>
-        ) : (
-          children.map((entry) => (
-            <div
-              key={entry.path}
-              className="flex items-center gap-2 px-3 py-1.5 hover:bg-[hsl(var(--bg-card-hover))] transition-colors cursor-pointer border-b border-[hsl(var(--border-subtle))] last:border-b-0"
-            >
-              <Folder className="w-3.5 h-3.5 text-[hsl(var(--text-tertiary))] shrink-0" />
-              <span
-                className="text-[12px] text-[hsl(var(--text-primary))] truncate flex-1"
-                onClick={() => selectPath(entry.path)}
-              >
-                {entry.name}
-              </span>
-              {entry.hasChildren && (
-                <button
-                  type="button"
-                  onClick={() => navigateTo(entry.path)}
-                  className="p-0.5 text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))] transition-colors"
-                >
-                  <ChevronRight className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          ))
-        )}
-      </div>
+  return <div className="space-y-2">
+    <label htmlFor={pathId} className="text-xs font-semibold text-[hsl(var(--text-secondary))]">项目目录</label>
+    <div className="flex gap-2">
+      <input id={pathId} value={draftPath} onChange={(event) => setDraftPath(event.target.value)}
+        onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void fetchDir(draftPath.trim()); } }}
+        placeholder="粘贴目录路径，或在下方选择" className="min-w-0 flex-1 rounded-lg border bg-transparent px-3 py-2 text-xs" />
+      <button type="button" onClick={() => void fetchDir(draftPath.trim())} className="rounded-lg border px-3 text-xs">浏览</button>
     </div>
-  );
+    {value && <div className="flex items-center gap-2 rounded-lg border border-[hsl(var(--accent))] bg-[hsl(var(--accent-soft))] px-3 py-2 text-xs">
+      <FolderOpen className="size-4 shrink-0" /><span className="min-w-0 flex-1 break-all">已选择：{value}</span>
+      <button type="button" onClick={() => onChange('')} className="shrink-0 px-2 py-1">清除</button>
+    </div>}
+    <nav aria-label="目录路径" className="flex flex-wrap items-center gap-1 text-xs">
+      <button type="button" aria-label="返回用户目录" onClick={() => void fetchDir('')} className="rounded p-1.5"><Home className="size-4" /></button>
+      {folderBreadcrumbs(currentPath).map((crumb) => <span key={crumb.path} className="flex items-center gap-1">
+        <span>/</span><button type="button" onClick={() => void fetchDir(crumb.path)} className="rounded px-1 py-1.5">{crumb.label}</button>
+      </span>)}
+    </nav>
+    {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+    <div aria-busy={loading} className="max-h-44 overflow-y-auto rounded-lg border bg-[hsl(var(--bg-muted))]">
+      {loading ? <p role="status" className="p-3 text-xs">加载中…</p> : children.length === 0 ? <p className="p-3 text-xs">{error ? '未读取到目录' : '此目录下没有可浏览的子目录'}</p> : children.map((entry) =>
+        <div key={entry.path} className="flex items-center border-b last:border-b-0">
+          <button type="button" aria-label={'选择目录：' + entry.name} onClick={() => onChange(entry.path)}
+            className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[hsl(var(--bg-card-hover))]">
+            <Folder className="size-4 shrink-0" /><span className="break-all">{entry.name}</span>
+          </button>
+          <button type="button" aria-label={'浏览目录：' + entry.name} onClick={() => void fetchDir(entry.path)}
+            className="shrink-0 rounded px-3 py-2 hover:bg-[hsl(var(--bg-card-hover))]"><ChevronRight className="size-4" /></button>
+        </div>)}
+    </div>
+    <button type="button" disabled={loading || !currentPath || Boolean(error)} onClick={() => onChange(currentPath)}
+      className="rounded-lg border px-3 py-2 text-xs disabled:opacity-40">使用当前目录</button>
+  </div>;
 }

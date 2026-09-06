@@ -1,22 +1,24 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, FileText, FolderKanban, GitPullRequest, ListChecks, Plus } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { AgentsDirectory } from '@/components/agent/AgentsDirectory';
 import { cn } from '@/lib/utils';
+import { parseProjectNavigationHash, projectNavigationHash, type ProjectNavigationTarget } from '@/lib/project-navigation';
+import { projectWorkItems, projectWorkSummary } from '@/lib/project-work-items';
 import { useTaskHubStore, type WorkspaceProject } from '@/store/taskHubStore';
 import { AgentObservabilityDrawerHost } from './AgentObservabilityDrawerHost';
 import { ProjectObjectWorkspace } from './ProjectObjectWorkspace';
-import { ProjectSidebar, type WorkspaceSurface } from './ProjectSidebar';
+import { ProjectSidebar } from './ProjectSidebar';
 import { ProjectsOverview, type InboxFilter, type WorkspaceLens } from './ProjectsOverview';
 
 const LENSES: Array<{ id: WorkspaceLens; label: string; icon: typeof Activity }> = [
   { id: 'activity', label: '动态', icon: Activity },
   { id: 'projects', label: '项目', icon: FolderKanban },
-  { id: 'work', label: '工作', icon: ListChecks },
+  { id: 'work', label: '工作项', icon: ListChecks },
   { id: 'reviews', label: '评审', icon: GitPullRequest },
-  { id: 'artifacts', label: '产物', icon: FileText },
+  { id: 'artifacts', label: '交付件', icon: FileText },
 ];
 
 export function ProjectWorkspace({ onAddProject }: { onAddProject: () => void }) {
@@ -32,53 +34,114 @@ export function ProjectWorkspace({ onAddProject }: { onAddProject: () => void })
     messages: state.chatMessagesByConversation,
     agents: state.agentRoster,
   })));
-  const [surface, setSurface] = useState<WorkspaceSurface>('activity');
-  const [lens, setLens] = useState<WorkspaceLens>('activity');
+  type Navigation = { surface: 'project'; target: ProjectNavigationTarget }
+    | { surface: 'activity' | 'projects' | 'agents'; lens: WorkspaceLens };
+  const [navigation, setNavigation] = useState<Navigation>({ surface: 'activity', lens: 'activity' });
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>('all');
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [requestedWorkItem, setRequestedWorkItem] = useState<{ conversationId: string; taskId: string } | null>(null);
-  const selectedProject = useMemo(() => projects.find((project) => project.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
+  const previousConversation = useRef<string | null>(null);
+  const appliedNavigationHash = useRef<string | null>(null);
+  const surface = navigation.surface;
+  const lens = navigation.surface === 'project' ? 'activity' : navigation.lens;
+  const requestedNavigation = navigation.surface === 'project' ? navigation.target : null;
+  const selectedProjectId = requestedNavigation?.projectId ?? null;
+  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
+
+  function writeHistory(hash: string) {
+    // The desktop host also uses the fragment for its renderer credential.
+    // Keep it scoped to this window while replacing only navigation fields.
+    const session = new URLSearchParams(window.location.hash.slice(1)).get('ath-desktop-session');
+    const query = new URLSearchParams(hash.replace(/^#/, ''));
+    if (session) query.set('ath-desktop-session', session);
+    const nextHash = query.size ? '#' + query.toString() : '';
+    if (window.location.hash !== nextHash) window.history.pushState(null, '', nextHash || window.location.pathname + window.location.search);
+    appliedNavigationHash.current = nextHash;
+  }
+
+  const navigate = useCallback((target: ProjectNavigationTarget, history = true): boolean => {
+    const project = projects.find((candidate) => candidate.id === target.projectId);
+    if (!project) return false;
+    const scope = target.work?.conversationId ?? project.workspaceConversationId;
+    if (scope !== project.workspaceConversationId
+      && !conversations.some((conversation) => conversation.id === scope && conversation.projectId === project.id)) return false;
+    previousConversation.current = scope;
+    setNavigation({ surface: 'project', target });
+    if (useTaskHubStore.getState().selectedConversationId !== scope) setSelectedConversationId(scope);
+    setSelectedTaskId(null);
+    if (history) writeHistory(projectNavigationHash(target));
+    return true;
+  }, [projects, conversations, setSelectedConversationId, setSelectedTaskId]);
+
+  const openGlobal = useCallback((next: WorkspaceLens | 'agents', history = true) => {
+    const surface = next === 'agents' ? 'agents' : next === 'activity' ? 'activity' : 'projects';
+    setNavigation({ surface, lens: next === 'agents' ? 'activity' : next });
+    previousConversation.current = null;
+    if (useTaskHubStore.getState().selectedConversationId !== null) setSelectedConversationId(null);
+    if (history) writeHistory('#workspace=' + next);
+  }, [setSelectedConversationId]);
 
   useEffect(() => {
-    if (!selectedConversationId) return;
+    const restore = () => {
+      const hash = window.location.hash;
+      const target = parseProjectNavigationHash(hash);
+      if (target) {
+        // Projects can hydrate before their workstreams. Do not consume the URL
+        // until its complete scope can actually be selected.
+        if (navigate(target, false)) appliedNavigationHash.current = hash;
+        return;
+      }
+      const query = new URLSearchParams(hash.slice(1));
+      const global = query.get('workspace');
+      const desktopStart = query.size === 1 && query.has('ath-desktop-session');
+      if (!hash || desktopStart || ['activity', 'projects', 'work', 'reviews', 'artifacts', 'agents'].includes(global ?? '')) {
+        openGlobal((global ?? 'activity') as WorkspaceLens | 'agents', false);
+        appliedNavigationHash.current = hash;
+      }
+    };
+    if (appliedNavigationHash.current !== window.location.hash) restore();
+    window.addEventListener('popstate', restore);
+    return () => window.removeEventListener('popstate', restore);
+  }, [navigate, openGlobal]);
+
+  useEffect(() => {
+    if (!selectedConversationId || previousConversation.current === selectedConversationId) return;
+    if (appliedNavigationHash.current !== window.location.hash && parseProjectNavigationHash(window.location.hash)) return;
+    // A store create/deep-link signal must replace the prior local tab/identity.
+    // Ignore a stale render after a navigation event has already changed scope.
+    if (useTaskHubStore.getState().selectedConversationId !== selectedConversationId) return;
     const project = projects.find((item) => item.workspaceConversationId === selectedConversationId)
       ?? projects.find((item) => conversations.some((conversation) => conversation.id === selectedConversationId && conversation.projectId === item.id));
     if (!project) return;
-    // The selected conversation is an external Zustand navigation signal. The
-    // local surface mirrors that authority so API/create/deep-link navigation
-    // lands on the same Project object workspace.
+    const item = projectWorkItems(project, conversations, tasks).find((work) => work.conversationId === selectedConversationId);
+    // Synchronize an external Zustand navigation signal with the URL-backed view.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSelectedProjectId(project.id);
-    setSurface('project');
-  }, [conversations, projects, selectedConversationId]);
+    navigate({
+      projectId: project.id,
+      tab: selectedConversationId === project.workspaceConversationId ? 'overview' : 'work',
+      ...(selectedConversationId !== project.workspaceConversationId && item ? { work: { conversationId: item.conversationId, taskId: item.id } } : {}),
+    });
+  }, [selectedConversationId, projects, conversations, tasks, navigate]);
 
   function openProject(project: WorkspaceProject) {
-    setSelectedProjectId(project.id);
-    setRequestedWorkItem(null);
-    setSelectedConversationId(project.workspaceConversationId);
-    setSurface('project');
+    navigate({ projectId: project.id, tab: 'overview' });
   }
+  function openLens(next: WorkspaceLens) { openGlobal(next); }
 
-  function openLens(next: WorkspaceLens) {
-    setLens(next);
-    setSurface(next === 'activity' ? 'activity' : 'projects');
-  }
+  const openTask = useCallback((taskId: string, conversationId?: string) => {
+    const candidates = projects.flatMap((project) => projectWorkItems(project, conversations, tasks))
+      .filter((item) => (!conversationId || item.conversationId === conversationId)
+        && (item.id === taskId || item.tasks.some((task) => task.id === taskId)));
+    if (candidates.length !== 1) {
+      const matches = tasks.filter((task) => task.id === taskId && (!conversationId || task.conversationId === conversationId));
+      const task = matches.length === 1 ? matches[0] : undefined;
+      const project = task && projects.find((project) => project.workspaceConversationId === task.conversationId);
+      if (task && project) navigate({ projectId: project.id, tab: 'work', work: { conversationId: task.conversationId, taskId } });
+      return;
+    }
+    const item = candidates[0];
+    navigate({ projectId: item.projectId, tab: 'work', work: { conversationId: item.conversationId, taskId } });
+  }, [conversations, projects, navigate, tasks]);
 
-  const openTask = useCallback((taskId: string) => {
-    const task = tasks.find((item) => item.id === taskId);
-    if (!task) return;
-    const project = projects.find((item) => item.workspaceConversationId === task.conversationId)
-      ?? projects.find((item) => conversations.some((conversation) => (
-        conversation.id === task.conversationId && conversation.projectId === item.id
-      )));
-    if (project) setSelectedProjectId(project.id);
-    setRequestedWorkItem({ conversationId: task.conversationId, taskId: task.id });
-    setSelectedConversationId(task.conversationId);
-    setSelectedTaskId(null);
-    setSurface('project');
-  }, [conversations, projects, setSelectedConversationId, setSelectedTaskId, tasks]);
-
-  const openWorkCount = tasks.filter((task) => !['done', 'cancelled'].includes(task.status)).length;
+  const openWorkCount = projects.reduce((count, project) => count + projectWorkSummary(projectWorkItems(project, conversations, tasks)).open, 0);
   const [reviewCount, setReviewCount] = useState<number | null>(null);
   const [artifactCount, setArtifactCount] = useState<number | null>(null);
 
@@ -90,7 +153,7 @@ export function ProjectWorkspace({ onAddProject }: { onAddProject: () => void })
       activeSurface={surface}
       selectedProjectId={selectedProjectId}
       onOpenActivity={() => openLens('activity')}
-      onOpenAgents={() => setSurface('agents')}
+      onOpenAgents={() => openGlobal('agents')}
       onOpenProjects={() => openLens('projects')}
       onOpenSettings={() => setSettingsOpen(true)}
       onSelectProject={openProject}
@@ -111,23 +174,24 @@ export function ProjectWorkspace({ onAddProject }: { onAddProject: () => void })
             className="mx-auto flex h-full w-full max-w-[1680px] [&>main>div]:!mx-0 [&>main>div]:!w-full [&>main>div]:!max-w-none"
             data-testid="global-workspace-frame"
           >
-            <ProjectsOverview projects={projects} conversations={conversations} tasks={tasks} blockers={blockers} messages={messages} agents={agents} lens={lens} inboxFilter={inboxFilter} onOpenProject={openProject} onOpenTask={openTask} onReviewCountChange={setReviewCount} onArtifactCountChange={setArtifactCount} />
+            <ProjectsOverview projects={projects} conversations={conversations} tasks={tasks} blockers={blockers} messages={messages} agents={agents} lens={lens} inboxFilter={inboxFilter} onOpenProject={openProject} onOpenTask={openTask} onNavigate={navigate} onReviewCountChange={setReviewCount} onArtifactCountChange={setArtifactCount} />
             <aside className="hidden w-[252px] shrink-0 overflow-y-auto border-l border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] p-4 xl:block" aria-label="工作区上下文">
-              <h3 className="text-xs font-semibold">工作区</h3><p className="mt-1 text-[11px] leading-5 text-[hsl(var(--text-tertiary))]">跨 Project 查看已确认的工作事实。</p>
+              <h3 className="text-xs font-semibold">工作区</h3><p className="mt-1 text-[11px] leading-5 text-[hsl(var(--text-tertiary))]">跨项目查看进度、成果和需要你处理的事项。</p>
               <div className="mt-5 space-y-3">{[
-                ['Projects', projects.length], ['开放工作', openWorkCount], ['待评审', reviewCount ?? '—'], ['正式产物', artifactCount ?? '—'],
+                ['项目', projects.length], ['开放工作', openWorkCount], ['待评审', reviewCount ?? '—'], ['交付件', artifactCount ?? '—'],
               ].map(([label, value]) => <div key={label} className="flex items-center justify-between rounded-lg bg-[hsl(var(--bg-card))] px-3 py-2.5 text-xs"><span className="text-[hsl(var(--text-secondary))]">{label}</span><span className="font-semibold">{value}</span></div>)}</div>
             </aside>
           </div>
         </div>
       </>}
       {surface === 'project' && selectedProject && <ProjectObjectWorkspace
-        key={`${selectedProject.id}:${selectedConversationId === selectedProject.workspaceConversationId ? 'project' : 'work'}`}
+        key={selectedProject.id}
         project={selectedProject}
         conversations={conversations}
         tasks={tasks}
         blockers={blockers}
-        requestedWorkItem={requestedWorkItem}
+        requestedNavigation={requestedNavigation}
+        onNavigate={navigate}
       />}
       {surface === 'project' && !selectedProject && <div className="flex flex-1 items-center justify-center text-sm text-[hsl(var(--text-tertiary))]">请选择项目</div>}
     </div>

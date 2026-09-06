@@ -30,6 +30,18 @@ afterEach(() => {
 });
 
 describe('GET /api/state', () => {
+  it('hydrates a normal workstream root from the accepted creation fact, not task age', async () => {
+    const { conversationRepo } = await import('@/server/repositories/conversation-repo');
+    const { taskRepo } = await import('@/server/repositories/task-repo');
+    const { PlatformEventLog } = await import('@/server/platform-events/event-log');
+    conversationRepo.create({ id: 'scope-root', title: 'Goal' });
+    taskRepo.create({ id: 'a-child', conversation_id: 'scope-root', title: 'Child first', agent_id: '' });
+    taskRepo.create({ id: 'z-root', conversation_id: 'scope-root', title: 'Goal', agent_id: '' });
+    new PlatformEventLog().append({ type: 'work.created', category: 'domain', projectId: 'scope-root', streamKey: 'work:z-root', aggregate: { type: 'work', id: 'z-root' }, subject: { type: 'work', id: 'z-root' }, actor: { type: 'user', id: 'human' }, correlationId: 'root-test', payload: { title: 'Goal' } });
+    const res = mockRes();
+    await handler(mockReq('GET'), res);
+    expect(res._json.conversations[0]).toMatchObject({ id: 'scope-root', root_task_id: 'z-root' });
+  });
   it('returns empty state when no data', async () => {
     const req = mockReq('GET');
     const res = mockRes();

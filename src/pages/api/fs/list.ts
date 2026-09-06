@@ -6,16 +6,20 @@ import os from 'os';
 const HOME = os.homedir();
 
 function safeResolve(input: string): string | null {
-  const resolved = path.resolve(/*turbopackIgnore: true*/ input);
-  if (!resolved.startsWith(HOME)) return null;
-  if (resolved.includes('..')) return null;
-  return resolved;
+  try {
+    const root = fs.realpathSync(HOME);
+    const resolved = fs.realpathSync(path.resolve(/*turbopackIgnore: true*/ input));
+    const relative = path.relative(root, resolved);
+    if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) return null;
+    return fs.statSync(resolved).isDirectory() ? resolved : null;
+  } catch { return null; }
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
-  const rawPath = (req.query.path as string) || HOME;
+  if (req.query.path !== undefined && typeof req.query.path !== 'string') return res.status(400).json({ error: 'Invalid path' });
+  const rawPath = req.query.path || HOME;
   const resolved = safeResolve(rawPath);
   if (!resolved) return res.status(403).json({ error: 'Path not allowed' });
 

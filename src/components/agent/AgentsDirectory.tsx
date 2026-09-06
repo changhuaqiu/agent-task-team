@@ -339,8 +339,8 @@ export function AgentsDirectory() {
         ? '可协作'
         : '空闲';
 
-  return <main className="flex min-h-0 flex-1 bg-[hsl(var(--bg-card))]" data-testid="agents-directory">
-    <section className="w-[340px] shrink-0 overflow-y-auto border-r border-[hsl(var(--border-subtle))] p-4">
+  return <main className="flex min-h-0 flex-1 flex-col md:flex-row bg-[hsl(var(--bg-card))]" data-testid="agents-directory">
+    <section className="max-h-64 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-[300px] md:border-r border-[hsl(var(--border-subtle))] p-4">
       <div className="mb-4 flex items-start justify-between gap-3 px-1">
         <div><h2 className="text-lg font-semibold">Agents</h2><p className="mt-1 text-xs text-[hsl(var(--text-tertiary))]">Agent 身份与可复用团队。</p></div>
         {libraryView === 'agents' && <span className="rounded-full bg-[hsl(var(--bg-muted))] px-2 py-1 text-[10px] text-[hsl(var(--text-tertiary))]">{agents.length}</span>}
@@ -355,7 +355,7 @@ export function AgentsDirectory() {
         const running = Boolean(activeRunsByAgent[agent.id]);
         return <button key={agent.id} type="button" onClick={() => { setSelectedId(agent.id); setTab('activity'); }} className={cn('flex w-full items-center gap-3 rounded-xl p-3 text-left transition-colors', effectiveSelectedId === agent.id ? 'bg-[hsl(var(--accent-soft))]' : 'hover:bg-[hsl(var(--bg-card-hover))]')}>
           <span className="relative flex size-10 shrink-0 items-center justify-center rounded-xl bg-[hsl(var(--bg-muted))] text-lg">{agent.emoji || <Bot className="size-4" />}<span className={cn('absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[hsl(var(--bg-card))]', running ? 'bg-emerald-500' : agent.isOnline ? 'bg-sky-500' : 'bg-slate-400')} /></span>
-          <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{agent.name}</span><span className="mt-0.5 block truncate text-[11px] text-[hsl(var(--text-tertiary))]">{running ? '执行中' : runtimeLabel(runtimes, agent.cliEngine)} · {agent.skillIds.length} 个技能</span></span>
+          <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{agent.name}</span><span className="mt-0.5 block truncate text-[11px] text-[hsl(var(--text-tertiary))]">{({ coordinator: '统筹与拆解', implementer: '实现工作', reviewer: '评审与验证', specialist: '专业支持' })[agent.responsibility ?? 'specialist']} · {running ? '执行中' : '可查看详情'}</span></span>
           <ChevronRight className="size-4 text-[hsl(var(--text-tertiary))]" />
         </button>;
       })}</div></> : <div className="px-2 py-3 text-[11px] leading-5 text-[hsl(var(--text-tertiary))]">团队是已有 Agent 的协作组合，不会创建新的能力对象。</div>}
@@ -365,7 +365,7 @@ export function AgentsDirectory() {
       <div className="border-b border-[hsl(var(--border-subtle))] px-7 pb-0 pt-6">
         <div className="flex items-start gap-4">
           <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-[hsl(var(--bg-muted))] text-2xl">{selected.emoji}</div>
-          <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-xl font-semibold">{selected.name}</h2><span className="rounded-full bg-[hsl(var(--bg-muted))] px-2 py-1 text-[10px] text-[hsl(var(--text-secondary))]">{status}</span></div><p className="mt-1 text-xs text-[hsl(var(--text-tertiary))]">{runtimeLabel(runtimes, selected.cliEngine)} · {selected.skillIds.length} 个技能</p></div>
+          <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-xl font-semibold">{selected.name}</h2><span className="rounded-full bg-[hsl(var(--bg-muted))] px-2 py-1 text-[10px] text-[hsl(var(--text-secondary))]">{status}</span></div><p className="mt-1 text-xs text-[hsl(var(--text-tertiary))]">{({ coordinator: '统筹与拆解', implementer: '实现工作', reviewer: '评审与验证', specialist: '专业支持' })[selected.responsibility ?? 'specialist']} · {runtimeLabel(runtimes, selected.cliEngine)} · {selected.skillIds.length} 个技能</p></div>
           <div className="flex items-center gap-2"><button type="button" onClick={openMessageComposer} disabled={projects.length === 0} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[hsl(var(--text-primary))] px-3 text-xs text-[hsl(var(--text-inverse))] disabled:opacity-50"><MessageSquareText className="size-3.5" />发消息</button><button type="button" onClick={() => openEditor(selected)} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[hsl(var(--border))] px-3 text-xs hover:bg-[hsl(var(--bg-muted))]"><Settings2 className="size-3.5" />编辑 Agent</button></div>
         </div>
         <nav className="mt-6 flex gap-5" aria-label="Agent 详情">{([

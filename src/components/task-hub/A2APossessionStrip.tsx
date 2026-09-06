@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, GitBranch, ShieldAlert } from 'lucide-react';
+import { ChevronDown, GitBranch } from 'lucide-react';
 import {
   compareDispatchReceipts,
   useTaskHubStore,
@@ -100,7 +100,8 @@ function handoffReasonLabel(reason: string | undefined) {
 }
 
 function formatTime(timestamp: string) {
-  return new Date(timestamp).toLocaleTimeString('zh-CN', {
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    month: 'numeric', day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
@@ -179,21 +180,13 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
     : (a2a?.currentHolderIds.map((agentId) => agentLabel(agentId, roster)).join('、') || 'Agent');
   const from = agentLabel(latest?.fromAgentId, roster);
   const to = agentLabel(latest?.toAgentId, roster);
-  const isBlocked = latest
-    ? latest.status === 'blocked'
-      || latest.status === 'timeout'
-      || latest.status === 'rejected'
-      || latest.status === 'error'
-    : latestReceipt?.phase === 'rejected' || Boolean(latestFailure);
   const recordCount = records.length;
 
   return (
     <div
       className={cn(
-        'relative z-20 shrink-0 border-b px-3 text-[10px]',
-        isBlocked
-          ? 'border-amber-400/50 bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-300'
-          : 'border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] text-[hsl(var(--text-secondary))]',
+        'relative z-20 shrink-0 border-b px-3 text-xs',
+        'border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-app))] text-[hsl(var(--text-secondary))]',
       )}
       role="status"
       aria-live="polite"
@@ -201,10 +194,9 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
     >
       <div className="flex h-8 min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-1.5">
-          {isBlocked
-            ? <ShieldAlert className="size-3.5 shrink-0" />
-            : <GitBranch className="size-3.5 shrink-0 text-[hsl(var(--text-tertiary))]" />}
+          <GitBranch className="size-3.5 shrink-0 text-[hsl(var(--text-tertiary))]" />
           <span className="truncate font-medium" data-testid="a2a-status-summary">
+            最近交接（记录） · {formatTime(latestRecord.timestamp)} ·
             {latest
               ? `${from} → ${to} · ${statusLabel(latest.status)}`
               : latestFailure
@@ -212,11 +204,11 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
                 : `${holder} · ${receiptPhaseLabel(latestReceipt!.phase)}`}
           </span>
         </div>
-        {recordCount > 1 && (
+        {recordCount > 0 && (
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            className="inline-flex h-6 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-[9px] text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--text-primary))]"
+            className="inline-flex h-6 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-xs text-[hsl(var(--text-tertiary))] transition-colors hover:bg-[hsl(var(--bg-muted))] hover:text-[hsl(var(--text-primary))]"
             aria-expanded={expanded}
             aria-label="查看 Agent 交接记录"
           >
@@ -225,17 +217,12 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
           </button>
         )}
       </div>
-      {(handoffReasonLabel(latest?.reason) || receiptReasonLabel(latestReceipt?.reasonCode ?? latestFailure?.reasonCode)) && isBlocked && (
-        <div className="border-t border-amber-400/20 py-1.5 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">
-          {handoffReasonLabel(latest?.reason) || receiptReasonLabel(latestReceipt?.reasonCode ?? latestFailure?.reasonCode)}
-        </div>
-      )}
-      {expanded && recordCount > 1 && (
+      {expanded && recordCount > 0 && (
         <div
           className="absolute left-1/2 top-full z-50 mt-2 max-h-72 w-[min(560px,calc(100%-24px))] -translate-x-1/2 overflow-y-auto rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--bg-elevated))] p-2.5 shadow-xl"
           data-testid="a2a-record-popover"
         >
-          <div className="mb-2 px-2 text-[10px] font-semibold text-[hsl(var(--text-secondary))]">Agent 交接记录</div>
+          <div className="mb-2 px-2 text-xs font-semibold text-[hsl(var(--text-secondary))]">Agent 交接记录</div>
           <div className="flex flex-col gap-1">
             {records.map((record, index) => {
               const handoff = record.kind === 'handoff' ? record.handoff : undefined;
@@ -252,15 +239,15 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
               return (
                 <div
                   key={`${record.kind}:${record.id}`}
-                  className="grid grid-cols-[52px_1fr] gap-2 rounded-lg px-2 py-1.5 hover:bg-[hsl(var(--bg-muted))]"
+                  className="grid grid-cols-[100px_1fr] gap-2 rounded-lg px-2 py-1.5 hover:bg-[hsl(var(--bg-muted))]"
                 >
-                  <div className="text-[9px] font-bold tabular-nums text-[hsl(var(--text-tertiary))]">
+                  <div className="text-xs font-bold tabular-nums text-[hsl(var(--text-tertiary))]">
                     {formatTime(record.timestamp)}
                   </div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                       <span className={cn(
-                        'text-[10px] font-bold',
+                        'text-xs font-bold',
                         blocked ? 'text-amber-500' : index === 0 ? 'text-[hsl(var(--accent))]' : 'text-[hsl(var(--text-secondary))]'
                       )}>
                         {handoff
@@ -269,7 +256,7 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
                             ? '运行失败'
                             : `派发回执: ${receiptPhaseLabel(receipt!.phase)}`}
                       </span>
-                      <span className="text-[10px] text-[hsl(var(--text-secondary))] truncate">
+                      <span className="text-xs text-[hsl(var(--text-secondary))] truncate">
                         {handoff
                           ? `${agentLabel(handoff.fromAgentId, roster)} → ${agentLabel(handoff.toAgentId, roster)}`
                           : failure
@@ -278,7 +265,7 @@ function ConversationPossessionStrip({ conversationId }: { conversationId: strin
                       </span>
                     </div>
                     {reason && blocked && (
-                      <div className="mt-0.5 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">
+                      <div className="mt-0.5 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
                         {reason}
                       </div>
                     )}

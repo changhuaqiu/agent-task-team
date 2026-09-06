@@ -32,7 +32,7 @@ describe('ProjectObjectCreateDialog', () => {
     const onClose = vi.fn();
     render(<ProjectObjectCreateDialog kind="work" project={project} tasks={[]} onClose={onClose} />);
     fireEvent.change(screen.getByPlaceholderText('要完成什么？'), { target: { value: '实现统一创建' } });
-    fireEvent.click(screen.getByRole('button', { name: '创建工作' }));
+    fireEvent.click(screen.getByRole('button', { name: '创建工作项' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/commands', expect.objectContaining({ method: 'POST' })));
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body).toMatchObject({ name: 'work.create', projectId: project.id, input: { title: '实现统一创建', category: 'issue' } });
@@ -73,7 +73,7 @@ describe('ProjectObjectCreateDialog', () => {
     const onClose = vi.fn();
     render(<ProjectObjectCreateDialog kind="work" project={project} tasks={[]} onClose={onClose} />);
     fireEvent.change(screen.getByPlaceholderText('要完成什么？'), { target: { value: '修复创建回执' } });
-    fireEvent.click(screen.getByRole('button', { name: '创建工作' }));
+    fireEvent.click(screen.getByRole('button', { name: '创建工作项' }));
     expect((await screen.findByRole('alert')).textContent).toContain('创建工作失败');
     expect(onClose).not.toHaveBeenCalled();
   });

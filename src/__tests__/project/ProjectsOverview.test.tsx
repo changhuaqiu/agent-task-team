@@ -15,7 +15,7 @@ describe('ProjectsOverview', () => {
   it('summarizes project work facts and opens the project object workspace', () => {
     const onOpenProject = vi.fn();
     render(<ProjectsOverview projects={[project]} conversations={[]} tasks={[task]} blockers={{}} onOpenProject={onOpenProject} />);
-    expect(screen.getByRole('heading', { name: 'Projects' })).toBeDefined();
+    expect(screen.getByRole('heading', { name: '项目' })).toBeDefined();
     expect(screen.getByText('alpha')).toBeDefined();
     expect(screen.getByText('0 评审')).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: /alpha/ }));
@@ -26,7 +26,7 @@ describe('ProjectsOverview', () => {
     render(<ProjectsOverview projects={[]} conversations={[]} tasks={[]} blockers={{}} onOpenProject={vi.fn()} />);
     expect(screen.getByText('添加第一个项目')).toBeDefined();
     expect(screen.getByText(/可直接创建工作、发起评审或与 Agent 协作/)).toBeDefined();
-    expect(screen.queryByText(/交付/)).toBeNull();
+    expect(screen.queryByText(/先创建交付|新建交付/)).toBeNull();
   });
 
   it('reads the global Review lens from independent Review objects', async () => {

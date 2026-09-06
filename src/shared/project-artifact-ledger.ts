@@ -21,6 +21,8 @@ export interface ProjectArtifactLedgerItem {
   updatedAt: string;
   updatedBy: string;
   operations: Array<'create' | 'edit' | 'delete' | 'register'>;
+  /** Scope of the credited producer, retained for precise WorkItem navigation. */
+  conversationId?: string;
   workId?: string;
   workTitle?: string;
   invocationId?: string;
